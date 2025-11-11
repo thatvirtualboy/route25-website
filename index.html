@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Pallet Town — Coming 2026</title>
+  <title>Pallet Town — Coming Soon</title>
   <meta name="description" content="Pallet Town — Pokémon trading done right. Secure escrow, verified trades, and a friendly marketplace. Launching soon." />
   <meta name="theme-color" content="#111827" />
 
@@ -47,20 +47,33 @@
         Coming Soon
       </p>
       <h1 class="text-3xl sm:text-5xl font-extrabold leading-tight">
-        A Pokémon TCG community coming to iOS.
+        Pokémon trades, made safe.
       </h1>
+      <p class="mt-4 text-slate-200/90 max-w-2xl">
+        Prof. Rak inspects both sides, secures escrow, and dispatches verified trades once everything checks out. A safe and friendly hub for the Pokémon TCG community.
+      </p>
 
       <div class="mt-8 flex flex-col sm:flex-row items-start sm:items-center gap-4">
-        <a href="mailto:hello@pallettown.app?subject=Keep%20me%20posted" class="inline-flex items-center justify-center rounded-2xl bg-white text-slate-900 font-semibold px-5 py-3 shadow hover:shadow-lg transition">
-          Get launch updates
-        </a>
+        <!-- Replace FORM_ID below after creating a free Formspree form: https://formspree.io -->
+        <form action="https://formspree.io/f/xnnlqpaz" method="POST" class="flex w-full max-w-md items-center gap-2">
+          <label for="email" class="sr-only">Email</label>
+          <input id="email" name="email" type="email" required placeholder="you@example.com"
+                 class="flex-1 rounded-2xl bg-white/95 text-slate-900 placeholder-slate-500 px-4 py-3 shadow focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+          <button type="submit" class="inline-flex items-center justify-center rounded-2xl bg-white text-slate-900 font-semibold px-5 py-3 shadow hover:shadow-lg transition">
+            Get launch updates
+          </button>
+          <!-- Basic honeypot to reduce spam -->
+          <input type="text" name="_gotcha" class="hidden" aria-hidden="true" />
+          <!-- Optional: redirect after success -->
+          <input type="hidden" name="_next" value="https://pallettown.app/?subscribed=1" />
+        </form>
         <a href="#" class="text-sm text-indigo-200/90 hover:text-white underline/30">Read the roadmap</a>
       </div>
 
     </section>
 
     <footer class="mt-10 flex items-center justify-between text-sm text-slate-300/80">
-      <span>© <span id="y"></span> rakTech LLC</span>
+      <span>© <span id="y"></span> Pallet Town</span>
       <a class="underline/30 hover:underline" href="mailto:hello@pallettown.app">hello@pallettown.app</a>
     </footer>
   </main>
