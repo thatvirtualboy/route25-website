@@ -58,28 +58,29 @@
 <form
   action="https://formspree.io/f/xnnlqpaz"
   method="POST"
-  class="flex w-full max-w-md flex-col sm:flex-row items-stretch gap-2"
+  class="flex w-full max-w-md flex-col sm:flex-row items-start sm:items-center gap-3"
 >
   <label for="email" class="sr-only">Email</label>
+
   <input
     id="email"
     name="email"
     type="email"
     required
     placeholder="you@example.com"
-    class="w-full rounded-2xl bg-white/95 text-slate-900 placeholder-slate-500 px-4 py-3 shadow focus:outline-none focus:ring-2 focus:ring-indigo-400"
+    class="w-full rounded-2xl bg-white/95 text-slate-900 placeholder-slate-500 px-4 py-3 shadow
+           focus:outline-none focus:ring-2 focus:ring-indigo-400"
   />
 
   <button
     type="submit"
-    class="w-full sm:w-auto inline-flex items-center justify-center rounded-2xl bg-white text-slate-900 font-semibold px-5 py-3 shadow hover:shadow-lg transition"
+    class="w-full sm:w-auto inline-flex items-center justify-center rounded-2xl bg-white 
+           text-slate-900 font-semibold px-5 py-3 shadow hover:shadow-lg transition"
   >
     Get launch updates
   </button>
 
-  <!-- Basic honeypot to reduce spam -->
   <input type="text" name="_gotcha" class="hidden" aria-hidden="true" />
-  <!-- Optional: redirect after success -->
   <input type="hidden" name="_next" value="https://route25.app/?subscribed=1" />
 </form>
         
