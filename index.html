@@ -4,12 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Route 25 — Coming Soon</title>
-  <meta name="description" content="Route 25 — Pokémon trading done right. Secure escrow, verified trades, and a friendly community. Launching soon." />
+  <meta name="description" content="Route 25 — the first Pokémon TCG social network. Your Pokémon TCG adventure is evolving. Founder Trainer beta opens in 2026." />
   <meta name="theme-color" content="#111827" />
 
   <!-- Open Graph -->
   <meta property="og:title" content="Route 25 — Coming Soon" />
-  <meta property="og:description" content="Secure escrow and verified Pokémon TCG trades. Launching soon." />
+  <meta property="og:description" content="The first Pokémon TCG social network. Become a Founder Trainer and get early access when beta opens in 2026." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://route25.app/" />
   <meta property="og:image" content="/og.png" />
@@ -17,7 +17,7 @@
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Route 25 — Coming Soon" />
-  <meta name="twitter:description" content="Secure escrow and verified Pokémon TCG trades. Launching soon." />
+  <meta name="twitter:description" content="The first Pokémon TCG social network. Become a Founder Trainer and get early access when beta opens in 2026." />
   <meta name="twitter:image" content="/og.png" />
 
   <!-- Favicon (replace /favicon.svg with your own) -->
@@ -30,30 +30,31 @@
     /* Subtle noise texture */
     body { background-image: radial-gradient(circle at 25% 10%, rgba(255,255,255,0.06), rgba(0,0,0,0) 50%), radial-gradient(circle at 80% 0%, rgba(255,255,255,0.05), rgba(0,0,0,0) 50%); }
     .glass { backdrop-filter: blur(10px); background: rgba(255,255,255,0.08); }
+    .hero-card { box-shadow: 0 0 60px rgba(150, 113, 242, 0.35); }
   </style>
 </head>
-<body class="min-h-screen text-white bg-gradient-to-br from-slate-900 via-indigo-950 to-indigo-800 selection:bg-indigo-400/30 selection:text-white">
+<body class="min-h-screen text-white bg-gradient-to-br from-[#010203] via-[#38328F] to-[#4C7DD7] selection:bg-[#9671F2]/30 selection:text-white">
   <main class="mx-auto max-w-5xl px-6 py-20 sm:py-28">
     <div class="flex items-center gap-3 mb-10">
-      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <path d="M12 2l2.5 5 5.5.8-4 3.9.9 5.5L12 15l-4.9 2.2.9-5.5-4-3.9 5.5-.8L12 2z" fill="currentColor"/>
-      </svg>
+      <img src="/assets/icon-hidden2.png" alt="Route 25 app icon teaser" class="w-9 h-9 rounded-xl shadow-lg" />
       <span class="text-xl font-semibold tracking-tight">Route 25</span>
     </div>
 
-    <section class="glass rounded-3xl p-8 sm:p-12 shadow-2xl ring-1 ring-white/10">
-      <p class="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-indigo-300/90 mb-4">
-        <span class="inline-block h-2 w-2 rounded-full bg-indigo-400 animate-pulse"></span>
-        Coming Soon
+    <section class="glass hero-card rounded-3xl p-8 sm:p-12 shadow-2xl ring-1 ring-white/10">
+      <p class="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-100/80 mb-4">
+        <span class="inline-block h-2 w-2 rounded-full bg-[#6FBAF0] animate-pulse"></span>
+        Coming 2026
       </p>
       <h1 class="text-3xl sm:text-5xl font-extrabold leading-tight">
-        A Pokémon TCG Social Network.
+        Your Pokémon TCG adventure is evolving.
       </h1>
-      <p class="mt-4 text-slate-200/90 max-w-2xl">
-        Coming to iPhone 2026
-      </p>
+      <div class="mt-4 max-w-2xl space-y-3">
+        <p class="text-sm sm:text-base text-slate-100/90">
+          Route 25 is the first Pokémon TCG social network, launching on iPhone. We can't wait to share more! Join the waitlist to become a Founder Trainer and get early access when the beta opens.*
+        </p>
+      </div>
 
-      <div class="mt-8 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+      <div class="mt-7 flex flex-col sm:flex-row items-start sm:items-center gap-4">
         <!-- Replace FORM_ID below after creating a free Formspree form: https://formspree.io -->
 <form
   action="https://formspree.io/f/xnnlqpaz"
@@ -78,15 +79,17 @@
            rounded-2xl bg-white text-slate-900 font-semibold px-6 py-3 shadow
            hover:shadow-lg transition"
   >
-    Get launch updates
+    I'm interested!
   </button>
 
   <input type="text" name="_gotcha" class="hidden" aria-hidden="true" />
   <input type="hidden" name="_next" value="https://route25.app/?subscribed=1" />
 </form>
-        
       </div>
 
+      <div class="mt-10 text-sm text-slate-200/80 max-w-xl space-y-2">
+        <p>*Slots are limited, and submitting your information does not guarantee early access. By joining the waitlist, you agree that we may email you about the launch and other updates related to Route 25.</p>
+      </div>
     </section>
 
     <footer class="mt-10 flex items-center justify-between text-sm text-slate-300/80">
