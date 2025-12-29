@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/api/__proxy/:path*",
+      "destination": "https://palettetown-backend.vercel.app/:path*"
+    },
+    {
       "source": "/login",
       "destination": "/api/__proxy/login"
     },
