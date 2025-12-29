@@ -13,9 +13,14 @@ const HOP_BY_HOP_HEADERS = new Set([
 
 function normalizeBackendOrigin(origin) {
   if (!origin) return null;
-  const trimmed = origin.trim().replace(/\/+$/, "");
-  if (!trimmed.startsWith("https://") && !trimmed.startsWith("http://")) return null;
-  return trimmed;
+
+  try {
+    const url = new URL(origin.trim());
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
 }
 
 function getPathSegments(pathQuery) {
