@@ -6,27 +6,27 @@
     },
     {
       "source": "/login",
-      "destination": "/api/__proxy/login"
+      "destination": "https://palettetown-backend.vercel.app/login"
     },
     {
       "source": "/login/:path*",
-      "destination": "/api/__proxy/login/:path*"
+      "destination": "https://palettetown-backend.vercel.app/login/:path*"
     },
     {
       "source": "/web",
-      "destination": "/api/__proxy/web"
+      "destination": "https://palettetown-backend.vercel.app/web"
     },
     {
       "source": "/web/:path*",
-      "destination": "/api/__proxy/web/:path*"
+      "destination": "https://palettetown-backend.vercel.app/web/:path*"
     },
     {
       "source": "/api/web",
-      "destination": "/api/__proxy/api/web"
+      "destination": "https://palettetown-backend.vercel.app/api/web"
     },
     {
       "source": "/api/web/:path*",
-      "destination": "/api/__proxy/api/web/:path*"
+      "destination": "https://palettetown-backend.vercel.app/api/web/:path*"
     }
   ],
   "builds": [
