@@ -5,6 +5,10 @@
       "destination": "https://palettetown-backend.vercel.app/:path*"
     },
     {
+      "source": "/api/proxy/:path*",
+      "destination": "https://palettetown-backend.vercel.app/api/proxy/:path*"
+    },
+    {
       "source": "/login",
       "destination": "https://palettetown-backend.vercel.app/login"
     },
