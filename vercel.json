@@ -1,0 +1,38 @@
+{
+  "rewrites": [
+    {
+      "source": "/login",
+      "destination": "/api/__proxy/login"
+    },
+    {
+      "source": "/login/:path*",
+      "destination": "/api/__proxy/login/:path*"
+    },
+    {
+      "source": "/web",
+      "destination": "/api/__proxy/web"
+    },
+    {
+      "source": "/web/:path*",
+      "destination": "/api/__proxy/web/:path*"
+    },
+    {
+      "source": "/api/web",
+      "destination": "/api/__proxy/api/web"
+    },
+    {
+      "source": "/api/web/:path*",
+      "destination": "/api/__proxy/api/web/:path*"
+    }
+  ],
+  "builds": [
+    {
+      "src": "api/**/*.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "**/*",
+      "use": "@vercel/static"
+    }
+  ]
+}
