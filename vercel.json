@@ -1,5 +1,20 @@
 {
+  "headers": [
+    {
+      "source": "/assets/(.*)\\.zip",
+      "headers": [
+        {
+          "key": "Content-Disposition",
+          "value": "attachment"
+        }
+      ]
+    }
+  ],
   "rewrites": [
+    {
+      "source": "/apple-review/route25-screenshots-iphone.zip",
+      "destination": "/assets/Route25-App-Store-Screenshots-iPhone.zip"
+    },
     {
       "source": "/api/__proxy/:path*",
       "destination": "https://palettetown-backend.vercel.app/:path*"
