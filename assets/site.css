@@ -402,7 +402,7 @@ h1 {
 .phone--sm {
   width: min(280px, 100%);
   aspect-ratio: 12 / 25;
-  padding: 10px;
+  padding: 6px;
   border-radius: 34px;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.12);
