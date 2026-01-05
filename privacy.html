@@ -8,7 +8,7 @@
     name="description"
     content="Privacy Policy for Route 25, a Pokémon TCG social network for logging pulls, tracking collections, and facilitating trades."
   />
-  <meta name="theme-color" content="#111827" />
+  <meta name="theme-color" content="#05060a" />
 
   <!-- Open Graph -->
   <meta property="og:title" content="Route 25 — Privacy Policy" />
@@ -18,7 +18,7 @@
   />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://route25.app/privacy.html" />
-  <meta property="og:image" content="/og.png" />
+  <meta property="og:image" content="/assets/Icon.png" />
 
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image" />
@@ -27,48 +27,33 @@
     name="twitter:description"
     content="Learn how Route 25 collects, uses, and protects your information."
   />
-  <meta name="twitter:image" content="/og.png" />
+  <meta name="twitter:image" content="/assets/Icon.png" />
 
-  <!-- Favicon -->
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  <link rel="alternate icon" href="/favicon.png" />
-
-  <!-- Tailwind via CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    body {
-      background-image:
-        radial-gradient(circle at 25% 10%, rgba(255,255,255,0.06), rgba(0,0,0,0) 50%),
-        radial-gradient(circle at 80% 0%, rgba(255,255,255,0.05), rgba(0,0,0,0) 50%);
-    }
-    .glass {
-      backdrop-filter: blur(10px);
-      background: rgba(255,255,255,0.08);
-    }
-    .hero-card {
-      box-shadow: 0 0 60px rgba(150, 113, 242, 0.35);
-    }
-    .prose-invert a {
-      text-decoration: underline;
-    }
-  </style>
+  <link rel="icon" href="/favicon.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/assets/site.css" />
+  <script defer src="/assets/site.js"></script>
 </head>
-<body class="min-h-screen text-white bg-gradient-to-br from-[#010203] via-[#38328F] to-[#4C7DD7] selection:bg-[#9671F2]/30 selection:text-white">
-  <main class="mx-auto max-w-5xl px-6 py-10 sm:py-16">
-    <!-- Header -->
-    <header class="flex items-center justify-between mb-10">
-      <div class="flex items-center gap-3">
-        <img src="/assets/icon-hidden2.png" alt="Route 25 app icon teaser" class="w-9 h-9 rounded-xl shadow-lg" />
-        <span class="text-xl font-semibold tracking-tight">Route 25</span>
-      </div>
-      <a href="/index.html" class="text-sm text-slate-100/80 hover:text-white underline/30 hover:underline">
-        Back to homepage
-      </a>
-    </header>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
 
-    <!-- Privacy Card -->
-    <section class="glass hero-card rounded-3xl p-8 sm:p-10 shadow-2xl ring-1 ring-white/10">
-      <div class="prose prose-invert max-w-none">
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/" aria-label="Route 25 home">
+        <img src="/assets/Icon.png" alt="" />
+        <span>Route 25</span>
+      </a>
+
+      <nav class="nav" aria-label="Primary">
+        <a href="/index.html">Home</a>
+        <a class="button primary" href="/#waitlist">Join waitlist</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="section">
+    <div class="container">
+      <section class="card cta-card prose">
         <h1 class="text-3xl font-bold mb-2">Privacy Policy</h1>
         <p class="text-sm text-slate-200/80 mb-8">
           Last updated: Dec 8, 2025
@@ -192,21 +177,19 @@
         <p>
           <a href="mailto:hello@route25.app">hello@route25.app</a>
         </p>
-      </div>
-    </section>
-
-    <!-- Footer -->
-    <footer class="mt-10 flex items-center justify-between text-sm text-slate-300/80">
-      <span>© <span id="y"></span> rakTech LLC</span>
-      <div class="flex items-center gap-4">
-        <a class="underline/30 hover:underline" href="/terms.html">Terms of Service</a>
-        <a class="underline/30 hover:underline" href="/privacy.html">Privacy Policy</a>
-      </div>
-    </footer>
+      </section>
+    </div>
   </main>
 
-  <script>
-    document.getElementById('y').textContent = new Date().getFullYear();
-  </script>
+  <footer>
+    <div class="container footer-inner">
+      <span>© <span data-year></span> rakTech LLC</span>
+      <div class="footer-links">
+        <a href="/terms.html">Terms</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="mailto:hello@route25.app">Contact</a>
+      </div>
+    </div>
+  </footer>
 </body>
 </html>

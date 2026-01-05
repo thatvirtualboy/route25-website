@@ -3,131 +3,327 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Route 25 — Coming Soon</title>
-  <meta name="description" content="Route 25 — the first Pokémon TCG social network. Your Pokémon TCG adventure is evolving." />
-  <meta name="theme-color" content="#111827" />
+  <title>Route 25 — Pokémon TCG social network</title>
+  <meta name="description" content="Your Pokémon TCG adventure is evolving. Route 25 is the first social network built exclusively for Pokémon TCG collectors—share, trade, track, and level up in a safe, trainer-powered community." />
+  <meta name="theme-color" content="#05060a" />
 
   <!-- Open Graph -->
-  <meta property="og:title" content="Route 25 — Coming Soon" />
-  <meta property="og:description" content="The first Pokémon TCG social network. Your Pokémon TCG adventure is evolving." />
+  <meta property="og:title" content="Route 25 — Pokémon TCG social network" />
+  <meta property="og:description" content="Share, trade, track your collection, and level up your journey in a safe, trainer-powered community." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://route25.app/" />
-  <meta property="og:image" content="/og.png" />
+  <meta property="og:image" content="/assets/Icon.png" />
 
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="Route 25 — Coming Soon" />
-  <meta name="twitter:description" content="The first Pokémon TCG social network. Your Pokémon TCG adventure is evolving." />
-  <meta name="twitter:image" content="/og.png" />
+  <meta name="twitter:title" content="Route 25 — Pokémon TCG social network" />
+  <meta name="twitter:description" content="Share, trade, track your collection, and level up your journey in a safe, trainer-powered community." />
+  <meta name="twitter:image" content="/assets/Icon.png" />
   <meta name="twitter:site" content="@route25app" />
   <meta name="twitter:creator" content="@route25app" />
 
-  <!-- Favicon (replace /favicon.svg with your own) -->
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  <link rel="alternate icon" href="/favicon.png" />
-
-  <!-- Tailwind via CDN for a quick, modern look -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    /* Subtle noise texture */
-    body { background-image: radial-gradient(circle at 25% 10%, rgba(255,255,255,0.06), rgba(0,0,0,0) 50%), radial-gradient(circle at 80% 0%, rgba(255,255,255,0.05), rgba(0,0,0,0) 50%); }
-    .glass { backdrop-filter: blur(10px); background: rgba(255,255,255,0.08); }
-    .hero-card { box-shadow: 0 0 60px rgba(150, 113, 242, 0.35); }
-  </style>
+  <link rel="icon" href="/favicon.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/assets/site.css" />
+  <script defer src="/assets/site.js"></script>
 </head>
-<body class="min-h-screen text-white bg-gradient-to-br from-[#010203] via-[#38328F] to-[#4C7DD7] selection:bg-[#9671F2]/30 selection:text-white">
-  <main class="mx-auto max-w-5xl px-6 py-20 sm:py-28">
-    <div class="flex items-center gap-3 mb-10">
-      <img src="/assets/icon-hidden2.png" alt="Route 25 app icon teaser" class="w-9 h-9 rounded-xl shadow-lg" />
-      <span class="text-xl font-semibold tracking-tight">Route 25</span>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/" aria-label="Route 25 home">
+        <img src="/assets/Icon.png" alt="" />
+        <span>Route 25</span>
+      </a>
+
+      <nav class="nav" aria-label="Primary">
+        <a href="#features">Features</a>
+        <a href="#screens">Screens</a>
+        <a class="button primary" href="#waitlist">Join waitlist</a>
+      </nav>
     </div>
+  </header>
 
-    <section class="glass hero-card rounded-3xl p-8 sm:p-12 shadow-2xl ring-1 ring-white/10">
-      <p class="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-100/80 mb-4">
-        <span class="inline-block h-2 w-2 rounded-full bg-[#6FBAF0] animate-pulse"></span>
-        Coming 2026
-      </p>
-      <h1 class="text-3xl sm:text-5xl font-extrabold leading-tight">
-        Your Pokémon TCG adventure is evolving.
-      </h1>
-      <div class="mt-6 w-full flex justify-start">
-        <div class="w-full max-w-2xl relative rounded-xl shadow-lg overflow-hidden">
-          <div class="w-full" style="padding-top: 56.25%;"></div>
-          <iframe
-            src="https://www.youtube.com/embed/Tyxdjh0sTRY"
-            title="Route 25 Teaser"
-            frameborder="0"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowfullscreen
-            class="absolute inset-0 w-full h-full"
-          ></iframe>
+  <main id="main">
+    <section class="hero">
+      <div class="container hero-grid">
+        <div>
+          <div class="badge" data-reveal>
+            <span class="pulse" aria-hidden="true"></span>
+            Coming Soon
+          </div>
+          <h1 data-reveal>Your Pokémon TCG adventure is evolving.</h1>
+          <p class="lead" data-reveal>
+            Welcome to Route 25, the first social network built exclusively for Pokémon TCG collectors. Share, trade, track your collection, and level up your journey in a safe, modern, trainer-powered community.
+          </p>
+
+          <div class="hero-actions" data-reveal>
+            <a class="button primary" href="#waitlist">Join the waitlist</a>
+            <a class="button" href="#features">Explore features</a>
+          </div>
+
+          <p class="note" data-reveal>
+            Fully native iOS with Live Activities, Siri &amp; Shortcuts, and Liquid Glass—made to feel right at home on iPhone.
+          </p>
+
+          <div class="card teaser" data-reveal>
+            <div class="teaser-inner">
+              <div class="video" aria-label="Route 25 teaser video">
+                <iframe
+                  src="https://www.youtube.com/embed/Tyxdjh0sTRY"
+                  title="Route 25 Teaser"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowfullscreen
+                ></iframe>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
-      <div class="mt-4 max-w-2xl space-y-3">
-        <p class="text-sm sm:text-base text-slate-100/90">
-          Route 25 is the first Pokémon TCG social network, launching on iPhone. We can't wait to share more! Join the waitlist to become a Founder Trainer and get early access when the beta opens.*
-        </p>
-      </div>
 
-      <div class="mt-7 flex flex-col sm:flex-row items-start sm:items-center gap-4">
-        <!-- Replace FORM_ID below after creating a free Formspree form: https://formspree.io -->
-<form
-  action="https://formspree.io/f/xnnlqpaz"
-  method="POST"
-  class="flex w-full max-w-md flex-col sm:flex-row items-start sm:items-center gap-3"
->
-  <label for="email" class="sr-only">Email</label>
-
-  <input
-    id="email"
-    name="email"
-    type="email"
-    required
-    placeholder="you@example.com"
-    class="flex-1 w-full rounded-2xl bg-white/95 text-slate-900 placeholder-slate-500
-           px-4 py-3 shadow focus:outline-none focus:ring-2 focus:ring-indigo-400"
-  />
-
-  <button
-    type="submit"
-    class="w-full sm:w-auto shrink-0 whitespace-nowrap inline-flex items-center justify-center
-           rounded-2xl bg-white text-slate-900 font-semibold px-6 py-3 shadow
-           hover:shadow-lg transition"
-  >
-    I'm interested!
-  </button>
-
-  <input type="text" name="_gotcha" class="hidden" aria-hidden="true" />
-  <input type="hidden" name="_next" value="https://route25.app/?subscribed=1" />
-</form>
-      </div>
-
-      <div class="mt-10 text-sm text-slate-200/80 max-w-xl space-y-2">
-        <p>*Slots are limited, and submitting your information does not guarantee early access. By joining the waitlist, you agree that we may email you about the launch and other updates related to Route 25.</p>
+        <div data-reveal>
+          <div class="shot" aria-label="Route 25 preview">
+            <div class="shot-stage">
+              <img
+                src="/assets/screenshots/social-home.png"
+                alt="Route 25 social feed screenshot"
+                class="screen-img active"
+                loading="eager"
+                decoding="async"
+              />
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 
-    <footer class="mt-10 flex items-center justify-between text-sm text-slate-300/80">
-      <span>© <span id="y"></span> rakTech LLC</span>
-      <div class="flex items-center gap-4">
-        <a class="underline/30 hover:underline" href="/terms.html">Terms of Service</a>
-        <a class="underline/30 hover:underline" href="/privacy.html">Privacy Policy</a>
-        <a class="underline/30 hover:underline" href="mailto:hello@route25.app">Contact</a>
-        <a
-  href="https://x.com/route25app"
-  target="_blank"
-  rel="noopener noreferrer"
-  aria-label="Route 25 on X"
-  class="opacity-80 hover:opacity-100 transition"
->
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-5 h-5 fill-current">
-    <path d="M18.244 2.25h3.308l-7.227 8.26 8.504 11.24h-6.66l-5.213-6.817-5.966 6.817H1.68l7.73-8.835L1.25 2.25h6.83l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-  </svg>
-</a>
+    <section id="features" class="section story">
+      <div class="container">
+        <h2 class="section-title" data-reveal>Every feature built for collectors.</h2>
+        <p class="section-subtitle" data-reveal>
+          We're on a mission to make Pokémon TCG social again, built for collectors and powered by the community.
+        </p>
+
+        <div class="story-grid" style="margin-top: 26px;">
+          <div class="story-sticky" data-reveal>
+            <div class="shot" aria-label="Feature screenshots">
+              <div class="shot-stage">
+                <img
+                  id="featurePhoneImgA"
+                  src="/assets/screenshots/collect.png"
+                  alt="Route 25 app screenshot"
+                  class="screen-img active"
+                  loading="lazy"
+                  decoding="async"
+                />
+                <img
+                  id="featurePhoneImgB"
+                  src="/assets/screenshots/collect.png"
+                  alt=""
+                  class="screen-img"
+                  loading="lazy"
+                  decoding="async"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div class="story-steps">
+            <article class="feature-step" data-screen="/assets/screenshots/collect.png">
+              <div class="feature-kicker"><span class="dot" aria-hidden="true"></span>Social feed</div>
+              <h3>Show off pulls, share slabs, follow Trainers.</h3>
+              <p>Post the moments that matter and discover what the community is collecting right now. Participate in Trainer Talk, the daily question answered with cards</p>
+              <ul>
+                <li>Feed-first collecting, with a modern look</li>
+                <li>Trainer Talk: replies powered by cards</li>
+                <li>Discover new collectors and creators</li>
+              </ul>
+            </article>
+
+            <article class="feature-step" data-screen="/assets/screenshots/trade-center.png">
+              <div class="feature-kicker"><span class="dot" aria-hidden="true"></span>Trade center</div>
+              <h3>Safe, escrow-powered trades, run by Professor Rak.</h3>
+              <p>List cards, browse offers, and trade with confidence. Route 25 is designed for safety keeping your information private.</p>
+              <ul>
+                <li>Escrow trade flow allows for anonymity</li>
+                <li>Clear trade lists and offers</li>
+                <li>Private by design</li>
+              </ul>
+            </article>
+
+            <article class="feature-step" data-screen="/assets/screenshots/binder.png">
+              <div class="feature-kicker"><span class="dot" aria-hidden="true"></span>Binder</div>
+              <h3>Track your collection. Explore every set.</h3>
+              <p>Build your Binder, browse expansions, customize slabs, and highlight your favorite cards in your Binder Showcase.</p>
+              <ul>
+                <li>Binder Showcase for top cards</li>
+                <li>Browse every set ever released</li>
+                <li>Slab customization</li>
+              </ul>
+            </article>
+
+            <article class="feature-step" data-screen="/assets/screenshots/mini-game.png">
+              <div class="feature-kicker"><span class="dot" aria-hidden="true"></span>Mini games</div>
+              <h3>Trainer Trials: fast, skill-based mini games.</h3>
+              <p>Test your memory, recognition, and collector instincts to earn bonus XP and prove you’ve got what it takes to become a true master.</p>
+              <ul>
+                <li>Put your knowledge to the test</li>
+                <li>Quick games designed for short sessions</li>
+                <li>Earn bonus XP</li>
+              </ul>
+            </article>
+
+            <article class="feature-step" data-screen="/assets/screenshots/profile.png">
+              <div class="feature-kicker"><span class="dot" aria-hidden="true"></span>Level up</div>
+              <h3>Earn XP, unlock flair, go further with Trainer Plus.</h3>
+              <p>Participate, collect, and trade to earn experience and in-app customization. Trainer Plus users get perks like extra trade slots, reduced trade fees, a card scanner, and more.</p>
+              <ul>
+                <li>Progression that rewards participation</li>
+                <li>Premium customization and exclusive sprites</li>
+                <li>Optional Trainer Plus enhancements</li>
+              </ul>
+            </article>
+          </div>
+        </div>
       </div>
-    </footer>
+    </section>
+
+    <section id="screens" class="section">
+      <div class="container">
+        <h2 class="section-title" data-reveal>App Store Previews</h2>
+        <p class="section-subtitle" data-reveal>
+          <a href="https://apps.apple.com/us/app/route-25-tcg-social-network/id6755665546" target="_blank" rel="noopener noreferrer">View Route 25 on the App Store</a>
+        </p>
+
+        <div class="gallery" data-reveal>
+          <div class="gallery-track" data-gallery-track aria-label="Screenshot gallery">
+            <div class="gallery-item">
+              <div class="phone phone--sm">
+                <div class="phone-screen">
+                  <img class="screen-img active" src="/assets/screenshots/appstore/r25-connect.png" alt="Route 25 connect screenshot" loading="lazy" decoding="async" />
+                </div>
+              </div>
+            </div>
+            <div class="gallery-item">
+              <div class="phone phone--sm">
+                <div class="phone-screen">
+                  <img class="screen-img active" src="/assets/screenshots/appstore/r25-pulls.png" alt="Route 25 pulls screenshot" loading="lazy" decoding="async" />
+                </div>
+              </div>
+            </div>
+            <div class="gallery-item">
+              <div class="phone phone--sm">
+                <div class="phone-screen">
+                  <img class="screen-img active" src="/assets/screenshots/appstore/r25-social2.png" alt="Route 25 social screenshot 2" loading="lazy" decoding="async" />
+                </div>
+              </div>
+            </div>
+            <div class="gallery-item">
+              <div class="phone phone--sm">
+                <div class="phone-screen">
+                  <img class="screen-img active" src="/assets/screenshots/appstore/r25-trades.png" alt="Route 25 trades screenshot" loading="lazy" decoding="async" />
+                </div>
+              </div>
+            </div>
+            <div class="gallery-item">
+              <div class="phone phone--sm">
+                <div class="phone-screen">
+                  <img class="screen-img active" src="/assets/screenshots/appstore/r25-live.png" alt="Route 25 live activities screenshot" loading="lazy" decoding="async" />
+                </div>
+              </div>
+            </div>
+            <div class="gallery-item">
+              <div class="phone phone--sm">
+                <div class="phone-screen">
+                  <img class="screen-img active" src="/assets/screenshots/appstore/r25-browse.png" alt="Route 25 browse screenshot" loading="lazy" decoding="async" />
+                </div>
+              </div>
+            </div>
+            <div class="gallery-item">
+              <div class="phone phone--sm">
+                <div class="phone-screen">
+                  <img class="screen-img active" src="/assets/screenshots/appstore/r25-slabs.png" alt="Route 25 slabs screenshot" loading="lazy" decoding="async" />
+                </div>
+              </div>
+            </div>
+            <div class="gallery-item">
+              <div class="phone phone--sm">
+                <div class="phone-screen">
+                  <img class="screen-img active" src="/assets/screenshots/appstore/r25-master.png" alt="Route 25 master your collection screenshot" loading="lazy" decoding="async" />
+                </div>
+              </div>
+            </div>
+            <div class="gallery-item">
+              <div class="phone phone--sm">
+                <div class="phone-screen">
+                  <img class="screen-img active" src="/assets/screenshots/appstore/r25-look.png" alt="Route 25 look screenshot" loading="lazy" decoding="async" />
+                </div>
+              </div>
+            </div>
+            <div class="gallery-item">
+              <div class="phone phone--sm">
+                <div class="phone-screen">
+                  <img class="screen-img active" src="/assets/screenshots/appstore/r25-voice.png" alt="Route 25 voice screenshot" loading="lazy" decoding="async" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="gallery-controls" aria-label="Gallery controls">
+            <button class="icon-btn" type="button" data-gallery-prev aria-label="Previous screenshots">‹</button>
+            <button class="icon-btn" type="button" data-gallery-next aria-label="Next screenshots">›</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="waitlist" class="section cta">
+      <div class="container">
+        <div class="card cta-card" data-reveal>
+          <h2 class="section-title" style="margin-top: 0;">Become a Founder Trainer.</h2>
+          <p class="section-subtitle">Get early access when the beta opens and stay in the loop on launch (US &amp; Canada, iOS 26+).</p>
+
+          <form action="https://formspree.io/f/xnnlqpaz" method="POST" class="form" style="margin-top: 18px;">
+            <label for="email" style="position:absolute;left:-9999px;">Email</label>
+            <input id="email" name="email" type="email" required placeholder="you@example.com" class="input" />
+            <button type="submit" class="submit">Join waitlist</button>
+            <input type="text" name="_gotcha" style="display:none;" aria-hidden="true" />
+            <input type="hidden" name="_next" value="https://route25.app/?subscribed=1" />
+          </form>
+
+          <p class="note" style="margin-bottom: 0;">
+            *Slots are limited, and submitting your information does not guarantee early access. By joining the waitlist, you agree that we may email you about the launch and other updates related to Route 25.
+          </p>
+        </div>
+      </div>
+    </section>
   </main>
 
-  <script>document.getElementById('y').textContent = new Date().getFullYear();</script>
+  <footer>
+    <div class="container footer-inner">
+      <span>© <span data-year></span> rakTech LLC</span>
+      <div class="footer-links">
+        <a href="/terms.html">Terms</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="mailto:hello@route25.app">Contact</a>
+        <a
+          href="https://x.com/route25app"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Route 25 on X"
+          class="x-link"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M18.244 2.25h3.308l-7.227 8.26 8.504 11.24h-6.66l-5.213-6.817-5.966 6.817H1.68l7.73-8.835L1.25 2.25h6.83l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+          </svg>
+        </a>
+      </div>
+    </div>
+    <div class="container" style="margin-top: 10px; color: rgba(255,255,255,0.50); font-size: 12px; line-height: 1.5;">
+      Pokémon Trading Card Game and related trademarks are the property of their respective owners. Route 25 is an independent app and is not endorsed or affiliated with The Pokémon Company.
+    </div>
+  </footer>
+
+  <div id="toast" class="toast" role="status" aria-live="polite">Thanks — you’re on the list.</div>
 </body>
 </html>
