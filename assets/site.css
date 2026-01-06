@@ -496,7 +496,9 @@ footer {
   align-items: center;
   flex-wrap: wrap;
 }
-.x-link svg { width: 18px; height: 18px; }
+.social-link { display: inline-flex; align-items: center; }
+.social-link:hover { text-decoration: none; }
+.social-link svg { width: 18px; height: 18px; }
 
 .toast {
   position: fixed;
