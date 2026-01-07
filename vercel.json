@@ -46,6 +46,22 @@
     {
       "source": "/api/web/:path*",
       "destination": "https://palettetown-backend.vercel.app/api/web/:path*"
+    },
+    {
+      "source": "/api/trainer",
+      "destination": "https://palettetown-backend.vercel.app/api/trainer"
+    },
+    {
+      "source": "/api/trainer/:path*",
+      "destination": "https://palettetown-backend.vercel.app/api/trainer/:path*"
+    },
+    {
+      "source": "/trainer/:id",
+      "destination": "https://palettetown-backend.vercel.app/trainer/:id"
+    },
+    {
+      "source": "/trainer/:id/",
+      "destination": "https://palettetown-backend.vercel.app/trainer/:id/"
     }
   ],
   "builds": [
