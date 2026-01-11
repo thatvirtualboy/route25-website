@@ -6,7 +6,9 @@
         "appID": "62X8RDXJ3W.com.raktech.Palette-Town",
         "paths": [
           "/trainer/*",
-          "/post/*"
+          "/post/*",
+          "/open",
+          "/open/*"
         ]
       }
     ]
