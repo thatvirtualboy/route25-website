@@ -36,6 +36,28 @@
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="stylesheet" href="/assets/site.css" />
   <script defer src="/assets/site.js"></script>
+  <style>
+    .elite-hero {
+      display: grid;
+      grid-template-columns: 1fr minmax(200px, 300px);
+      gap: 22px;
+      align-items: start;
+    }
+    .elite-hero-media { justify-self: end; }
+    .elite-hero-image {
+      overflow: hidden;
+      aspect-ratio: 426 / 505; /* shows top ~2/3 of the source image */
+    }
+    .elite-hero-image img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    @media (max-width: 860px) {
+      .elite-hero { grid-template-columns: 1fr; }
+      .elite-hero-media { justify-self: start; }
+    }
+  </style>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -57,25 +79,40 @@
   <main id="main" class="section">
     <div class="container">
       <section class="card cta-card prose" data-reveal>
-        <div class="badge" style="margin-bottom: 14px;">
-          <span class="pulse" aria-hidden="true"></span>
-          Partner Program
+        <div class="elite-hero">
+          <div>
+            <div class="badge" style="margin-bottom: 14px;">
+              <span class="pulse" aria-hidden="true"></span>
+              Partner Program
+            </div>
+
+            <h1>Elite Trainers</h1>
+            <p>
+              Elite Trainers are Route 25 partners who help promote the app on their social platforms, and engage with the community. In return, we highlight them in the app and link to their preferred channel.
+            </p>
+
+            <h2>What Elite Trainers get</h2>
+            <ul>
+              <li>⭐ Elite Trainer status (name + badge)</li>
+              <li>🎁 Free Trainer Plus (normally $3.99/mo or $39.99/yr)</li>
+              <li>👀 Early access to features (via TestFlight)</li>
+              <li>📣 Featured in-app with social links</li>
+              <li>💬 Direct feedback line to the Route 25 team</li>
+              <li>💵 $50 for every 50 verified user sign ups*</li>
+            </ul>
+          </div>
+
+          <div class="elite-hero-media">
+            <div class="card elite-hero-image">
+              <img
+                src="/assets/elite-trainer.png"
+                alt="Elite Trainer badge"
+                loading="lazy"
+                decoding="async"
+              />
+            </div>
+          </div>
         </div>
-
-        <h1>Elite Trainers</h1>
-        <p>
-          Elite Trainers are Route 25 partners who help promote the app on their social platforms, and engage with the community. In return, we highlight them in the app and link to their preferred channel.
-        </p>
-
-        <h2>What Elite Trainers get</h2>
-        <ul>
-          <li>⭐ Elite Trainer status (name + badge)</li>
-          <li>🎁 Free Trainer Plus (normally $3.99/mo or $39.99/yr)</li>
-          <li>👀 Early access to features (via TestFlight)</li>
-          <li>📣 Featured in-app with social links</li>
-          <li>💬 Direct feedback line to the Route 25 team</li>
-          <li>💵 $50 for every 50 verified user sign ups*</li>
-        </ul>
 
         <h2>What we ask (monthly)</h2>
         <p>
@@ -108,7 +145,7 @@
         </p>
 
         <p style="margin-top: 14px; font-size: 13px; color: rgba(255, 255, 255, 0.62);">
-          * Referral tracking note: to make sure we properly capture your referral, new users should first download Route 25, then open your referral link, then complete sign up with a Route 25 account.
+          * Referral tracking note: to make sure we properly capture your referral, new users should first download Route 25, then open your referral link, then complete sign up with a Route 25 account. Benefit subject to change.
         </p>
       </section>
     </div>
