@@ -283,6 +283,9 @@ h1 {
 .section {
   padding: clamp(56px, 7.2vw, 96px) 0;
 }
+.section.section--tight {
+  padding: clamp(18px, 3vw, 28px) 0;
+}
 .section-title {
   font-size: clamp(26px, 3vw, 34px);
   letter-spacing: -0.03em;
