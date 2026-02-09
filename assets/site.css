@@ -120,6 +120,22 @@ a:hover { text-decoration: underline; text-decoration-color: rgba(255, 255, 255,
   background: rgba(255, 255, 255, 0.06);
 }
 
+.menu-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+}
+
 .button {
   display: inline-flex;
   align-items: center;
@@ -200,6 +216,24 @@ h1 {
   gap: 12px;
   align-items: center;
   flex-wrap: wrap;
+}
+.appstore-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+.appstore-badge:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.42);
+}
+.appstore-badge img {
+  display: block;
+  height: 52px;
+  width: auto;
 }
 .note {
   margin-top: 14px;
@@ -542,6 +576,39 @@ footer {
   .story-grid { grid-template-columns: 1fr; }
   .story-sticky { position: relative; top: auto; }
   .feature-step { min-height: auto; }
+}
+
+@media (max-width: 720px) {
+  .topbar-inner {
+    position: relative;
+  }
+  .menu-toggle { display: inline-flex; }
+  .nav {
+    position: absolute;
+    top: calc(100% + 10px);
+    right: var(--gutter);
+    left: var(--gutter);
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    padding: 12px;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(8, 10, 20, 0.95);
+    backdrop-filter: blur(18px);
+    box-shadow: var(--shadow-card);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-6px);
+    transition: opacity 160ms ease, transform 160ms ease;
+  }
+  .nav.is-open {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+  .nav a { padding: 10px 12px; font-size: 13px; }
+  .nav .button { width: 100%; justify-content: center; }
 }
 
 @media (prefers-reduced-motion: reduce) {

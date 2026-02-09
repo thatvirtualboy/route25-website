@@ -37,12 +37,13 @@
         <span>Route 25</span>
       </a>
 
-      <nav class="nav" aria-label="Primary">
+      <nav id="site-nav" class="nav" aria-label="Primary">
         <a href="#features">Features</a>
         <a href="#screens">Screens</a>
         <a href="/assets/Route_25_Press_Kit.zip" download>Press kit</a>
-        <a class="button primary" href="#waitlist">Get updates</a>
+        <a class="button primary" href="https://apps.apple.com/us/app/route-25-tcg-social-network/id6755665546" target="_blank" rel="noopener noreferrer">Download</a>
       </nav>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-nav" data-nav-toggle>Menu</button>
     </div>
   </header>
 
@@ -52,7 +53,7 @@
         <div>
           <div class="badge" data-reveal>
             <span class="pulse" aria-hidden="true"></span>
-            Coming Soon
+            Available Now
           </div>
           <h1 data-reveal>Your Pokémon TCG adventure is evolving.</h1>
           <p class="lead" data-reveal>
@@ -60,8 +61,9 @@
           </p>
 
           <div class="hero-actions" data-reveal>
-            <a class="button primary" href="#waitlist">Get updates</a>
-            <a class="button" href="#features">Explore features</a>
+            <a class="appstore-badge" href="https://apps.apple.com/us/app/route-25-tcg-social-network/id6755665546" target="_blank" rel="noopener noreferrer" aria-label="Download Route 25 on the App Store">
+              <img src="/assets/appstore-download.png" alt="Download on the App Store" loading="eager" decoding="async" />
+            </a>
           </div>
 
           <p class="note" data-reveal>
@@ -292,12 +294,12 @@
       <div class="container">
         <div class="card cta-card" data-reveal>
           <h2 class="section-title" style="margin-top: 0;">Subscribe for email updates.</h2>
-          <p class="section-subtitle">Get Route 25 updates and launch news by email.</p>
+          <p class="section-subtitle">Get Route 25 product updates and community news by email.</p>
 
           <form action="https://formspree.io/f/xnnlqpaz" method="POST" class="form" style="margin-top: 18px;">
             <label for="email" style="position:absolute;left:-9999px;">Email</label>
             <input id="email" name="email" type="email" required placeholder="you@example.com" class="input" />
-            <button type="submit" class="submit">Get updates</button>
+            <button type="submit" class="submit">Subscribe</button>
             <input type="text" name="_gotcha" style="display:none;" aria-hidden="true" />
             <input type="hidden" name="_next" value="https://route25.app/?subscribed=1" />
           </form>

@@ -143,8 +143,37 @@ function wireGalleryControls() {
   if (next) next.addEventListener("click", () => scrollByDirection(1));
 }
 
+function wireMobileNav() {
+  const toggle = qs("[data-nav-toggle]");
+  const nav = qs("#site-nav");
+  if (!toggle || !nav) return;
+
+  function setOpen(open) {
+    nav.classList.toggle("is-open", open);
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  toggle.addEventListener("click", () => setOpen(!nav.classList.contains("is-open")));
+
+  document.addEventListener("click", (event) => {
+    if (!nav.classList.contains("is-open")) return;
+    const target = event.target;
+    if (nav.contains(target) || toggle.contains(target)) return;
+    setOpen(false);
+  });
+
+  window.addEventListener("resize", () => {
+    if (window.innerWidth > 720) setOpen(false);
+  });
+
+  for (const link of qsa("#site-nav a")) {
+    link.addEventListener("click", () => setOpen(false));
+  }
+}
+
 setYear();
 wireReveal();
 wireFeatureStory();
 wireGalleryControls();
+wireMobileNav();
 maybeShowSubscribedToast();
