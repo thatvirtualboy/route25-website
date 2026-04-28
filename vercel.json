@@ -20,6 +20,10 @@
       "destination": "https://palettetown-backend.vercel.app/:path*"
     },
     {
+      "source": "/card-images/:path*",
+      "destination": "https://palettetown-backend.vercel.app/card-images/:path*"
+    },
+    {
       "source": "/api/proxy/:path*",
       "destination": "https://palettetown-backend.vercel.app/api/proxy/:path*"
     },
