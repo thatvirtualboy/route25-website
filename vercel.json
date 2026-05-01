@@ -82,6 +82,22 @@
     {
       "source": "/post/",
       "destination": "https://palettetown-backend.vercel.app/post/"
+    },
+    {
+      "source": "/trade/:id",
+      "destination": "https://palettetown-backend.vercel.app/trade/:id"
+    },
+    {
+      "source": "/trade/:id/",
+      "destination": "https://palettetown-backend.vercel.app/trade/:id/"
+    },
+    {
+      "source": "/trade",
+      "destination": "https://palettetown-backend.vercel.app/trade"
+    },
+    {
+      "source": "/trade/",
+      "destination": "https://palettetown-backend.vercel.app/trade/"
     }
   ],
   "builds": [
