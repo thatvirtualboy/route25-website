@@ -472,6 +472,14 @@ h1 {
   object-fit: contain;
   filter: drop-shadow(0 22px 60px rgba(0, 0, 0, 0.62));
 }
+#featurePhoneImgA:not([src$="pricing-value.png"]),
+#featurePhoneImgB:not([src$="pricing-value.png"]) {
+  transform: translateZ(0) scale(1.105);
+}
+#featurePhoneImgA[src$="pricing-value.png"],
+#featurePhoneImgB[src$="pricing-value.png"] {
+  transform: translateZ(0) scale(1);
+}
 
 .gallery {
   margin-top: 26px;
