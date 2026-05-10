@@ -478,7 +478,7 @@ h1 {
 }
 #featurePhoneImgA[src$="pricing-value.png"],
 #featurePhoneImgB[src$="pricing-value.png"] {
-  transform: translateZ(0) scale(0.96);
+  transform: translateZ(0) scale(0.91);
 }
 
 .gallery {
