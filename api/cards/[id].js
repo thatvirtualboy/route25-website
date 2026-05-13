@@ -3,6 +3,7 @@ const APP_STORE_URL = "https://apps.apple.com/us/app/route-25-tcg-social-network
 const X_URL = "https://x.com/route25app";
 const INSTAGRAM_URL = "https://www.instagram.com/route25app/";
 const DISCORD_URL = "https://discord.gg/WncmGEFuNw";
+const EBAY_CAMPAIGN_ID = "5339132958";
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -41,6 +42,45 @@ function pokemonText() {
   return "Pokemon";
 }
 
+function formatCurrency(amount, currencyCode = "USD") {
+  const value = Number(amount);
+  if (!Number.isFinite(value) || value <= 0) return "";
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: String(currencyCode || "USD").toUpperCase(),
+      maximumFractionDigits: 2,
+      minimumFractionDigits: 2
+    }).format(value);
+  } catch {
+    return `$${value.toFixed(2)}`;
+  }
+}
+
+function ebayAffiliateUrl(query, customId) {
+  const trimmed = String(query || "").trim();
+  if (!trimmed) return "";
+  const url = new URL("https://www.ebay.com/sch/i.html");
+  url.searchParams.set("_nkw", trimmed);
+  url.searchParams.set("mkevt", "1");
+  url.searchParams.set("mkcid", "1");
+  url.searchParams.set("mkrid", "711-53200-19255-0");
+  url.searchParams.set("siteid", "0");
+  url.searchParams.set("campid", EBAY_CAMPAIGN_ID);
+  url.searchParams.set("toolid", "10001");
+  if (customId) url.searchParams.set("customid", customId);
+  return url.href;
+}
+
+function ebaySearchQuery(card) {
+  return [
+    card?.name,
+    card?.number,
+    card?.set?.name || card?.set?.id,
+    "Pokemon card"
+  ].filter(Boolean).join(" ");
+}
+
 async function fetchJson(url) {
   const response = await fetch(url, {
     headers: { accept: "application/json" }
@@ -76,6 +116,36 @@ async function fetchCard(cardId) {
 
   if (!card) return null;
   return enrichCardSet(card, setId);
+}
+
+async function fetchTcgcsvQuote(cardId) {
+  const id = String(cardId || "").trim();
+  if (!id) return null;
+
+  try {
+    const payload = await fetchJson(`${BACKEND_ORIGIN}/api/pricing/${encodeURIComponent(id)}`);
+    const data = payload?.data;
+    if (!payload?.ok || !data) return null;
+
+    const marketUsd = Number(data.marketUsd);
+    const marketEur = Number(data.marketEur);
+    if (Number.isFinite(marketUsd) && marketUsd > 0) {
+      return {
+        amount: marketUsd,
+        currencyCode: data.currencyCode || "USD"
+      };
+    }
+    if (Number.isFinite(marketEur) && marketEur > 0) {
+      return {
+        amount: marketEur,
+        currencyCode: data.currencyCode || "EUR"
+      };
+    }
+  } catch {
+    // Pricing is useful context, but should never block a shareable card page.
+  }
+
+  return null;
 }
 
 async function enrichCardSet(card, setId) {
@@ -149,21 +219,29 @@ function formatCardNumber(card) {
   return printedTotal ? `${number}/${printedTotal}` : String(number);
 }
 
-function detailRows(card) {
+function detailRows(card, options = {}) {
   const cardNumber = formatCardNumber(card);
+  const tcgcsvValue = options.tcgcsvQuote
+    ? formatCurrency(options.tcgcsvQuote.amount, options.tcgcsvQuote.currencyCode)
+    : "";
   const rows = [
     ["Set", card?.set?.name || card?.set?.id],
     ["Card No.", cardNumber],
     ["Rarity", card?.rarity],
     ["Type", Array.isArray(card?.types) ? card.types.join(", ") : null],
     ["Artist", card?.artist || card?.illustrator],
-    ["Regulation", card?.regulationMark]
+    ["Regulation", card?.regulationMark],
+    ["TCGPlayer Value", tcgcsvValue],
+    ["eBay", "Search eBay listings", options.ebayUrl, true]
   ].filter(([, value]) => value);
 
-  return rows.map(([label, value]) => `
+  return rows.map(([label, value, linkUrl, isExternal]) => `
     <div class="detail-row">
       <dt>${escapeHtml(label)}</dt>
-      <dd>${escapeHtml(value)}</dd>
+      <dd>${linkUrl
+        ? `<a class="detail-link" href="${escapeHtml(linkUrl)}" target="_blank" rel="nofollow sponsored noopener noreferrer">${escapeHtml(value)}${isExternal ? '<span class="external-link-icon" aria-hidden="true">↗</span>' : ""}<span class="sr-only"> Opens in a new tab</span></a>`
+        : escapeHtml(value)}
+      </dd>
     </div>
   `).join("");
 }
@@ -188,7 +266,7 @@ function socialToolbar() {
         </span>`;
 }
 
-function renderCardPage(card, req) {
+function renderCardPage(card, req, options = {}) {
   const host = req.headers["x-forwarded-host"] || req.headers.host || "route25.app";
   const proto = req.headers["x-forwarded-proto"] || "https";
   const pageUrl = `${proto}://${host}/cards/${encodeURIComponent(card.id)}`;
@@ -201,6 +279,7 @@ function renderCardPage(card, req) {
   const description = metaDescription(card);
   const typeText = [card?.supertype, ...(Array.isArray(card?.subtypes) ? card.subtypes : [])].filter(Boolean).join(" / ");
   const flavorText = card?.flavorText ? `<blockquote>${escapeHtml(card.flavorText)}</blockquote>` : "";
+  const ebayUrl = ebayAffiliateUrl(ebaySearchQuery(card), `r25-card-${card.id}`);
 
   return `<!doctype html>
 <html lang="en">
@@ -315,6 +394,32 @@ function renderCardPage(card, req) {
       margin: 0;
       font-weight: 760;
     }
+    .detail-link {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 6px;
+      color: inherit;
+      text-decoration: none;
+    }
+    .detail-link:hover {
+      color: var(--accent);
+    }
+    .external-link-icon {
+      font-size: 0.86em;
+      line-height: 1;
+      opacity: 0.72;
+    }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
     blockquote {
       margin: 26px 0 0;
       padding-left: 18px;
@@ -402,7 +507,7 @@ function renderCardPage(card, req) {
         </div>
         <h1>${escapeHtml(card.name)}</h1>
         <p class="card-meta-line">${escapeHtml([typeText, card?.rarity, setCardNumber ? `Card ${setCardNumber}` : null].filter(Boolean).join(" | "))}</p>
-        <dl class="detail-list">${detailRows(card)}</dl>
+        <dl class="detail-list">${detailRows(card, { tcgcsvQuote: options.tcgcsvQuote, ebayUrl })}</dl>
         ${flavorText}
         <div class="card-actions">
           <a class="button primary" href="${APP_STORE_URL}" target="_blank" rel="noopener noreferrer">Get Route 25</a>
@@ -466,7 +571,8 @@ module.exports = async (req, res) => {
     res.statusCode = 200;
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.setHeader("cache-control", "s-maxage=86400, stale-while-revalidate=604800");
-    res.end(renderCardPage(card, req));
+    const tcgcsvQuote = await fetchTcgcsvQuote(card.id);
+    res.end(renderCardPage(card, req, { tcgcsvQuote }));
   } catch (error) {
     res.statusCode = 500;
     res.setHeader("content-type", "text/html; charset=utf-8");
