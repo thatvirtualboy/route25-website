@@ -120,6 +120,26 @@ a:hover { text-decoration: underline; text-decoration-color: rgba(255, 255, 255,
   background: rgba(255, 255, 255, 0.06);
 }
 
+.social-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.social-toolbar .social-link {
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 999px;
+  color: var(--muted);
+}
+
+.social-toolbar .social-link:hover {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.06);
+}
+
 .menu-toggle {
   display: none;
   align-items: center;
@@ -617,6 +637,10 @@ footer {
   }
   .nav a { padding: 10px 12px; font-size: 13px; }
   .nav .button { width: 100%; justify-content: center; }
+  .nav .social-toolbar {
+    justify-content: center;
+    padding: 4px 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
