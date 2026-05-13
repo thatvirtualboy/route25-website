@@ -20,6 +20,14 @@
       "destination": "https://palettetown-backend.vercel.app/:path*"
     },
     {
+      "source": "/cards/:id",
+      "destination": "/api/cards/:id"
+    },
+    {
+      "source": "/cards/:id/",
+      "destination": "/api/cards/:id"
+    },
+    {
       "source": "/card-images/:path*",
       "destination": "https://palettetown-backend.vercel.app/card-images/:path*"
     },
