@@ -24,6 +24,10 @@
       "destination": "/api/sitemap-cards.js"
     },
     {
+      "source": "/sitemap-sets.xml",
+      "destination": "/api/sitemap-sets.js"
+    },
+    {
       "source": "/search",
       "destination": "/api/card-search.js"
     },
@@ -42,6 +46,14 @@
     {
       "source": "/cards/:id/",
       "destination": "/api/cards.js?id=:id"
+    },
+    {
+      "source": "/sets/:id",
+      "destination": "/api/sets.js?id=:id"
+    },
+    {
+      "source": "/sets/:id/",
+      "destination": "/api/sets.js?id=:id"
     },
     {
       "source": "/card-images/:path*",

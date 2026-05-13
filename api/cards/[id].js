@@ -4,6 +4,7 @@ const X_URL = "https://x.com/route25app";
 const INSTAGRAM_URL = "https://www.instagram.com/route25app/";
 const DISCORD_URL = "https://discord.gg/WncmGEFuNw";
 const EBAY_CAMPAIGN_ID = "5339132958";
+const APP_STORE_ID = "6755665546";
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -12,6 +13,10 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function jsonScript(value) {
+  return JSON.stringify(value).replaceAll("<", "\\u003c");
 }
 
 function absoluteUrl(value, origin = "https://route25.app") {
@@ -36,6 +41,11 @@ function route25CardId(cardId) {
     return id.replace(/^sv35-/i, "sv3pt5-");
   }
   return id;
+}
+
+function appDeepLink(path) {
+  const cleanPath = String(path || "").replace(/^\/+/, "");
+  return `route25://${cleanPath}`;
 }
 
 function pokemonText() {
@@ -228,6 +238,52 @@ function metaDescription(card) {
   return `${card.name} ${number} from ${setName}. View card details, artwork, rarity, type, artist, and set information for this ${rarity}${pokemonText()} TCG card on Route 25.`;
 }
 
+function cardStructuredData(card, pageUrl, image, description, options = {}) {
+  const setName = card?.set?.name || card?.set?.id || "Pokemon TCG";
+  const offers = options.tcgcsvQuote
+    ? {
+        "@type": "Offer",
+        price: Number(options.tcgcsvQuote.amount).toFixed(2),
+        priceCurrency: String(options.tcgcsvQuote.currencyCode || "USD").toUpperCase(),
+        availability: "https://schema.org/InStock",
+        url: pageUrl
+      }
+    : undefined;
+
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebPage",
+        "@id": `${pageUrl}#webpage`,
+        url: pageUrl,
+        name: `${card.name} ${setName} Pokemon TCG Card | Route 25`,
+        description,
+        image
+      },
+      {
+        "@type": "Product",
+        "@id": `${pageUrl}#card`,
+        name: `${card.name} ${formatCardNumber(card) || card?.number || ""}`.trim(),
+        description,
+        image,
+        category: "Pokemon TCG card",
+        brand: { "@type": "Brand", name: "Pokemon Trading Card Game" },
+        sku: card.id,
+        offers
+      },
+      {
+        "@type": "SoftwareApplication",
+        name: "Route 25",
+        applicationCategory: "LifestyleApplication",
+        operatingSystem: "iOS",
+        url: "https://route25.app/",
+        downloadUrl: APP_STORE_URL
+      }
+    ].filter(Boolean)
+  };
+}
+
 function formatCardNumber(card) {
   const number = card?.number;
   const printedTotal = card?.set?.printedTotal
@@ -297,7 +353,8 @@ function renderCardPage(card, req, options = {}) {
   const setLogo = absoluteUrl(card?.set?.images?.localLogo || card?.set?.images?.logo, BACKEND_ORIGIN);
   const setName = card?.set?.name || card?.set?.id || "Pokemon TCG";
   const browseSetId = card?.set?.id || cardSetId(card.id);
-  const browseSetUrl = browseSetId ? `/search?set=${encodeURIComponent(browseSetId)}` : "/search";
+  const browseSetUrl = browseSetId ? `/sets/${encodeURIComponent(browseSetId)}` : "/search";
+  const appCardUrl = appDeepLink(`cards/${card.id}`);
   const cardNumber = card?.number ? ` #${card.number}` : "";
   const setCardNumber = formatCardNumber(card);
   const title = `${card.name}${cardNumber} ${setName} ${pokemonText()} Card | Route 25`;
@@ -313,7 +370,9 @@ function renderCardPage(card, req, options = {}) {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${escapeHtml(title)}</title>
   <meta name="description" content="${escapeHtml(description)}" />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
   <meta name="theme-color" content="#05060a" />
+  <meta name="apple-itunes-app" content="app-id=${APP_STORE_ID}, app-argument=${escapeHtml(appCardUrl)}" />
   <meta property="og:title" content="${escapeHtml(title)}" />
   <meta property="og:description" content="${escapeHtml(description)}" />
   <meta property="og:type" content="website" />
@@ -327,6 +386,7 @@ function renderCardPage(card, req, options = {}) {
   <link rel="icon" href="/favicon.png" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="stylesheet" href="/assets/site.css" />
+  <script type="application/ld+json">${jsonScript(cardStructuredData(card, pageUrl, image, description, { tcgcsvQuote: options.tcgcsvQuote }))}</script>
   <style>
     .card-share-hero {
       min-height: calc(100vh - 64px);
@@ -536,7 +596,7 @@ function renderCardPage(card, req, options = {}) {
         <div class="card-actions">
           <a class="button primary" href="${APP_STORE_URL}" target="_blank" rel="noopener noreferrer">Get Route 25</a>
           <a class="button" href="${escapeHtml(browseSetUrl)}">Browse this set</a>
-          <a class="button" href="/">Explore Route 25</a>
+          <a class="button" href="${escapeHtml(appCardUrl)}">Open this in Route 25</a>
         </div>
       </section>
     </div>

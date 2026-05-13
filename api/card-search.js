@@ -2,6 +2,18 @@ const APP_STORE_URL = "https://apps.apple.com/us/app/route-25-tcg-social-network
 const X_URL = "https://x.com/route25app";
 const INSTAGRAM_URL = "https://www.instagram.com/route25app/";
 const DISCORD_URL = "https://discord.gg/WncmGEFuNw";
+const APP_STORE_ID = "6755665546";
+
+function escapeHtml(value) {
+  return String(value || "").replace(/[&<>"']/g, function(char) {
+    return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char];
+  });
+}
+
+function appDeepLink(path) {
+  const cleanPath = String(path || "").replace(/^\/+/, "");
+  return `route25://${cleanPath}`;
+}
 
 function socialToolbar() {
   return `<span class="social-toolbar" aria-label="Route 25 social links">
@@ -20,7 +32,9 @@ function socialToolbar() {
   </span>`;
 }
 
-function renderSearchPage() {
+function renderSearchPage(req) {
+  const initialSet = String(req?.query?.set || "").trim();
+  const appArgument = initialSet ? appDeepLink(`sets/${initialSet}`) : appDeepLink("");
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -29,6 +43,7 @@ function renderSearchPage() {
   <title>Card Search | Route 25</title>
   <meta name="description" content="Search Pokemon TCG cards by name, card id, and set on Route 25." />
   <meta name="theme-color" content="#05060a" />
+  <meta name="apple-itunes-app" content="app-id=${APP_STORE_ID}, app-argument=${escapeHtml(appArgument)}" />
   <link rel="canonical" href="https://route25.app/search" />
   <link rel="icon" href="/favicon.png" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -66,6 +81,15 @@ function renderSearchPage() {
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 144px;
       gap: 12px;
       align-items: end;
+    }
+    .set-app-link {
+      display: none;
+      margin-top: 12px;
+      width: 100%;
+      border-radius: 8px;
+    }
+    .set-app-link.is-visible {
+      display: inline-flex;
     }
     .field label {
       display: block;
@@ -265,6 +289,7 @@ function renderSearchPage() {
             </div>
             <button class="button primary" type="submit">Search</button>
           </form>
+          <a class="button set-app-link" id="openSetInApp" href="${escapeHtml(appArgument)}">Open this set in Route 25</a>
         </div>
       </section>
       <section aria-live="polite" aria-busy="false" id="resultsSection">
@@ -300,6 +325,7 @@ function renderSearchPage() {
     const pageLabel = document.getElementById("pageLabel");
     const prevPage = document.getElementById("prevPage");
     const nextPage = document.getElementById("nextPage");
+    const openSetInApp = document.getElementById("openSetInApp");
     let debounceTimer = null;
     let activeController = null;
     let activeRequestKey = "";
@@ -328,6 +354,20 @@ function renderSearchPage() {
 
     function cardUrl(card) {
       return "/cards/" + encodeURIComponent(card.id || "");
+    }
+
+    function setDeepLink(setId) {
+      return "route25://sets/" + encodeURIComponent(setId || "");
+    }
+
+    function updateSetDeepLink() {
+      if (!state.set) {
+        openSetInApp.classList.remove("is-visible");
+        openSetInApp.removeAttribute("href");
+        return;
+      }
+      openSetInApp.href = setDeepLink(state.set);
+      openSetInApp.classList.add("is-visible");
     }
 
     function searchParamsFor(nextState) {
@@ -427,6 +467,7 @@ function renderSearchPage() {
       if (resultCache.has(key)) {
         renderPayload(resultCache.get(key));
         setLoading(false);
+        updateSetDeepLink();
         prefetchNearby();
         return;
       }
@@ -440,6 +481,7 @@ function renderSearchPage() {
         const payload = await fetchCardsFor(state, { signal: activeController.signal });
         if (activeRequestKey !== key) return;
         renderPayload(payload);
+        updateSetDeepLink();
         prefetchNearby();
       } catch (error) {
         if (error.name === "AbortError") return;
@@ -453,6 +495,7 @@ function renderSearchPage() {
 
     queryInput.value = state.q;
     setSelect.value = state.set;
+    updateSetDeepLink();
     loadSets().finally(loadCards);
 
     form.addEventListener("submit", function(event) {
@@ -494,5 +537,5 @@ module.exports = async (req, res) => {
   res.statusCode = 200;
   res.setHeader("content-type", "text/html; charset=utf-8");
   res.setHeader("cache-control", "s-maxage=3600, stale-while-revalidate=86400");
-  res.end(renderSearchPage());
+  res.end(renderSearchPage(req));
 };
