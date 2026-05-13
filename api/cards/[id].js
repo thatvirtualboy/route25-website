@@ -34,6 +34,10 @@ function route25CardId(cardId) {
   return id;
 }
 
+function pokemonText() {
+  return "Pokemon";
+}
+
 async function fetchJson(url) {
   const response = await fetch(url, {
     headers: { accept: "application/json" }
@@ -101,7 +105,7 @@ function metaDescription(card) {
   const setName = card?.set?.name || card?.set?.id || "Pokemon TCG";
   const number = card?.number ? `#${card.number}` : card?.id;
   const rarity = card?.rarity ? `${card.rarity} ` : "";
-  return `${card.name} ${number} from ${setName}. View this ${rarity}card on Route 25.`;
+  return `${card.name} ${number} from ${setName}. View card details, artwork, rarity, type, artist, and set information for this ${rarity}${pokemonText()} TCG card on Route 25.`;
 }
 
 function detailRows(card) {
@@ -129,7 +133,9 @@ function renderCardPage(card, req) {
   const pageUrl = `${proto}://${host}/cards/${encodeURIComponent(card.id)}`;
   const image = absoluteUrl(card?.images?.large || card?.images?.small, BACKEND_ORIGIN);
   const setLogo = absoluteUrl(card?.set?.images?.localLogo || card?.set?.images?.logo, BACKEND_ORIGIN);
-  const title = `${card.name} | Route 25`;
+  const setName = card?.set?.name || card?.set?.id || "Pokemon TCG";
+  const cardNumber = card?.number ? ` #${card.number}` : "";
+  const title = `${card.name}${cardNumber} ${setName} ${pokemonText()} Card | Route 25`;
   const description = metaDescription(card);
   const typeText = [card?.supertype, ...(Array.isArray(card?.subtypes) ? card.subtypes : [])].filter(Boolean).join(" / ");
   const flavorText = card?.flavorText ? `<blockquote>${escapeHtml(card.flavorText)}</blockquote>` : "";
@@ -151,6 +157,7 @@ function renderCardPage(card, req) {
   <meta name="twitter:title" content="${escapeHtml(title)}" />
   <meta name="twitter:description" content="${escapeHtml(description)}" />
   <meta name="twitter:image" content="${escapeHtml(image || "/assets/Icon.png")}" />
+  <link rel="canonical" href="${escapeHtml(pageUrl)}" />
   <link rel="icon" href="/favicon.png" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="stylesheet" href="/assets/site.css" />

@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://route25.app/sitemap.xml
+Sitemap: https://route25.app/sitemap-cards.xml

@@ -20,6 +20,10 @@
       "destination": "https://palettetown-backend.vercel.app/:path*"
     },
     {
+      "source": "/sitemap-cards.xml",
+      "destination": "/api/sitemap-cards.js"
+    },
+    {
       "source": "/cards/:id",
       "destination": "/api/cards.js?id=:id"
     },
