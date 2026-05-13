@@ -79,46 +79,84 @@ async function fetchCard(cardId) {
 }
 
 async function enrichCardSet(card, setId) {
-  const currentName = String(card?.set?.name || "").trim();
-  if (currentName && currentName.toLowerCase() !== setId.toLowerCase()) return card;
+  const currentSetId = String(card?.set?.id || "").trim();
+  if (currentSetId && currentSetId.toLowerCase() !== setId.toLowerCase()) return card;
 
+  let enrichedCard = card;
   try {
     const setsPayload = await fetchJson(`${BACKEND_ORIGIN}/api/tcg/sets`);
     const sets = Array.isArray(setsPayload.data) ? setsPayload.data : [];
     const set = sets.find((item) => String(item?.id || "").toLowerCase() === setId.toLowerCase());
-    if (!set) return card;
-    return {
-      ...card,
-      set: {
-        ...set,
-        ...(card.set || {}),
-        name: set.name || card?.set?.name,
-        images: {
-          ...(set.images || {}),
-          ...(card?.set?.images || {})
+    if (set) {
+      enrichedCard = {
+        ...enrichedCard,
+        set: {
+          ...set,
+          ...(enrichedCard.set || {}),
+          name: set.name || enrichedCard?.set?.name,
+          images: {
+            ...(set.images || {}),
+            ...(enrichedCard?.set?.images || {})
+          }
         }
-      }
-    };
+      };
+    }
   } catch {
-    return card;
+    // Keep the card payload if the route metadata endpoint is unavailable.
   }
+
+  try {
+    const officialSet = await fetchOfficialSet(setId);
+    if (officialSet) {
+      enrichedCard = {
+        ...enrichedCard,
+        set: {
+          ...officialSet,
+          ...(enrichedCard.set || {}),
+          printedTotal: officialSet.printedTotal || enrichedCard?.set?.printedTotal,
+          images: {
+            ...(officialSet.images || {}),
+            ...(enrichedCard?.set?.images || {})
+          }
+        }
+      };
+    }
+  } catch {
+    // Printed totals improve the preview, but should not block card pages.
+  }
+
+  return enrichedCard;
+}
+
+async function fetchOfficialSet(setId) {
+  const payload = await fetchJson(`https://api.pokemontcg.io/v2/sets/${encodeURIComponent(setId)}`);
+  return payload?.data || null;
 }
 
 function metaDescription(card) {
   const setName = card?.set?.name || card?.set?.id || "Pokemon TCG";
-  const number = card?.number ? `#${card.number}` : card?.id;
+  const number = formatCardNumber(card) || (card?.number ? `#${card.number}` : card?.id);
   const rarity = card?.rarity ? `${card.rarity} ` : "";
   return `${card.name} ${number} from ${setName}. View card details, artwork, rarity, type, artist, and set information for this ${rarity}${pokemonText()} TCG card on Route 25.`;
 }
 
+function formatCardNumber(card) {
+  const number = card?.number;
+  const printedTotal = card?.set?.printedTotal
+    || card?.set?.cardCount?.official
+    || card?.printedTotal;
+  if (!number) return "";
+  return printedTotal ? `${number}/${printedTotal}` : String(number);
+}
+
 function detailRows(card) {
+  const cardNumber = formatCardNumber(card);
   const rows = [
     ["Set", card?.set?.name || card?.set?.id],
-    ["Card No.", card?.number],
+    ["Card No.", cardNumber],
     ["Rarity", card?.rarity],
     ["Type", Array.isArray(card?.types) ? card.types.join(", ") : null],
     ["Artist", card?.artist || card?.illustrator],
-    ["National No.", Array.isArray(card?.nationalPokedexNumbers) ? card.nationalPokedexNumbers[0] : card?.nationalPokedexNumbers],
     ["Regulation", card?.regulationMark]
   ].filter(([, value]) => value);
 
@@ -158,6 +196,7 @@ function renderCardPage(card, req) {
   const setLogo = absoluteUrl(card?.set?.images?.localLogo || card?.set?.images?.logo, BACKEND_ORIGIN);
   const setName = card?.set?.name || card?.set?.id || "Pokemon TCG";
   const cardNumber = card?.number ? ` #${card.number}` : "";
+  const setCardNumber = formatCardNumber(card);
   const title = `${card.name}${cardNumber} ${setName} ${pokemonText()} Card | Route 25`;
   const description = metaDescription(card);
   const typeText = [card?.supertype, ...(Array.isArray(card?.subtypes) ? card.subtypes : [])].filter(Boolean).join(" / ");
@@ -236,8 +275,8 @@ function renderCardPage(card, req) {
       text-transform: uppercase;
     }
     .set-logo {
-      max-height: 34px;
-      max-width: 132px;
+      max-height: 64px;
+      max-width: 230px;
       object-fit: contain;
     }
     .card-copy h1 {
@@ -290,6 +329,28 @@ function renderCardPage(card, req) {
       gap: 12px;
       margin-top: 28px;
     }
+    .community-cta {
+      margin-top: clamp(28px, 5vw, 56px);
+      padding: clamp(28px, 5vw, 44px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 22px;
+      background:
+        linear-gradient(135deg, rgba(88, 199, 255, 0.14), rgba(255, 214, 82, 0.12)),
+        rgba(255, 255, 255, 0.055);
+    }
+    .community-cta h2 {
+      font-size: clamp(30px, 4.4vw, 56px);
+      line-height: 0.98;
+      margin: 0 0 12px;
+      max-width: 13ch;
+    }
+    .community-cta p {
+      color: rgba(255, 255, 255, 0.74);
+      font-size: clamp(16px, 1.6vw, 20px);
+      line-height: 1.5;
+      max-width: 48ch;
+      margin: 0 0 22px;
+    }
     @media (max-width: 820px) {
       .card-share-grid {
         grid-template-columns: 1fr;
@@ -304,6 +365,10 @@ function renderCardPage(card, req) {
       }
       .card-copy h1 {
         max-width: 10ch;
+      }
+      .set-logo {
+        max-height: 54px;
+        max-width: 190px;
       }
       .detail-list {
         grid-template-columns: 1fr;
@@ -336,7 +401,7 @@ function renderCardPage(card, req) {
           <span>${escapeHtml(card?.set?.name || card?.set?.id || "Pokemon TCG")}</span>
         </div>
         <h1>${escapeHtml(card.name)}</h1>
-        <p class="card-meta-line">${escapeHtml([typeText, card?.rarity, card?.number ? `Card #${card.number}` : null].filter(Boolean).join(" | "))}</p>
+        <p class="card-meta-line">${escapeHtml([typeText, card?.rarity, setCardNumber ? `Card ${setCardNumber}` : null].filter(Boolean).join(" | "))}</p>
         <dl class="detail-list">${detailRows(card)}</dl>
         ${flavorText}
         <div class="card-actions">
@@ -345,6 +410,14 @@ function renderCardPage(card, req) {
         </div>
       </section>
     </div>
+    <section class="container community-cta" aria-labelledby="community-cta-title">
+      <h2 id="community-cta-title">Join a better ${pokemonText()} TCG community.</h2>
+      <p>Track your collection, share pulls, talk trades, and connect with collectors who care about the cards as much as you do.</p>
+      <div class="card-actions">
+        <a class="button primary" href="${APP_STORE_URL}" target="_blank" rel="noopener noreferrer">Download Route 25</a>
+        <a class="button" href="${DISCORD_URL}" target="_blank" rel="noopener noreferrer">Join the Discord</a>
+      </div>
+    </section>
   </main>
 </body>
 </html>`;
