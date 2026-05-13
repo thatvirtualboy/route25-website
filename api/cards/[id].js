@@ -25,6 +25,15 @@ function cardSetId(cardId) {
   return idx > 0 ? id.slice(0, idx) : "";
 }
 
+function route25CardId(cardId) {
+  const id = String(cardId || "").trim();
+  const setId = cardSetId(id);
+  if (setId.toLowerCase() === "sv35") {
+    return id.replace(/^sv35-/i, "sv3pt5-");
+  }
+  return id;
+}
+
 async function fetchJson(url) {
   const response = await fetch(url, {
     headers: { accept: "application/json" }
@@ -36,7 +45,8 @@ async function fetchJson(url) {
 }
 
 async function fetchCard(cardId) {
-  const setId = cardSetId(cardId);
+  const lookupCardId = route25CardId(cardId);
+  const setId = cardSetId(lookupCardId);
   if (!setId) return null;
 
   let card = null;
@@ -44,7 +54,7 @@ async function fetchCard(cardId) {
     const bySetUrl = `${BACKEND_ORIGIN}/api/tcg/by-set?set=${encodeURIComponent(setId)}&pageSize=500`;
     const bySetPayload = await fetchJson(bySetUrl);
     const items = Array.isArray(bySetPayload.items) ? bySetPayload.items : [];
-    const match = items.find((card) => String(card?.id || "").toLowerCase() === cardId.toLowerCase());
+    const match = items.find((card) => String(card?.id || "").toLowerCase() === lookupCardId.toLowerCase());
     if (match) card = match;
   } catch {
     // Fall through to the seed endpoint below.
@@ -54,7 +64,7 @@ async function fetchCard(cardId) {
     const seedUrl = `${BACKEND_ORIGIN}/api/seed/cards?set=${encodeURIComponent(setId)}&page=1&pageSize=500`;
     const seedPayload = await fetchJson(seedUrl);
     const seedItems = Array.isArray(seedPayload.data) ? seedPayload.data : [];
-    card = seedItems.find((card) => String(card?.id || "").toLowerCase() === cardId.toLowerCase()) || null;
+    card = seedItems.find((card) => String(card?.id || "").toLowerCase() === lookupCardId.toLowerCase()) || null;
   }
 
   if (!card) return null;

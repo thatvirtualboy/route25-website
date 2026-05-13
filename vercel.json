@@ -21,11 +21,11 @@
     },
     {
       "source": "/cards/:id",
-      "destination": "/api/cards/:id"
+      "destination": "/api/cards?id=:id"
     },
     {
       "source": "/cards/:id/",
-      "destination": "/api/cards/:id"
+      "destination": "/api/cards?id=:id"
     },
     {
       "source": "/card-images/:path*",
