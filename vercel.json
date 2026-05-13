@@ -24,6 +24,18 @@
       "destination": "/api/sitemap-cards.js"
     },
     {
+      "source": "/search",
+      "destination": "/api/card-search.js"
+    },
+    {
+      "source": "/search/",
+      "destination": "/api/card-search.js"
+    },
+    {
+      "source": "/api/card-search",
+      "destination": "/api/card-search-data.js"
+    },
+    {
       "source": "/cards/:id",
       "destination": "/api/cards.js?id=:id"
     },

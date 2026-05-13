@@ -98,11 +98,23 @@ async function fetchCard(cardId) {
 
   let card = null;
   try {
-    const bySetUrl = `${BACKEND_ORIGIN}/api/tcg/by-set?set=${encodeURIComponent(setId)}&pageSize=500`;
-    const bySetPayload = await fetchJson(bySetUrl);
-    const items = Array.isArray(bySetPayload.items) ? bySetPayload.items : [];
+    const cardUrl = `${BACKEND_ORIGIN}/api/tcg/cards?q=${encodeURIComponent(`id:${lookupCardId}`)}&pageSize=1`;
+    const cardPayload = await fetchJson(cardUrl);
+    const items = Array.isArray(cardPayload.data) ? cardPayload.data : [];
     const match = items.find((card) => String(card?.id || "").toLowerCase() === lookupCardId.toLowerCase());
     if (match) card = match;
+  } catch {
+    // Fall through to the broader set endpoints below.
+  }
+
+  try {
+    if (!card) {
+      const bySetUrl = `${BACKEND_ORIGIN}/api/tcg/by-set?set=${encodeURIComponent(setId)}&pageSize=500`;
+      const bySetPayload = await fetchJson(bySetUrl);
+      const items = Array.isArray(bySetPayload.items) ? bySetPayload.items : [];
+      const match = items.find((card) => String(card?.id || "").toLowerCase() === lookupCardId.toLowerCase());
+      if (match) card = match;
+    }
   } catch {
     // Fall through to the seed endpoint below.
   }
@@ -153,9 +165,19 @@ async function enrichCardSet(card, setId) {
   if (currentSetId && currentSetId.toLowerCase() !== setId.toLowerCase()) return card;
 
   let enrichedCard = card;
-  try {
-    const setsPayload = await fetchJson(`${BACKEND_ORIGIN}/api/tcg/sets`);
-    const sets = Array.isArray(setsPayload.data) ? setsPayload.data : [];
+  const needsOfficialSet = !(
+    card?.set?.printedTotal
+    || card?.set?.cardCount?.official
+    || card?.printedTotal
+  );
+
+  const [setsResult, officialSetResult] = await Promise.allSettled([
+    fetchJson(`${BACKEND_ORIGIN}/api/tcg/sets`),
+    needsOfficialSet ? fetchOfficialSet(setId) : Promise.resolve(null)
+  ]);
+
+  if (setsResult.status === "fulfilled") {
+    const sets = Array.isArray(setsResult.value?.data) ? setsResult.value.data : [];
     const set = sets.find((item) => String(item?.id || "").toLowerCase() === setId.toLowerCase());
     if (set) {
       enrichedCard = {
@@ -171,12 +193,10 @@ async function enrichCardSet(card, setId) {
         }
       };
     }
-  } catch {
-    // Keep the card payload if the route metadata endpoint is unavailable.
   }
 
-  try {
-    const officialSet = await fetchOfficialSet(setId);
+  if (officialSetResult.status === "fulfilled") {
+    const officialSet = officialSetResult.value;
     if (officialSet) {
       enrichedCard = {
         ...enrichedCard,
@@ -191,8 +211,6 @@ async function enrichCardSet(card, setId) {
         }
       };
     }
-  } catch {
-    // Printed totals improve the preview, but should not block card pages.
   }
 
   return enrichedCard;
@@ -273,6 +291,8 @@ function renderCardPage(card, req, options = {}) {
   const image = absoluteUrl(card?.images?.large || card?.images?.small, BACKEND_ORIGIN);
   const setLogo = absoluteUrl(card?.set?.images?.localLogo || card?.set?.images?.logo, BACKEND_ORIGIN);
   const setName = card?.set?.name || card?.set?.id || "Pokemon TCG";
+  const browseSetId = card?.set?.id || cardSetId(card.id);
+  const browseSetUrl = browseSetId ? `/search?set=${encodeURIComponent(browseSetId)}` : "/search";
   const cardNumber = card?.number ? ` #${card.number}` : "";
   const setCardNumber = formatCardNumber(card);
   const title = `${card.name}${cardNumber} ${setName} ${pokemonText()} Card | Route 25`;
@@ -511,6 +531,7 @@ function renderCardPage(card, req, options = {}) {
         ${flavorText}
         <div class="card-actions">
           <a class="button primary" href="${APP_STORE_URL}" target="_blank" rel="noopener noreferrer">Get Route 25</a>
+          <a class="button" href="${escapeHtml(browseSetUrl)}">Browse this set</a>
           <a class="button" href="/">Explore Route 25</a>
         </div>
       </section>
@@ -560,7 +581,10 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const card = await fetchCard(cardId);
+    const [card, tcgcsvQuote] = await Promise.all([
+      fetchCard(cardId),
+      fetchTcgcsvQuote(route25CardId(cardId))
+    ]);
     if (!card) {
       res.statusCode = 404;
       res.setHeader("content-type", "text/html; charset=utf-8");
@@ -571,7 +595,6 @@ module.exports = async (req, res) => {
     res.statusCode = 200;
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.setHeader("cache-control", "s-maxage=86400, stale-while-revalidate=604800");
-    const tcgcsvQuote = await fetchTcgcsvQuote(card.id);
     res.end(renderCardPage(card, req, { tcgcsvQuote }));
   } catch (error) {
     res.statusCode = 500;
