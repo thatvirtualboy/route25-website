@@ -113,16 +113,18 @@ async function fetchCard(cardId) {
     const cardPayload = await fetchJson(cardUrl);
     const items = Array.isArray(cardPayload.data) ? cardPayload.data : [];
     const match = items.find((card) => String(card?.id || "").toLowerCase() === lookupCardId.toLowerCase());
-    if (match) card = match;
+    if (match) card = withTcgplayerCardVariants(match);
   } catch {
     // Fall through to the broader set endpoints below.
   }
 
-  try {
-    setCard = await fetchCardFromSet(setId, lookupCardId);
-    if (!card && setCard) card = setCard;
-  } catch {
-    // Fall through to the seed endpoint below.
+  if (!hasFastCardVariants(card)) {
+    try {
+      setCard = await fetchCardFromSet(setId, lookupCardId);
+      if (!card && setCard) card = setCard;
+    } catch {
+      // Fall through to the seed endpoint below.
+    }
   }
 
   if (!card) {
@@ -162,67 +164,16 @@ async function fetchCardFromSet(setId, lookupCardId) {
   return items.find((card) => String(card?.id || "").toLowerCase() === lookupCardId.toLowerCase()) || null;
 }
 
-async function fetchTcgcsvQuote(cardId) {
-  const id = String(cardId || "").trim();
-  if (!id) return null;
-
-  try {
-    const payload = await fetchJson(`${BACKEND_ORIGIN}/api/pricing/${encodeURIComponent(id)}`);
-    const data = payload?.data;
-    if (!payload?.ok || !data) return null;
-
-    const marketUsd = Number(data.marketUsd);
-    const marketEur = Number(data.marketEur);
-    if (Number.isFinite(marketUsd) && marketUsd > 0) {
-      return {
-        amount: marketUsd,
-        currencyCode: data.currencyCode || "USD",
-        updatedAt: data.updatedAt || null
-      };
-    }
-    if (Number.isFinite(marketEur) && marketEur > 0) {
-      return {
-        amount: marketEur,
-        currencyCode: data.currencyCode || "EUR",
-        updatedAt: data.updatedAt || null
-      };
-    }
-  } catch {
-    // Pricing is useful context, but should never block a shareable card page.
-  }
-
-  return null;
-}
-
-async function enrichVariantPricing(card) {
-  const variants = cardVariants(card);
-  if (!variants.length) return card;
-
-  const cardId = String(card?.id || "");
-  const pricedVariants = await Promise.all(variants.map(async (variant) => {
-    if (variantPricingQuote(variant)) return variant;
-    const quote = await fetchTcgcsvQuote(variant.id);
-    if (!quote) return variant;
-    return {
-      ...variant,
-      cardId: variant.cardId || cardId,
-      pricing: {
-        ...(variant.pricing || {}),
-        marketUsd: quote.amount,
-        updatedAt: quote.updatedAt || variant?.pricing?.updatedAt,
-      },
-    };
-  }));
-
-  return {
-    ...card,
-    cardVariants: pricedVariants,
-  };
-}
-
 async function enrichCardSet(card, setId) {
   const currentSetId = String(card?.set?.id || "").trim();
   if (currentSetId && currentSetId.toLowerCase() !== setId.toLowerCase()) return card;
+  if (
+    card?.set?.name
+    && (card?.set?.printedTotal || card?.set?.cardCount?.official || card?.printedTotal)
+    && (card?.set?.images?.logo || card?.set?.images?.localLogo)
+  ) {
+    return card;
+  }
 
   let enrichedCard = card;
   const needsOfficialSet = !(
@@ -351,6 +302,7 @@ function detailRows(card, options = {}) {
     : options.tcgcsvQuote
       ? formatCurrency(options.tcgcsvQuote.amount, options.tcgcsvQuote.currencyCode)
       : "";
+  const showAsyncPrice = options.enableAsyncPricing === true;
   const rows = [
     ["Set", card?.set?.name || card?.set?.id],
     ["Card No.", cardNumber],
@@ -359,7 +311,7 @@ function detailRows(card, options = {}) {
     ["Type", Array.isArray(card?.types) ? card.types.join(", ") : null],
     ["Artist", card?.artist || card?.illustrator],
     ["Regulation", card?.regulationMark],
-    ["TCGPlayer Value", tcgcsvValue],
+    ["TCGPlayer Value", tcgcsvValue || (showAsyncPrice ? "Loading..." : null)],
     ["eBay", "Search eBay listings", options.ebayUrl, true]
   ].filter(([, value]) => value);
 
@@ -382,6 +334,60 @@ function cardVariants(card) {
   return Array.isArray(card?.cardVariants)
     ? card.cardVariants.filter((variant) => variant?.id && variant?.label)
     : [];
+}
+
+function hasCardVariants(card) {
+  return cardVariants(card).length > 0;
+}
+
+function hasFastCardVariants(card) {
+  return cardVariants(card).length > 1;
+}
+
+function withTcgplayerCardVariants(card) {
+  if (!card || hasCardVariants(card)) return card;
+  const variants = variantsFromTcgplayerPrices(card);
+  return variants.length ? { ...card, cardVariants: variants } : card;
+}
+
+function variantsFromTcgplayerPrices(card) {
+  const cardId = String(card?.id || "").trim();
+  const prices = card?.tcgplayer?.prices;
+  if (!cardId || !prices || typeof prices !== "object") return [];
+
+  const configs = [
+    { key: "normal", suffix: "normal", label: "Normal", finish: "normal", kind: "master", isDefault: true },
+    { key: "holofoil", suffix: "holo", label: "Holo", finish: "holo", kind: "master", isDefault: true },
+    { key: "reverseHolofoil", suffix: "reverse-holo", label: "Reverse Holo", finish: "reverse_holo", kind: "additional" },
+    { key: "1stEditionHolofoil", suffix: "first-edition-holo", label: "1st Edition Holo", finish: "first_edition_holo", kind: "master", isDefault: true },
+    { key: "1stEditionNormal", suffix: "first-edition-normal", label: "1st Edition Normal", finish: "first_edition_normal", kind: "master", isDefault: true },
+  ];
+
+  return configs.flatMap((config) => {
+    const price = pickTcgplayerPrice(prices[config.key]);
+    if (!price) return [];
+    return [{
+      id: `${cardId}:${config.suffix}`,
+      cardId,
+      label: config.label,
+      kind: config.kind,
+      finish: config.finish,
+      size: "standard",
+      isDefault: config.isDefault,
+      pricing: {
+        marketUsd: price,
+        updatedAt: typeof card?.tcgplayer?.updatedAt === "string" ? card.tcgplayer.updatedAt : undefined,
+      },
+    }];
+  });
+}
+
+function pickTcgplayerPrice(price) {
+  for (const key of ["market", "marketPrice", "mid", "midPrice", "low", "lowPrice"]) {
+    const value = Number(price?.[key]);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return null;
 }
 
 function selectedVariant(card, req) {
@@ -428,11 +434,65 @@ function variantChips(card, selected, fallbackQuote) {
 function variantScript(cardId) {
   return `<script>
     (() => {
+      const backendOrigin = "${BACKEND_ORIGIN}";
+      const cardId = ${JSON.stringify(cardId)};
       const chips = Array.from(document.querySelectorAll(".variant-chip"));
       const variantLabel = document.getElementById("selected-variant-label");
       const variantPrice = document.getElementById("selected-variant-price");
-      if (!chips.length || !variantLabel || !variantPrice) return;
+      if (!variantPrice) return;
       const initialPrice = variantPrice.textContent || "";
+      const priceCache = new Map();
+      const formatUsd = (amount) => {
+        const value = Number(amount);
+        if (!Number.isFinite(value) || value <= 0) return "";
+        try {
+          return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2, minimumFractionDigits: 2 }).format(value);
+        } catch {
+          return "$" + value.toFixed(2);
+        }
+      };
+      const fetchPrice = async (id) => {
+        if (!id) return "";
+        if (priceCache.has(id)) return priceCache.get(id);
+        try {
+          const response = await fetch(backendOrigin + "/api/pricing/" + encodeURIComponent(id), { headers: { accept: "application/json" } });
+          const payload = await response.json();
+          const formatted = payload && payload.ok && payload.data ? formatUsd(payload.data.marketUsd || payload.data.marketEur) : "";
+          priceCache.set(id, formatted);
+          return formatted;
+        } catch {
+          priceCache.set(id, "");
+          return "";
+        }
+      };
+      const hydrateChipPrice = async (chip) => {
+        if (chip.dataset.variantPrice) return chip.dataset.variantPrice;
+        const variantId = chip.dataset.variantId || "";
+        const exact = await fetchPrice(variantId);
+        const fallback = exact || await fetchPrice(cardId);
+        chip.dataset.variantPrice = fallback;
+        return fallback;
+      };
+      const setPriceForChip = async (chip, loadingText) => {
+        const existing = chip.dataset.variantPrice || "";
+        if (existing) {
+          variantPrice.textContent = existing;
+          return;
+        }
+        variantPrice.textContent = loadingText || "Loading...";
+        const hydrated = await hydrateChipPrice(chip);
+        if (chip.classList.contains("active")) {
+          variantPrice.textContent = hydrated || "Price unavailable";
+        }
+      };
+      if (!chips.length || !variantLabel) {
+        if (!variantPrice.textContent || variantPrice.textContent === "Loading...") {
+          fetchPrice(cardId).then((price) => {
+            variantPrice.textContent = price || "Price unavailable";
+          });
+        }
+        return;
+      }
       for (const chip of chips) {
         chip.addEventListener("click", () => {
           for (const item of chips) {
@@ -440,11 +500,18 @@ function variantScript(cardId) {
             item.setAttribute("aria-pressed", item === chip ? "true" : "false");
           }
           variantLabel.textContent = chip.dataset.variantLabel || "";
-          variantPrice.textContent = chip.dataset.variantPrice || initialPrice || "Price unavailable";
+          setPriceForChip(chip, initialPrice || "Loading...");
           const url = new URL(window.location.href);
           url.searchParams.set("variant", chip.dataset.variantId || "");
           window.history.replaceState({}, "", url);
         });
+      }
+      const active = chips.find((chip) => chip.classList.contains("active")) || chips[0];
+      if (active && !active.dataset.variantPrice) {
+        setPriceForChip(active, initialPrice || "Loading...");
+      }
+      for (const chip of chips) {
+        if (!chip.dataset.variantPrice) hydrateChipPrice(chip);
       }
     })();
   </script>`;
@@ -755,7 +822,7 @@ function renderCardPage(card, req, options = {}) {
         <h1>${escapeHtml(card.name)}</h1>
         <p class="card-meta-line">${escapeHtml([typeText, card?.rarity, setCardNumber ? `Card ${setCardNumber}` : null].filter(Boolean).join(" | "))}</p>
         ${variantChips(card, selected, options.tcgcsvQuote)}
-        <dl class="detail-list">${detailRows(card, { tcgcsvQuote: options.tcgcsvQuote, ebayUrl, selectedVariant: selected })}</dl>
+        <dl class="detail-list">${detailRows(card, { tcgcsvQuote: options.tcgcsvQuote, ebayUrl, selectedVariant: selected, enableAsyncPricing: true })}</dl>
         ${flavorText}
         <div class="card-actions">
           <a class="button primary" href="${APP_STORE_URL}" target="_blank" rel="noopener noreferrer">Get Route 25</a>
@@ -810,22 +877,18 @@ module.exports = async (req, res) => {
   }
 
   try {
-    let [card, tcgcsvQuote] = await Promise.all([
-      fetchCard(cardId),
-      fetchTcgcsvQuote(route25CardId(cardId))
-    ]);
+    const card = await fetchCard(cardId);
     if (!card) {
       res.statusCode = 404;
       res.setHeader("content-type", "text/html; charset=utf-8");
       res.end(renderNotFound(cardId));
       return;
     }
-    card = await enrichVariantPricing(card);
 
     res.statusCode = 200;
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.setHeader("cache-control", "s-maxage=86400, stale-while-revalidate=604800");
-    res.end(renderCardPage(card, req, { tcgcsvQuote }));
+    res.end(renderCardPage(card, req, { tcgcsvQuote: null }));
   } catch (error) {
     res.statusCode = 500;
     res.setHeader("content-type", "text/html; charset=utf-8");
