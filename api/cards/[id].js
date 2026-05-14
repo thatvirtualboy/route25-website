@@ -107,6 +107,7 @@ async function fetchCard(cardId) {
   if (!setId) return null;
 
   let card = null;
+  let setCard = null;
   try {
     const cardUrl = `${BACKEND_ORIGIN}/api/tcg/cards?q=${encodeURIComponent(`id:${lookupCardId}`)}&pageSize=1`;
     const cardPayload = await fetchJson(cardUrl);
@@ -118,13 +119,8 @@ async function fetchCard(cardId) {
   }
 
   try {
-    if (!card) {
-      const bySetUrl = `${BACKEND_ORIGIN}/api/tcg/by-set?set=${encodeURIComponent(setId)}&pageSize=500`;
-      const bySetPayload = await fetchJson(bySetUrl);
-      const items = Array.isArray(bySetPayload.items) ? bySetPayload.items : [];
-      const match = items.find((card) => String(card?.id || "").toLowerCase() === lookupCardId.toLowerCase());
-      if (match) card = match;
-    }
+    setCard = await fetchCardFromSet(setId, lookupCardId);
+    if (!card && setCard) card = setCard;
   } catch {
     // Fall through to the seed endpoint below.
   }
@@ -136,8 +132,34 @@ async function fetchCard(cardId) {
     card = seedItems.find((card) => String(card?.id || "").toLowerCase() === lookupCardId.toLowerCase()) || null;
   }
 
+  if (setCard) {
+    card = {
+      ...card,
+      ...setCard,
+      images: {
+        ...(card?.images || {}),
+        ...(setCard?.images || {})
+      },
+      set: {
+        ...(card?.set || {}),
+        ...(setCard?.set || {}),
+        images: {
+          ...(card?.set?.images || {}),
+          ...(setCard?.set?.images || {})
+        }
+      }
+    };
+  }
+
   if (!card) return null;
   return enrichCardSet(card, setId);
+}
+
+async function fetchCardFromSet(setId, lookupCardId) {
+  const bySetUrl = `${BACKEND_ORIGIN}/api/tcg/by-set?set=${encodeURIComponent(setId)}&pageSize=500`;
+  const bySetPayload = await fetchJson(bySetUrl);
+  const items = Array.isArray(bySetPayload.items) ? bySetPayload.items : [];
+  return items.find((card) => String(card?.id || "").toLowerCase() === lookupCardId.toLowerCase()) || null;
 }
 
 async function fetchTcgcsvQuote(cardId) {
@@ -295,12 +317,16 @@ function formatCardNumber(card) {
 
 function detailRows(card, options = {}) {
   const cardNumber = formatCardNumber(card);
-  const tcgcsvValue = options.tcgcsvQuote
-    ? formatCurrency(options.tcgcsvQuote.amount, options.tcgcsvQuote.currencyCode)
-    : "";
+  const variantQuote = variantPricingQuote(options.selectedVariant);
+  const tcgcsvValue = variantQuote
+    ? formatCurrency(variantQuote.amount, variantQuote.currencyCode)
+    : options.tcgcsvQuote
+      ? formatCurrency(options.tcgcsvQuote.amount, options.tcgcsvQuote.currencyCode)
+      : "";
   const rows = [
     ["Set", card?.set?.name || card?.set?.id],
     ["Card No.", cardNumber],
+    ["Variant", options.selectedVariant?.label],
     ["Rarity", card?.rarity],
     ["Type", Array.isArray(card?.types) ? card.types.join(", ") : null],
     ["Artist", card?.artist || card?.illustrator],
@@ -318,6 +344,70 @@ function detailRows(card, options = {}) {
       </dd>
     </div>
   `).join("");
+}
+
+function cardVariants(card) {
+  return Array.isArray(card?.cardVariants)
+    ? card.cardVariants.filter((variant) => variant?.id && variant?.label)
+    : [];
+}
+
+function selectedVariant(card, req) {
+  const variants = cardVariants(card);
+  if (!variants.length) return null;
+  const requested = String(req.query?.variant || "").trim();
+  if (requested) {
+    const match = variants.find((variant) => String(variant.id) === requested);
+    if (match) return match;
+  }
+  return variants.find((variant) => variant.isDefault === true) || variants[0];
+}
+
+function variantPricingQuote(variant) {
+  const marketUsd = Number(variant?.pricing?.marketUsd);
+  if (!Number.isFinite(marketUsd) || marketUsd <= 0) return null;
+  return {
+    amount: marketUsd,
+    currencyCode: "USD"
+  };
+}
+
+function variantTags(variant) {
+  const tags = [];
+  if (variant?.kind === "master") tags.push("Master");
+  if (variant?.kind === "additional") tags.push("Additional");
+  if (variant?.finish) tags.push(String(variant.finish).replaceAll("_", " "));
+  if (variant?.size === "jumbo") tags.push("Jumbo");
+  if (Array.isArray(variant?.stamps)) {
+    for (const stamp of variant.stamps) tags.push(String(stamp).replaceAll("-", " "));
+  }
+  return Array.from(new Set(tags.filter(Boolean)));
+}
+
+function variantPanel(card, selected, pageUrl) {
+  const variants = cardVariants(card);
+  if (!variants.length) return "";
+  const variantItems = variants.map((variant) => {
+    const isSelected = selected && variant.id === selected.id;
+    const price = variantPricingQuote(variant);
+    const tags = variantTags(variant);
+    const href = `${pageUrl}?variant=${encodeURIComponent(variant.id)}`;
+    return `<a class="variant-card${isSelected ? " active" : ""}" href="${escapeHtml(href)}" aria-current="${isSelected ? "true" : "false"}">
+      <span class="variant-card-main">
+        <span class="variant-name">${escapeHtml(variant.label)}</span>
+        ${tags.length ? `<span class="variant-tags">${tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</span>` : ""}
+      </span>
+      <span class="variant-price">${price ? escapeHtml(formatCurrency(price.amount, price.currencyCode)) : "No price"}</span>
+    </a>`;
+  }).join("");
+
+  return `<section class="variant-panel" aria-labelledby="variants-title">
+    <div class="variant-panel-header">
+      <h2 id="variants-title">Variants</h2>
+      <p>${escapeHtml(variants.length)} available for this card</p>
+    </div>
+    <div class="variant-list">${variantItems}</div>
+  </section>`;
 }
 
 function socialToolbar() {
@@ -362,6 +452,8 @@ function renderCardPage(card, req, options = {}) {
   const typeText = [card?.supertype, ...(Array.isArray(card?.subtypes) ? card.subtypes : [])].filter(Boolean).join(" / ");
   const flavorText = card?.flavorText ? `<blockquote>${escapeHtml(card.flavorText)}</blockquote>` : "";
   const ebayUrl = ebayAffiliateUrl(ebaySearchQuery(card), `r25-card-${card.id}`);
+  const selected = selectedVariant(card, req);
+  const pageQuote = variantPricingQuote(selected) || options.tcgcsvQuote;
 
   return `<!doctype html>
 <html lang="en">
@@ -386,7 +478,7 @@ function renderCardPage(card, req, options = {}) {
   <link rel="icon" href="/favicon.png" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="stylesheet" href="/assets/site.css" />
-  <script type="application/ld+json">${jsonScript(cardStructuredData(card, pageUrl, image, description, { tcgcsvQuote: options.tcgcsvQuote }))}</script>
+  <script type="application/ld+json">${jsonScript(cardStructuredData(card, pageUrl, image, description, { tcgcsvQuote: pageQuote }))}</script>
   <style>
     .card-share-hero {
       min-height: calc(100vh - 64px);
@@ -479,6 +571,80 @@ function renderCardPage(card, req, options = {}) {
       margin: 0;
       font-weight: 760;
     }
+    .variant-panel {
+      margin-top: 28px;
+      padding: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.055);
+    }
+    .variant-panel-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+    .variant-panel h2 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0.02em;
+    }
+    .variant-panel p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .variant-list {
+      display: grid;
+      gap: 10px;
+    }
+    .variant-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 13px 14px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 14px;
+      color: inherit;
+      text-decoration: none;
+      background: rgba(5, 6, 10, 0.28);
+    }
+    .variant-card:hover {
+      border-color: rgba(88, 199, 255, 0.5);
+      background: rgba(88, 199, 255, 0.08);
+    }
+    .variant-card.active {
+      border-color: rgba(255, 214, 82, 0.58);
+      background: rgba(255, 214, 82, 0.1);
+    }
+    .variant-card-main {
+      min-width: 0;
+    }
+    .variant-name {
+      display: block;
+      font-weight: 800;
+    }
+    .variant-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .variant-tags span {
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.68);
+      font-size: 11px;
+      text-transform: capitalize;
+    }
+    .variant-price {
+      flex: 0 0 auto;
+      font-weight: 850;
+      color: rgba(255, 255, 255, 0.9);
+    }
     .detail-link {
       display: inline-flex;
       align-items: baseline;
@@ -563,6 +729,11 @@ function renderCardPage(card, req, options = {}) {
       .detail-list {
         grid-template-columns: 1fr;
       }
+      .variant-panel-header,
+      .variant-card {
+        align-items: flex-start;
+        flex-direction: column;
+      }
     }
   </style>
 </head>
@@ -591,7 +762,8 @@ function renderCardPage(card, req, options = {}) {
         </div>
         <h1>${escapeHtml(card.name)}</h1>
         <p class="card-meta-line">${escapeHtml([typeText, card?.rarity, setCardNumber ? `Card ${setCardNumber}` : null].filter(Boolean).join(" | "))}</p>
-        <dl class="detail-list">${detailRows(card, { tcgcsvQuote: options.tcgcsvQuote, ebayUrl })}</dl>
+        <dl class="detail-list">${detailRows(card, { tcgcsvQuote: options.tcgcsvQuote, ebayUrl, selectedVariant: selected })}</dl>
+        ${variantPanel(card, selected, pageUrl)}
         ${flavorText}
         <div class="card-actions">
           <a class="button primary" href="${APP_STORE_URL}" target="_blank" rel="noopener noreferrer">Get Route 25</a>
