@@ -338,7 +338,11 @@ function detailRows(card, options = {}) {
   return rows.map(([label, value, linkUrl, isExternal]) => `
     <div class="detail-row">
       <dt>${escapeHtml(label)}</dt>
-      <dd>${linkUrl
+      <dd>${label === "Variant"
+        ? `<span id="selected-variant-label">${escapeHtml(value)}</span>`
+        : label === "TCGPlayer Value"
+          ? `<span id="selected-variant-price">${escapeHtml(value)}</span>`
+          : linkUrl
         ? `<a class="detail-link" href="${escapeHtml(linkUrl)}" target="_blank" rel="nofollow sponsored noopener noreferrer">${escapeHtml(value)}${isExternal ? '<span class="external-link-icon" aria-hidden="true">↗</span>' : ""}<span class="sr-only"> Opens in a new tab</span></a>`
         : escapeHtml(value)}
       </dd>
@@ -372,42 +376,48 @@ function variantPricingQuote(variant) {
   };
 }
 
-function variantTags(variant) {
-  const tags = [];
-  if (variant?.kind === "master") tags.push("Master");
-  if (variant?.kind === "additional") tags.push("Additional");
-  if (variant?.finish) tags.push(String(variant.finish).replaceAll("_", " "));
-  if (variant?.size === "jumbo") tags.push("Jumbo");
-  if (Array.isArray(variant?.stamps)) {
-    for (const stamp of variant.stamps) tags.push(String(stamp).replaceAll("-", " "));
-  }
-  return Array.from(new Set(tags.filter(Boolean)));
-}
-
-function variantPanel(card, selected, pageUrl) {
+function variantChips(card, selected) {
   const variants = cardVariants(card);
   if (!variants.length) return "";
-  const variantItems = variants.map((variant) => {
+  const chips = variants.map((variant) => {
     const isSelected = selected && variant.id === selected.id;
     const price = variantPricingQuote(variant);
-    const tags = variantTags(variant);
-    const href = `${pageUrl}?variant=${encodeURIComponent(variant.id)}`;
-    return `<a class="variant-card${isSelected ? " active" : ""}" href="${escapeHtml(href)}" aria-current="${isSelected ? "true" : "false"}">
-      <span class="variant-card-main">
-        <span class="variant-name">${escapeHtml(variant.label)}</span>
-        ${tags.length ? `<span class="variant-tags">${tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</span>` : ""}
-      </span>
-      <span class="variant-price">${price ? escapeHtml(formatCurrency(price.amount, price.currencyCode)) : "No price"}</span>
-    </a>`;
+    const formattedPrice = price ? formatCurrency(price.amount, price.currencyCode) : "";
+    return `<button
+      class="variant-chip${isSelected ? " active" : ""}"
+      type="button"
+      data-variant-id="${escapeHtml(variant.id)}"
+      data-variant-label="${escapeHtml(variant.label)}"
+      data-variant-price="${escapeHtml(formattedPrice)}"
+      aria-pressed="${isSelected ? "true" : "false"}"
+    >${escapeHtml(variant.label)}</button>`;
   }).join("");
 
-  return `<section class="variant-panel" aria-labelledby="variants-title">
-    <div class="variant-panel-header">
-      <h2 id="variants-title">Variants</h2>
-      <p>${escapeHtml(variants.length)} available for this card</p>
-    </div>
-    <div class="variant-list">${variantItems}</div>
-  </section>`;
+  return `<div class="variant-chip-row" aria-label="Select card variant">${chips}</div>`;
+}
+
+function variantScript(cardId) {
+  return `<script>
+    (() => {
+      const chips = Array.from(document.querySelectorAll(".variant-chip"));
+      const variantLabel = document.getElementById("selected-variant-label");
+      const variantPrice = document.getElementById("selected-variant-price");
+      if (!chips.length || !variantLabel || !variantPrice) return;
+      for (const chip of chips) {
+        chip.addEventListener("click", () => {
+          for (const item of chips) {
+            item.classList.toggle("active", item === chip);
+            item.setAttribute("aria-pressed", item === chip ? "true" : "false");
+          }
+          variantLabel.textContent = chip.dataset.variantLabel || "";
+          variantPrice.textContent = chip.dataset.variantPrice || "Price unavailable";
+          const url = new URL(window.location.href);
+          url.searchParams.set("variant", chip.dataset.variantId || "");
+          window.history.replaceState({}, "", url);
+        });
+      }
+    })();
+  </script>`;
 }
 
 function socialToolbar() {
@@ -571,79 +581,36 @@ function renderCardPage(card, req, options = {}) {
       margin: 0;
       font-weight: 760;
     }
-    .variant-panel {
-      margin-top: 28px;
-      padding: 18px;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 18px;
-      background: rgba(255, 255, 255, 0.055);
-    }
-    .variant-panel-header {
+    .variant-chip-row {
       display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 14px;
-      margin-bottom: 12px;
+      flex-wrap: nowrap;
+      gap: 8px;
+      margin: -6px 0 22px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+      scrollbar-width: thin;
     }
-    .variant-panel h2 {
-      margin: 0;
-      font-size: 18px;
-      letter-spacing: 0.02em;
-    }
-    .variant-panel p {
-      margin: 0;
-      color: var(--muted);
-      font-size: 13px;
-    }
-    .variant-list {
-      display: grid;
-      gap: 10px;
-    }
-    .variant-card {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 14px;
-      padding: 13px 14px;
+    .variant-chip {
+      appearance: none;
+      flex: 0 0 auto;
+      padding: 8px 12px;
       border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 14px;
+      border-radius: 999px;
       color: inherit;
-      text-decoration: none;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 760;
+      line-height: 1;
       background: rgba(5, 6, 10, 0.28);
+      cursor: pointer;
     }
-    .variant-card:hover {
+    .variant-chip:hover {
       border-color: rgba(88, 199, 255, 0.5);
       background: rgba(88, 199, 255, 0.08);
     }
-    .variant-card.active {
+    .variant-chip.active {
       border-color: rgba(255, 214, 82, 0.58);
       background: rgba(255, 214, 82, 0.1);
-    }
-    .variant-card-main {
-      min-width: 0;
-    }
-    .variant-name {
-      display: block;
-      font-weight: 800;
-    }
-    .variant-tags {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-top: 6px;
-    }
-    .variant-tags span {
-      padding: 3px 7px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.08);
-      color: rgba(255, 255, 255, 0.68);
-      font-size: 11px;
-      text-transform: capitalize;
-    }
-    .variant-price {
-      flex: 0 0 auto;
-      font-weight: 850;
-      color: rgba(255, 255, 255, 0.9);
     }
     .detail-link {
       display: inline-flex;
@@ -729,11 +696,6 @@ function renderCardPage(card, req, options = {}) {
       .detail-list {
         grid-template-columns: 1fr;
       }
-      .variant-panel-header,
-      .variant-card {
-        align-items: flex-start;
-        flex-direction: column;
-      }
     }
   </style>
 </head>
@@ -762,8 +724,8 @@ function renderCardPage(card, req, options = {}) {
         </div>
         <h1>${escapeHtml(card.name)}</h1>
         <p class="card-meta-line">${escapeHtml([typeText, card?.rarity, setCardNumber ? `Card ${setCardNumber}` : null].filter(Boolean).join(" | "))}</p>
+        ${variantChips(card, selected)}
         <dl class="detail-list">${detailRows(card, { tcgcsvQuote: options.tcgcsvQuote, ebayUrl, selectedVariant: selected })}</dl>
-        ${variantPanel(card, selected, pageUrl)}
         ${flavorText}
         <div class="card-actions">
           <a class="button primary" href="${APP_STORE_URL}" target="_blank" rel="noopener noreferrer">Get Route 25</a>
@@ -781,6 +743,7 @@ function renderCardPage(card, req, options = {}) {
       </div>
     </section>
   </main>
+  ${variantScript(card.id)}
 </body>
 </html>`;
 }
