@@ -75,6 +75,11 @@ function releaseYear(set) {
   return Number.isFinite(year) ? String(year) : "";
 }
 
+function rarityCount(cards) {
+  const rarities = new Set(cards.map((card) => String(card?.rarity || "").trim()).filter(Boolean));
+  return rarities.size;
+}
+
 function renderCardGrid(cards) {
   return cards.map((card) => {
     const image = cardImage(card);
@@ -156,6 +161,7 @@ function renderSetPage(set, cards, req) {
   const name = set?.name || set?.id || "Pokemon TCG";
   const year = releaseYear(set);
   const total = setTotal(set, cards);
+  const rarities = rarityCount(cards);
   const logo = setLogo(set);
   const symbol = setSymbol(set);
   const heroImage = cardImage(cards[0]) || logo || symbol || "/assets/Icon.png";
@@ -374,7 +380,7 @@ function renderSetPage(set, cards, req) {
           <div class="set-stats">
             <div class="set-stat"><b>${escapeHtml(String(total || cards.length))}</b><span>Cards</span></div>
             <div class="set-stat"><b>${escapeHtml(year || "TCG")}</b><span>Released</span></div>
-            <div class="set-stat"><b>${escapeHtml(cards.length ? String(cards.length) : "Live")}</b><span>Indexed</span></div>
+            <div class="set-stat"><b>${escapeHtml(rarities ? String(rarities) : "Live")}</b><span>Rarities</span></div>
           </div>
           <div class="hero-actions">
             <a class="button primary" href="${escapeHtml(appUrl)}">Open this set in Route 25</a>
@@ -395,7 +401,7 @@ function renderSetPage(set, cards, req) {
     <section class="set-card-section">
       <div class="container">
         <h2 class="section-title">${escapeHtml(name)} card list</h2>
-        <p class="section-subtitle">Browse all ${escapeHtml(String(cards.length))} indexed cards for artwork, rarity, card numbers, TCGPlayer values, and collection context.</p>
+        <p class="section-subtitle">Browse artwork, rarity, card numbers, TCGPlayer values, and collection context for this set.</p>
         <div class="set-card-grid">${renderCardGrid(cards)}</div>
       </div>
     </section>
