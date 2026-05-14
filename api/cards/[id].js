@@ -376,13 +376,14 @@ function variantPricingQuote(variant) {
   };
 }
 
-function variantChips(card, selected) {
+function variantChips(card, selected, fallbackQuote) {
   const variants = cardVariants(card);
   if (!variants.length) return "";
+  const fallbackPrice = fallbackQuote ? formatCurrency(fallbackQuote.amount, fallbackQuote.currencyCode) : "";
   const chips = variants.map((variant) => {
     const isSelected = selected && variant.id === selected.id;
     const price = variantPricingQuote(variant);
-    const formattedPrice = price ? formatCurrency(price.amount, price.currencyCode) : "";
+    const formattedPrice = price ? formatCurrency(price.amount, price.currencyCode) : fallbackPrice;
     return `<button
       class="variant-chip${isSelected ? " active" : ""}"
       type="button"
@@ -403,6 +404,7 @@ function variantScript(cardId) {
       const variantLabel = document.getElementById("selected-variant-label");
       const variantPrice = document.getElementById("selected-variant-price");
       if (!chips.length || !variantLabel || !variantPrice) return;
+      const initialPrice = variantPrice.textContent || "";
       for (const chip of chips) {
         chip.addEventListener("click", () => {
           for (const item of chips) {
@@ -410,7 +412,7 @@ function variantScript(cardId) {
             item.setAttribute("aria-pressed", item === chip ? "true" : "false");
           }
           variantLabel.textContent = chip.dataset.variantLabel || "";
-          variantPrice.textContent = chip.dataset.variantPrice || "Price unavailable";
+          variantPrice.textContent = chip.dataset.variantPrice || initialPrice || "Price unavailable";
           const url = new URL(window.location.href);
           url.searchParams.set("variant", chip.dataset.variantId || "");
           window.history.replaceState({}, "", url);
@@ -724,7 +726,7 @@ function renderCardPage(card, req, options = {}) {
         </div>
         <h1>${escapeHtml(card.name)}</h1>
         <p class="card-meta-line">${escapeHtml([typeText, card?.rarity, setCardNumber ? `Card ${setCardNumber}` : null].filter(Boolean).join(" | "))}</p>
-        ${variantChips(card, selected)}
+        ${variantChips(card, selected, options.tcgcsvQuote)}
         <dl class="detail-list">${detailRows(card, { tcgcsvQuote: options.tcgcsvQuote, ebayUrl, selectedVariant: selected })}</dl>
         ${flavorText}
         <div class="card-actions">
