@@ -176,13 +176,15 @@ async function fetchTcgcsvQuote(cardId) {
     if (Number.isFinite(marketUsd) && marketUsd > 0) {
       return {
         amount: marketUsd,
-        currencyCode: data.currencyCode || "USD"
+        currencyCode: data.currencyCode || "USD",
+        updatedAt: data.updatedAt || null
       };
     }
     if (Number.isFinite(marketEur) && marketEur > 0) {
       return {
         amount: marketEur,
-        currencyCode: data.currencyCode || "EUR"
+        currencyCode: data.currencyCode || "EUR",
+        updatedAt: data.updatedAt || null
       };
     }
   } catch {
@@ -190,6 +192,32 @@ async function fetchTcgcsvQuote(cardId) {
   }
 
   return null;
+}
+
+async function enrichVariantPricing(card) {
+  const variants = cardVariants(card);
+  if (!variants.length) return card;
+
+  const cardId = String(card?.id || "");
+  const pricedVariants = await Promise.all(variants.map(async (variant) => {
+    if (variantPricingQuote(variant)) return variant;
+    const quote = await fetchTcgcsvQuote(variant.id);
+    if (!quote) return variant;
+    return {
+      ...variant,
+      cardId: variant.cardId || cardId,
+      pricing: {
+        ...(variant.pricing || {}),
+        marketUsd: quote.amount,
+        updatedAt: quote.updatedAt || variant?.pricing?.updatedAt,
+      },
+    };
+  }));
+
+  return {
+    ...card,
+    cardVariants: pricedVariants,
+  };
 }
 
 async function enrichCardSet(card, setId) {
@@ -782,7 +810,7 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const [card, tcgcsvQuote] = await Promise.all([
+    let [card, tcgcsvQuote] = await Promise.all([
       fetchCard(cardId),
       fetchTcgcsvQuote(route25CardId(cardId))
     ]);
@@ -792,6 +820,7 @@ module.exports = async (req, res) => {
       res.end(renderNotFound(cardId));
       return;
     }
+    card = await enrichVariantPricing(card);
 
     res.statusCode = 200;
     res.setHeader("content-type", "text/html; charset=utf-8");
