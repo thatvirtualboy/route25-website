@@ -558,7 +558,6 @@ function renderCardPage(card, req, options = {}) {
   const proto = req.headers["x-forwarded-proto"] || "https";
   const pageUrl = `${proto}://${host}/cards/${encodeURIComponent(card.id)}`;
   const image = absoluteUrl(card?.images?.large || card?.images?.small, BACKEND_ORIGIN);
-  const displayImage = absoluteUrl(card?.images?.small || card?.images?.large, BACKEND_ORIGIN);
   const setLogo = absoluteUrl(card?.set?.images?.localLogo || card?.set?.images?.logo, BACKEND_ORIGIN);
   const setName = card?.set?.name || card?.set?.id || "Pokemon TCG";
   const browseSetId = card?.set?.id || cardSetId(card.id);
@@ -824,7 +823,7 @@ function renderCardPage(card, req, options = {}) {
   <main class="card-share-hero">
     <div class="container card-share-grid">
       <div class="card-art-stage">
-        ${displayImage ? `<img class="card-art" src="${escapeHtml(displayImage)}" alt="${escapeHtml(card.name)} card" fetchpriority="high" decoding="async" />` : ""}
+        ${image ? `<img class="card-art" src="${escapeHtml(image)}" alt="${escapeHtml(card.name)} card" fetchpriority="high" decoding="async" />` : ""}
       </div>
       <section class="card-copy">
         <div class="card-kicker">
