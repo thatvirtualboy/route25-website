@@ -104,11 +104,22 @@ async function fetchJson(url, options = {}) {
 
 async function fetchJsonWithTimeout(url, timeoutMs) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let timeout = null;
   try {
-    return await fetchJson(url, { signal: controller.signal });
+    return await Promise.race([
+      fetchJson(url, { signal: controller.signal }),
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          const error = new Error("Fetch timed out");
+          error.name = "TimeoutError";
+          reject(error);
+        }, timeoutMs);
+        if (typeof timeout.unref === "function") timeout.unref();
+      })
+    ]);
   } finally {
-    clearTimeout(timeout);
+    if (timeout) clearTimeout(timeout);
   }
 }
 
@@ -154,7 +165,7 @@ async function fetchCard(cardId, timings = [], options = {}) {
     const match = items.find((card) => String(card?.id || "").toLowerCase() === lookupCardId.toLowerCase());
     if (match) card = withTcgplayerCardVariants(match);
   } catch (error) {
-    timings.push(`direct_${error.name === "AbortError" ? "timeout" : "error"};dur=1800`);
+    timings.push(`direct_${error.name === "AbortError" || error.name === "TimeoutError" ? "timeout" : "error"};dur=1800`);
     // Fall through to the broader set endpoints below.
   }
 
@@ -165,7 +176,7 @@ async function fetchCard(cardId, timings = [], options = {}) {
       timings.push(`byset;dur=${Date.now() - startedAt}`);
       if (setCard) card = setCard;
     } catch (error) {
-      timings.push(`byset_${error.name === "AbortError" ? "timeout" : "error"};dur=1800`);
+      timings.push(`byset_${error.name === "AbortError" || error.name === "TimeoutError" ? "timeout" : "error"};dur=1800`);
       // Fall through to the seed endpoint below.
     }
   }
@@ -179,7 +190,7 @@ async function fetchCard(cardId, timings = [], options = {}) {
       const seedItems = Array.isArray(seedPayload.data) ? seedPayload.data : [];
       card = seedItems.find((card) => String(card?.id || "").toLowerCase() === lookupCardId.toLowerCase()) || null;
     } catch (error) {
-      timings.push(`seed_${error.name === "AbortError" ? "timeout" : "error"};dur=1800`);
+      timings.push(`seed_${error.name === "AbortError" || error.name === "TimeoutError" ? "timeout" : "error"};dur=1800`);
     }
   }
 
