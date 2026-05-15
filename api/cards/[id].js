@@ -118,10 +118,10 @@ async function fetchCard(cardId) {
     // Fall through to the broader set endpoints below.
   }
 
-  if (!hasFastCardVariants(card)) {
+  if (!card) {
     try {
       setCard = await fetchCardFromSet(setId, lookupCardId);
-      if (!card && setCard) card = setCard;
+      if (setCard) card = setCard;
     } catch {
       // Fall through to the seed endpoint below.
     }
@@ -225,6 +225,12 @@ async function enrichCardSet(card, setId) {
   }
 
   return enrichedCard;
+}
+
+function setCacheHeaders(res, value) {
+  res.setHeader("cache-control", "public, max-age=0, must-revalidate");
+  res.setHeader("cdn-cache-control", value);
+  res.setHeader("vercel-cdn-cache-control", value);
 }
 
 async function fetchOfficialSet(setId) {
@@ -887,7 +893,7 @@ module.exports = async (req, res) => {
 
     res.statusCode = 200;
     res.setHeader("content-type", "text/html; charset=utf-8");
-    res.setHeader("cache-control", "s-maxage=86400, stale-while-revalidate=604800");
+    setCacheHeaders(res, "public, s-maxage=86400, stale-while-revalidate=604800");
     res.end(renderCardPage(card, req, { tcgcsvQuote: null }));
   } catch (error) {
     res.statusCode = 500;
