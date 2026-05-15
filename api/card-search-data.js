@@ -43,6 +43,14 @@ function isCardIdSearch(value) {
   return /^[a-z0-9]+(?:pt[0-9]+)?-[a-z0-9]+$/i.test(String(value || "").trim());
 }
 
+function searchTerms(value) {
+  const terms = String(value || "")
+    .split(",")
+    .map((term) => term.trim())
+    .filter(Boolean);
+  return terms.length ? terms : [String(value || "").trim()].filter(Boolean);
+}
+
 function marketPrice(card) {
   const priceGroups = card?.tcgplayer?.prices;
   if (!priceGroups || typeof priceGroups !== "object") return null;
@@ -115,6 +123,35 @@ function buildSearchQuery({ q, set }) {
   return parts.join(" ");
 }
 
+function buildSearchQueries({ q, set }) {
+  const terms = searchTerms(q);
+  if (!terms.length) return [buildSearchQuery({ q: "", set })].filter(Boolean);
+  return terms.map((term) => buildSearchQuery({ q: term, set })).filter(Boolean);
+}
+
+async function fetchCardsBySet(set, page, pageSize) {
+  const url = new URL(`${BACKEND_ORIGIN}/api/tcg/by-set`);
+  url.searchParams.set("set", set);
+  url.searchParams.set("pageSize", "500");
+
+  const payload = await fetchJson(url.href);
+  const allItems = Array.isArray(payload?.items)
+    ? payload.items
+    : Array.isArray(payload?.data)
+      ? payload.data
+      : [];
+  const start = (page - 1) * pageSize;
+  return {
+    rawItems: allItems.slice(start, start + pageSize),
+    payload: {
+      page,
+      pageSize,
+      count: Math.min(pageSize, Math.max(0, allItems.length - start)),
+      totalCount: payload?.totalCount ?? payload?.count ?? allItems.length
+    }
+  };
+}
+
 async function handleSets(res) {
   const cached = getCachedJson("sets");
   if (cached) {
@@ -140,15 +177,15 @@ async function handleSearch(req, res) {
   const page = parsePositiveInt(req.query?.page, 1, 1000);
   const pageSize = parsePositiveInt(req.query?.pageSize, 24, 48);
 
-  let query = buildSearchQuery({ q, set });
+  let queries = buildSearchQueries({ q, set });
   let defaultSet = null;
-  if (!query) {
+  if (!queries.length) {
     const sets = await fetchSets();
     defaultSet = sets[0] || null;
-    query = defaultSet?.id ? `set.id:${defaultSet.id}` : "";
+    queries = defaultSet?.id ? [`set.id:${defaultSet.id}`] : [];
   }
 
-  if (!query) {
+  if (!queries.length) {
     const body = JSON.stringify({ ok: true, data: [], page, pageSize, count: 0, totalCount: 0 });
     res.statusCode = 200;
     res.setHeader("content-type", "application/json; charset=utf-8");
@@ -156,7 +193,7 @@ async function handleSearch(req, res) {
     return;
   }
 
-  const cacheKey = `cards:${query}:page:${page}:size:${pageSize}`;
+  const cacheKey = `cards:${queries.join("|")}:page:${page}:size:${pageSize}`;
   const cached = getCachedJson(cacheKey);
   if (cached) {
     res.statusCode = 200;
@@ -166,17 +203,55 @@ async function handleSearch(req, res) {
     return;
   }
 
-  const url = new URL(`${BACKEND_ORIGIN}/api/tcg/cards`);
-  url.searchParams.set("q", query);
-  url.searchParams.set("page", String(page));
-  url.searchParams.set("pageSize", String(pageSize));
+  let payload = null;
+  let rawItems = [];
+  const browseSetId = !q ? (set || defaultSet?.id || "") : "";
+  if (browseSetId) {
+    const bySetResult = await fetchCardsBySet(browseSetId, page, pageSize);
+    payload = bySetResult.payload;
+    rawItems = bySetResult.rawItems;
+  } else if (queries.length === 1) {
+    const url = new URL(`${BACKEND_ORIGIN}/api/tcg/cards`);
+    url.searchParams.set("q", queries[0]);
+    url.searchParams.set("page", String(page));
+    url.searchParams.set("pageSize", String(pageSize));
 
-  const payload = await fetchJson(url.href);
-  const rawItems = Array.isArray(payload?.data)
-    ? payload.data
-    : Array.isArray(payload?.items)
-      ? payload.items
-      : [];
+    payload = await fetchJson(url.href);
+    rawItems = Array.isArray(payload?.data)
+      ? payload.data
+      : Array.isArray(payload?.items)
+        ? payload.items
+        : [];
+  } else {
+    const merged = new Map();
+    const fetchSize = Math.min(page * pageSize, 250);
+    const payloads = await Promise.all(queries.map(async (query) => {
+      const url = new URL(`${BACKEND_ORIGIN}/api/tcg/cards`);
+      url.searchParams.set("q", query);
+      url.searchParams.set("page", "1");
+      url.searchParams.set("pageSize", String(fetchSize));
+      return fetchJson(url.href);
+    }));
+
+    for (const itemPayload of payloads) {
+      const items = Array.isArray(itemPayload?.data)
+        ? itemPayload.data
+        : Array.isArray(itemPayload?.items)
+          ? itemPayload.items
+          : [];
+      for (const item of items) {
+        if (item?.id && !merged.has(item.id)) merged.set(item.id, item);
+      }
+    }
+    const allItems = [...merged.values()];
+    rawItems = allItems.slice((page - 1) * pageSize, page * pageSize);
+    payload = {
+      page,
+      pageSize,
+      count: rawItems.length,
+      totalCount: allItems.length
+    };
+  }
 
   const body = JSON.stringify({
     ok: true,
