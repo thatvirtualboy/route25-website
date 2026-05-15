@@ -128,8 +128,8 @@ function fallbackCardFromRequest(cardId, req) {
   const setId = cardSetId(lookupCardId);
   const number = String(req.query?.number || lookupCardId.slice(setId.length + 1) || "").trim();
   if (!setId || !number) return null;
-  const imageNumber = encodeURIComponent(number);
-  const imageSet = encodeURIComponent(setId);
+  const imageSmall = absoluteUrl(String(req.query?.imageSmall || "").trim(), BACKEND_ORIGIN);
+  const imageLarge = absoluteUrl(String(req.query?.imageLarge || "").trim(), BACKEND_ORIGIN);
 
   return {
     id: lookupCardId,
@@ -137,8 +137,8 @@ function fallbackCardFromRequest(cardId, req) {
     number,
     rarity: String(req.query?.rarity || "").trim(),
     images: {
-      small: `https://images.pokemontcg.io/${imageSet}/${imageNumber}.png`,
-      large: `https://images.pokemontcg.io/${imageSet}/${imageNumber}_hires.png`
+      small: imageSmall,
+      large: imageLarge || imageSmall
     },
     set: {
       id: setId,
@@ -979,7 +979,9 @@ module.exports = async (req, res) => {
     res.statusCode = 200;
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.setHeader("server-timing", timings.join(", "));
-    setCacheHeaders(res, "public, s-maxage=86400, stale-while-revalidate=604800");
+    setCacheHeaders(res, usedFallback
+      ? "public, s-maxage=30, stale-while-revalidate=300"
+      : "public, s-maxage=86400, stale-while-revalidate=604800");
     const totalMs = Date.now() - startedAt;
     if (usedFallback || totalMs > 1500) {
       console.log(JSON.stringify({

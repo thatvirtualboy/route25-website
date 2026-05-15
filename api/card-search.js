@@ -359,6 +359,8 @@ function renderSearchPage(req) {
       if (card.number) url.searchParams.set("number", card.number);
       if (card.set && card.set.name) url.searchParams.set("setName", card.set.name);
       if (card.rarity) url.searchParams.set("rarity", card.rarity);
+      if (card.images && card.images.large) url.searchParams.set("imageLarge", card.images.large);
+      if (card.images && card.images.small) url.searchParams.set("imageSmall", card.images.small);
       return url.pathname + url.search;
     }
 
