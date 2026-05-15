@@ -354,7 +354,12 @@ function renderSearchPage(req) {
     }
 
     function cardUrl(card) {
-      return "/cards/" + encodeURIComponent(card.id || "");
+      const url = new URL("/cards/" + encodeURIComponent(card.id || ""), window.location.origin);
+      if (card.name) url.searchParams.set("name", card.name);
+      if (card.number) url.searchParams.set("number", card.number);
+      if (card.set && card.set.name) url.searchParams.set("setName", card.set.name);
+      if (card.rarity) url.searchParams.set("rarity", card.rarity);
+      return url.pathname + url.search;
     }
 
     function prefetchCardPage(url) {

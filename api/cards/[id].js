@@ -91,9 +91,10 @@ function ebaySearchQuery(card) {
   ].filter(Boolean).join(" ");
 }
 
-async function fetchJson(url) {
+async function fetchJson(url, options = {}) {
   const response = await fetch(url, {
-    headers: { accept: "application/json" }
+    headers: { accept: "application/json" },
+    signal: options.signal
   });
   if (!response.ok) {
     throw new Error(`Fetch failed ${response.status} for ${url}`);
@@ -101,37 +102,85 @@ async function fetchJson(url) {
   return response.json();
 }
 
-async function fetchCard(cardId) {
+async function fetchJsonWithTimeout(url, timeoutMs) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetchJson(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function fallbackCardFromRequest(cardId, req) {
+  const lookupCardId = route25CardId(cardId);
+  const setId = cardSetId(lookupCardId);
+  const number = String(req.query?.number || lookupCardId.slice(setId.length + 1) || "").trim();
+  if (!setId || !number) return null;
+  const imageNumber = encodeURIComponent(number);
+  const imageSet = encodeURIComponent(setId);
+
+  return {
+    id: lookupCardId,
+    name: String(req.query?.name || lookupCardId).trim(),
+    number,
+    rarity: String(req.query?.rarity || "").trim(),
+    images: {
+      small: `https://images.pokemontcg.io/${imageSet}/${imageNumber}.png`,
+      large: `https://images.pokemontcg.io/${imageSet}/${imageNumber}_hires.png`
+    },
+    set: {
+      id: setId,
+      name: String(req.query?.setName || setId).trim(),
+      images: {}
+    }
+  };
+}
+
+async function fetchCard(cardId, timings = [], options = {}) {
   const lookupCardId = route25CardId(cardId);
   const setId = cardSetId(lookupCardId);
   if (!setId) return null;
+  const allowBroadFallback = options.allowBroadFallback !== false;
 
   let card = null;
   let setCard = null;
   try {
+    const startedAt = Date.now();
     const cardUrl = `${BACKEND_ORIGIN}/api/tcg/cards?q=${encodeURIComponent(`id:${lookupCardId}`)}&pageSize=1`;
-    const cardPayload = await fetchJson(cardUrl);
+    const cardPayload = await fetchJsonWithTimeout(cardUrl, 1800);
+    timings.push(`direct;dur=${Date.now() - startedAt}`);
     const items = Array.isArray(cardPayload.data) ? cardPayload.data : [];
     const match = items.find((card) => String(card?.id || "").toLowerCase() === lookupCardId.toLowerCase());
     if (match) card = withTcgplayerCardVariants(match);
-  } catch {
+  } catch (error) {
+    timings.push(`direct_${error.name === "AbortError" ? "timeout" : "error"};dur=1800`);
     // Fall through to the broader set endpoints below.
   }
 
-  if (!card) {
+  if (!card && allowBroadFallback) {
     try {
+      const startedAt = Date.now();
       setCard = await fetchCardFromSet(setId, lookupCardId);
+      timings.push(`byset;dur=${Date.now() - startedAt}`);
       if (setCard) card = setCard;
-    } catch {
+    } catch (error) {
+      timings.push(`byset_${error.name === "AbortError" ? "timeout" : "error"};dur=1800`);
       // Fall through to the seed endpoint below.
     }
   }
 
-  if (!card) {
-    const seedUrl = `${BACKEND_ORIGIN}/api/seed/cards?set=${encodeURIComponent(setId)}&page=1&pageSize=500`;
-    const seedPayload = await fetchJson(seedUrl);
-    const seedItems = Array.isArray(seedPayload.data) ? seedPayload.data : [];
-    card = seedItems.find((card) => String(card?.id || "").toLowerCase() === lookupCardId.toLowerCase()) || null;
+  if (!card && allowBroadFallback) {
+    try {
+      const startedAt = Date.now();
+      const seedUrl = `${BACKEND_ORIGIN}/api/seed/cards?set=${encodeURIComponent(setId)}&page=1&pageSize=500`;
+      const seedPayload = await fetchJsonWithTimeout(seedUrl, 1800);
+      timings.push(`seed;dur=${Date.now() - startedAt}`);
+      const seedItems = Array.isArray(seedPayload.data) ? seedPayload.data : [];
+      card = seedItems.find((card) => String(card?.id || "").toLowerCase() === lookupCardId.toLowerCase()) || null;
+    } catch (error) {
+      timings.push(`seed_${error.name === "AbortError" ? "timeout" : "error"};dur=1800`);
+    }
   }
 
   if (setCard) {
@@ -154,12 +203,15 @@ async function fetchCard(cardId) {
   }
 
   if (!card) return null;
-  return enrichCardSet(card, setId);
+  const enrichStartedAt = Date.now();
+  const enrichedCard = await enrichCardSet(card, setId);
+  timings.push(`enrich;dur=${Date.now() - enrichStartedAt}`);
+  return enrichedCard;
 }
 
 async function fetchCardFromSet(setId, lookupCardId) {
   const bySetUrl = `${BACKEND_ORIGIN}/api/tcg/by-set?set=${encodeURIComponent(setId)}&pageSize=500`;
-  const bySetPayload = await fetchJson(bySetUrl);
+  const bySetPayload = await fetchJsonWithTimeout(bySetUrl, 1800);
   const items = Array.isArray(bySetPayload.items) ? bySetPayload.items : [];
   return items.find((card) => String(card?.id || "").toLowerCase() === lookupCardId.toLowerCase()) || null;
 }
@@ -895,17 +947,38 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const card = await fetchCard(cardId);
+    const startedAt = Date.now();
+    const timings = [];
+    let usedFallback = false;
+    const hasRequestHints = Boolean(req.query?.name || req.query?.number || req.query?.setName || req.query?.rarity);
+    let card = await fetchCard(cardId, timings, { allowBroadFallback: !hasRequestHints });
+    if (!card) {
+      card = fallbackCardFromRequest(cardId, req);
+      usedFallback = Boolean(card);
+      if (usedFallback) timings.push("fallback;dur=0");
+    }
     if (!card) {
       res.statusCode = 404;
       res.setHeader("content-type", "text/html; charset=utf-8");
+      res.setHeader("server-timing", timings.join(", "));
       res.end(renderNotFound(cardId));
       return;
     }
 
     res.statusCode = 200;
     res.setHeader("content-type", "text/html; charset=utf-8");
+    res.setHeader("server-timing", timings.join(", "));
     setCacheHeaders(res, "public, s-maxage=86400, stale-while-revalidate=604800");
+    const totalMs = Date.now() - startedAt;
+    if (usedFallback || totalMs > 1500) {
+      console.log(JSON.stringify({
+        route: "card-detail",
+        cardId,
+        totalMs,
+        usedFallback,
+        timings
+      }));
+    }
     res.end(renderCardPage(card, req, { tcgcsvQuote: null }));
   } catch (error) {
     res.statusCode = 500;
