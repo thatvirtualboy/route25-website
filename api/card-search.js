@@ -330,6 +330,7 @@ function renderSearchPage(req) {
     let activeController = null;
     let activeRequestKey = "";
     const resultCache = new Map();
+    const prefetchedCardPages = new Set();
 
     function formatCurrency(value) {
       const amount = Number(value);
@@ -354,6 +355,24 @@ function renderSearchPage(req) {
 
     function cardUrl(card) {
       return "/cards/" + encodeURIComponent(card.id || "");
+    }
+
+    function prefetchCardPage(url) {
+      if (!url || prefetchedCardPages.has(url)) return;
+      prefetchedCardPages.add(url);
+      const link = document.createElement("link");
+      link.rel = "prefetch";
+      link.as = "document";
+      link.href = url;
+      document.head.appendChild(link);
+    }
+
+    function prefetchVisibleCardPages(cards) {
+      window.setTimeout(function() {
+        cards.slice(0, 12).forEach(function(card) {
+          prefetchCardPage(cardUrl(card));
+        });
+      }, 250);
     }
 
     function setDeepLink(setId) {
@@ -407,6 +426,7 @@ function renderSearchPage(req) {
         updateUrl();
       }
       resultsGrid.innerHTML = cards.map(renderCard).join("");
+      if (cards.length) prefetchVisibleCardPages(cards);
       emptyState.style.display = cards.length ? "none" : "block";
       const start = cards.length ? ((state.page - 1) * state.pageSize) + 1 : 0;
       const end = cards.length ? start + cards.length - 1 : 0;
@@ -527,6 +547,14 @@ function renderSearchPage(req) {
     nextPage.addEventListener("click", function() {
       state.page += 1;
       loadCards();
+    });
+    resultsGrid.addEventListener("mouseover", function(event) {
+      const link = event.target.closest && event.target.closest(".result-card");
+      if (link) prefetchCardPage(link.getAttribute("href"));
+    });
+    resultsGrid.addEventListener("focusin", function(event) {
+      const link = event.target.closest && event.target.closest(".result-card");
+      if (link) prefetchCardPage(link.getAttribute("href"));
     });
   </script>
 </body>
