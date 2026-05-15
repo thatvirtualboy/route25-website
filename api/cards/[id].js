@@ -451,6 +451,14 @@ function variantScript(cardId) {
         : (!variantPrice.textContent || variantPrice.textContent === "Loading...");
       const initialPrice = variantPrice.textContent || "";
       const priceCache = new Map();
+      const runWhenIdle = (callback) => {
+        if (!needsPricingFetch) return;
+        if ("requestIdleCallback" in window) {
+          window.requestIdleCallback(callback, { timeout: 1800 });
+        } else {
+          window.setTimeout(callback, 700);
+        }
+      };
       const formatUsd = (amount) => {
         const value = Number(amount);
         if (!Number.isFinite(value) || value <= 0) return "";
@@ -496,9 +504,9 @@ function variantScript(cardId) {
       };
       if (!chips.length || !variantLabel) {
         if (needsPricingFetch) {
-          fetchPrice(cardId).then((price) => {
+          runWhenIdle(() => fetchPrice(cardId).then((price) => {
             variantPrice.textContent = price || "Price unavailable";
-          });
+          }));
         }
         return;
       }
@@ -514,15 +522,14 @@ function variantScript(cardId) {
           url.searchParams.set("variant", chip.dataset.variantId || "");
           window.history.replaceState({}, "", url);
         });
+        if (needsPricingFetch) {
+          chip.addEventListener("mouseover", () => { hydrateChipPrice(chip); }, { once: true });
+          chip.addEventListener("focus", () => { hydrateChipPrice(chip); }, { once: true });
+        }
       }
       const active = chips.find((chip) => chip.classList.contains("active")) || chips[0];
       if (needsPricingFetch && active && !active.dataset.variantPrice) {
-        setPriceForChip(active, initialPrice || "Loading...");
-      }
-      if (needsPricingFetch) {
-        for (const chip of chips) {
-          if (!chip.dataset.variantPrice) hydrateChipPrice(chip);
-        }
+        runWhenIdle(() => setPriceForChip(active, initialPrice || "Loading..."));
       }
     })();
   </script>`;
