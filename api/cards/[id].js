@@ -148,6 +148,23 @@ function fallbackCardFromRequest(cardId, req) {
   };
 }
 
+function hasRequestHints(query = {}) {
+  return Boolean(
+    query.name
+    || query.number
+    || query.setName
+    || query.rarity
+    || query.imageLarge
+    || query.imageSmall
+  );
+}
+
+function cleanCardPath(cardId, query = {}) {
+  const url = new URL(`/cards/${encodeURIComponent(cardId)}`, "https://route25.app");
+  if (query.variant) url.searchParams.set("variant", String(query.variant));
+  return url.pathname + url.search;
+}
+
 async function fetchCard(cardId, timings = [], options = {}) {
   const lookupCardId = route25CardId(cardId);
   const setId = cardSetId(lookupCardId);
@@ -961,8 +978,8 @@ module.exports = async (req, res) => {
     const startedAt = Date.now();
     const timings = [];
     let usedFallback = false;
-    const hasRequestHints = Boolean(req.query?.name || req.query?.number || req.query?.setName || req.query?.rarity);
-    let card = await fetchCard(cardId, timings, { allowBroadFallback: !hasRequestHints });
+    const requestHasHints = hasRequestHints(req.query);
+    let card = await fetchCard(cardId, timings);
     if (!card) {
       card = fallbackCardFromRequest(cardId, req);
       usedFallback = Boolean(card);
@@ -973,6 +990,12 @@ module.exports = async (req, res) => {
       res.setHeader("content-type", "text/html; charset=utf-8");
       res.setHeader("server-timing", timings.join(", "));
       res.end(renderNotFound(cardId));
+      return;
+    }
+    if (requestHasHints && !usedFallback) {
+      res.statusCode = 301;
+      res.setHeader("location", cleanCardPath(card.id || cardId, req.query));
+      res.end();
       return;
     }
 
