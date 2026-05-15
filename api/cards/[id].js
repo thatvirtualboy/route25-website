@@ -446,6 +446,9 @@ function variantScript(cardId) {
       const variantLabel = document.getElementById("selected-variant-label");
       const variantPrice = document.getElementById("selected-variant-price");
       if (!variantPrice) return;
+      const needsPricingFetch = chips.length
+        ? chips.some((chip) => !chip.dataset.variantPrice)
+        : (!variantPrice.textContent || variantPrice.textContent === "Loading...");
       const initialPrice = variantPrice.textContent || "";
       const priceCache = new Map();
       const formatUsd = (amount) => {
@@ -492,7 +495,7 @@ function variantScript(cardId) {
         }
       };
       if (!chips.length || !variantLabel) {
-        if (!variantPrice.textContent || variantPrice.textContent === "Loading...") {
+        if (needsPricingFetch) {
           fetchPrice(cardId).then((price) => {
             variantPrice.textContent = price || "Price unavailable";
           });
@@ -513,11 +516,13 @@ function variantScript(cardId) {
         });
       }
       const active = chips.find((chip) => chip.classList.contains("active")) || chips[0];
-      if (active && !active.dataset.variantPrice) {
+      if (needsPricingFetch && active && !active.dataset.variantPrice) {
         setPriceForChip(active, initialPrice || "Loading...");
       }
-      for (const chip of chips) {
-        if (!chip.dataset.variantPrice) hydrateChipPrice(chip);
+      if (needsPricingFetch) {
+        for (const chip of chips) {
+          if (!chip.dataset.variantPrice) hydrateChipPrice(chip);
+        }
       }
     })();
   </script>`;
@@ -553,6 +558,7 @@ function renderCardPage(card, req, options = {}) {
   const proto = req.headers["x-forwarded-proto"] || "https";
   const pageUrl = `${proto}://${host}/cards/${encodeURIComponent(card.id)}`;
   const image = absoluteUrl(card?.images?.large || card?.images?.small, BACKEND_ORIGIN);
+  const displayImage = absoluteUrl(card?.images?.small || card?.images?.large, BACKEND_ORIGIN);
   const setLogo = absoluteUrl(card?.set?.images?.localLogo || card?.set?.images?.logo, BACKEND_ORIGIN);
   const setName = card?.set?.name || card?.set?.id || "Pokemon TCG";
   const browseSetId = card?.set?.id || cardSetId(card.id);
@@ -818,7 +824,7 @@ function renderCardPage(card, req, options = {}) {
   <main class="card-share-hero">
     <div class="container card-share-grid">
       <div class="card-art-stage">
-        ${image ? `<img class="card-art" src="${escapeHtml(image)}" alt="${escapeHtml(card.name)} card" />` : ""}
+        ${displayImage ? `<img class="card-art" src="${escapeHtml(displayImage)}" alt="${escapeHtml(card.name)} card" fetchpriority="high" decoding="async" />` : ""}
       </div>
       <section class="card-copy">
         <div class="card-kicker">
