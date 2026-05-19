@@ -5,6 +5,7 @@ const INSTAGRAM_URL = "https://www.instagram.com/route25app/";
 const DISCORD_URL = "https://discord.gg/WncmGEFuNw";
 const EBAY_CAMPAIGN_ID = "5339132958";
 const APP_STORE_ID = "6755665546";
+const SOCIAL_PREVIEW_VERSION = "2";
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -54,9 +55,25 @@ function requestOrigin(req) {
   return `${proto}://${host}`;
 }
 
+function socialShareParam(query = {}) {
+  for (const key of ["share", "preview", "v"]) {
+    const value = String(query[key] || "").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
 function cardSocialImageUrl(req, cardId) {
   const url = new URL("/api/cards/og", requestOrigin(req));
   url.searchParams.set("id", cardId);
+  url.searchParams.set("v", socialShareParam(req.query) || SOCIAL_PREVIEW_VERSION);
+  return url.href;
+}
+
+function cardPageUrl(req, cardId) {
+  const url = new URL(`/cards/${encodeURIComponent(cardId)}`, requestOrigin(req));
+  const share = socialShareParam(req.query);
+  if (share) url.searchParams.set("share", share);
   return url.href;
 }
 
@@ -653,8 +670,7 @@ function socialToolbar() {
 }
 
 function renderCardPage(card, req, options = {}) {
-  const origin = requestOrigin(req);
-  const pageUrl = `${origin}/cards/${encodeURIComponent(card.id)}`;
+  const pageUrl = cardPageUrl(req, card.id);
   const image = absoluteUrl(card?.images?.large || card?.images?.small, BACKEND_ORIGIN);
   const socialImage = cardSocialImageUrl(req, card.id);
   const setLogo = absoluteUrl(card?.set?.images?.localLogo || card?.set?.images?.logo, BACKEND_ORIGIN);
