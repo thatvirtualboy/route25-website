@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "dependencies": {
+    "@fontsource/geist-sans": "^5.2.5",
+    "@vercel/og": "^0.8.5",
+    "react": "^19.1.1"
+  }
+}

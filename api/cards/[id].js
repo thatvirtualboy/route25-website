@@ -48,6 +48,18 @@ function appDeepLink(path) {
   return `route25://${cleanPath}`;
 }
 
+function requestOrigin(req) {
+  const host = req.headers["x-forwarded-host"] || req.headers.host || "route25.app";
+  const proto = req.headers["x-forwarded-proto"] || "https";
+  return `${proto}://${host}`;
+}
+
+function cardSocialImageUrl(req, cardId) {
+  const url = new URL("/api/cards/og", requestOrigin(req));
+  url.searchParams.set("id", cardId);
+  return url.href;
+}
+
 function pokemonText() {
   return "Pokemon";
 }
@@ -641,10 +653,10 @@ function socialToolbar() {
 }
 
 function renderCardPage(card, req, options = {}) {
-  const host = req.headers["x-forwarded-host"] || req.headers.host || "route25.app";
-  const proto = req.headers["x-forwarded-proto"] || "https";
-  const pageUrl = `${proto}://${host}/cards/${encodeURIComponent(card.id)}`;
+  const origin = requestOrigin(req);
+  const pageUrl = `${origin}/cards/${encodeURIComponent(card.id)}`;
   const image = absoluteUrl(card?.images?.large || card?.images?.small, BACKEND_ORIGIN);
+  const socialImage = cardSocialImageUrl(req, card.id);
   const setLogo = absoluteUrl(card?.set?.images?.localLogo || card?.set?.images?.logo, BACKEND_ORIGIN);
   const setName = card?.set?.name || card?.set?.id || "Pokemon TCG";
   const browseSetId = card?.set?.id || cardSetId(card.id);
@@ -674,11 +686,16 @@ function renderCardPage(card, req, options = {}) {
   <meta property="og:description" content="${escapeHtml(description)}" />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="${escapeHtml(pageUrl)}" />
-  <meta property="og:image" content="${escapeHtml(image || "/assets/Icon.png")}" />
+  <meta property="og:image" content="${escapeHtml(socialImage)}" />
+  <meta property="og:image:secure_url" content="${escapeHtml(socialImage)}" />
+  <meta property="og:image:type" content="image/png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="${escapeHtml(title)}" />
   <meta name="twitter:description" content="${escapeHtml(description)}" />
-  <meta name="twitter:image" content="${escapeHtml(image || "/assets/Icon.png")}" />
+  <meta name="twitter:image" content="${escapeHtml(socialImage)}" />
+  <meta name="twitter:image:alt" content="${escapeHtml(`${card.name} ${setName} card preview on Route 25`)}" />
   <link rel="canonical" href="${escapeHtml(pageUrl)}" />
   <link rel="icon" href="/favicon.png" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -965,7 +982,7 @@ function renderNotFound(cardId) {
 </html>`;
 }
 
-module.exports = async (req, res) => {
+const cardPageHandler = async (req, res) => {
   const cardId = String(req.query?.id || "").trim();
   if (!cardId) {
     res.statusCode = 404;
@@ -1022,3 +1039,10 @@ module.exports = async (req, res) => {
     res.end(renderNotFound(cardId));
   }
 };
+
+module.exports = cardPageHandler;
+module.exports.fetchCardForSocial = fetchCard;
+module.exports.formatCardNumberForSocial = formatCardNumber;
+module.exports.metaDescriptionForSocial = metaDescription;
+module.exports.absoluteUrlForSocial = absoluteUrl;
+module.exports.BACKEND_ORIGIN = BACKEND_ORIGIN;
