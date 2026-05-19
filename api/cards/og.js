@@ -1,5 +1,6 @@
 const React = require("react");
 const { readFileSync } = require("fs");
+const path = require("path");
 const {
   BACKEND_ORIGIN,
   absoluteUrlForSocial,
@@ -9,6 +10,11 @@ const {
 
 const FONT_FAMILY = "Geist Sans";
 let fontCache = null;
+const FONT_FILES = [
+  { file: "geist-sans-latin-400-normal.woff", weight: 400 },
+  { file: "geist-sans-latin-700-normal.woff", weight: 700 },
+  { file: "geist-sans-latin-900-normal.woff", weight: 900 }
+];
 
 function h(type, props, ...children) {
   return React.createElement(type, props || null, ...children.filter((child) => child !== null && child !== undefined && child !== ""));
@@ -32,33 +38,46 @@ function setLogo(card) {
   return absoluteUrlForSocial(card?.set?.images?.localLogo || card?.set?.images?.logo, BACKEND_ORIGIN);
 }
 
-function fontBuffer(path) {
-  const buffer = readFileSync(require.resolve(path));
+function requestOrigin(req) {
+  const host = req.headers["x-forwarded-host"] || req.headers.host || "route25.app";
+  const proto = req.headers["x-forwarded-proto"] || "https";
+  return `${proto}://${host}`;
+}
+
+function localFontBuffer(file) {
+  const buffer = readFileSync(path.join(process.cwd(), "assets", "fonts", file));
   return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
 }
 
-function socialFonts() {
+async function remoteFontBuffer(origin, file) {
+  const response = await fetch(`${origin}/assets/fonts/${file}`);
+  if (!response.ok) {
+    throw new Error(`Font fetch failed ${response.status} for ${file}`);
+  }
+  return response.arrayBuffer();
+}
+
+async function fontData(req, file) {
+  const origin = requestOrigin(req);
+  if (origin.includes("localhost") || origin.includes("127.0.0.1")) {
+    return localFontBuffer(file);
+  }
+  try {
+    return await remoteFontBuffer(origin, file);
+  } catch {
+    return localFontBuffer(file);
+  }
+}
+
+async function socialFonts(req) {
   if (!fontCache) {
-    fontCache = [
-      {
-        name: FONT_FAMILY,
-        data: fontBuffer("@fontsource/geist-sans/files/geist-sans-latin-400-normal.woff"),
-        weight: 400,
-        style: "normal"
-      },
-      {
-        name: FONT_FAMILY,
-        data: fontBuffer("@fontsource/geist-sans/files/geist-sans-latin-700-normal.woff"),
-        weight: 700,
-        style: "normal"
-      },
-      {
-        name: FONT_FAMILY,
-        data: fontBuffer("@fontsource/geist-sans/files/geist-sans-latin-900-normal.woff"),
-        weight: 900,
-        style: "normal"
-      }
-    ];
+    const loaded = await Promise.all(FONT_FILES.map(async ({ file, weight }) => ({
+      name: FONT_FAMILY,
+      data: await fontData(req, file),
+      weight,
+      style: "normal"
+    })));
+    fontCache = loaded;
   }
   return fontCache;
 }
@@ -294,7 +313,7 @@ module.exports = async (req, res) => {
     const image = new ImageResponse(renderSocialCanvas(card), {
       width: 1200,
       height: 630,
-      fonts: socialFonts()
+      fonts: await socialFonts(req)
     });
     const arrayBuffer = await image.arrayBuffer();
 
