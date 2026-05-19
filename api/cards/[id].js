@@ -101,11 +101,13 @@ function cardSocialImageUrl(req, cardId) {
   const url = new URL("/api/cards/og", requestOrigin(req));
   url.searchParams.set("id", cardId);
   url.searchParams.set("v", socialShareParam(req.query) || SOCIAL_PREVIEW_VERSION);
+  if (req.query?.variant) url.searchParams.set("variant", String(req.query.variant));
   return url.href;
 }
 
 function cardPageUrl(req, cardId) {
   const url = new URL(`/cards/${encodeURIComponent(cardId)}`, requestOrigin(req));
+  if (req.query?.variant) url.searchParams.set("variant", String(req.query.variant));
   const share = socialShareParam(req.query);
   if (share) url.searchParams.set("share", share);
   return url.href;

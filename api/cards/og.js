@@ -1,6 +1,7 @@
 const React = require("react");
 const { readFileSync } = require("fs");
 const path = require("path");
+const sharp = require("sharp");
 const {
   BACKEND_ORIGIN,
   absoluteUrlForSocial,
@@ -10,6 +11,7 @@ const {
 
 const FONT_FAMILY = "Geist Sans";
 let fontCache = null;
+const imageCache = new Map();
 const FONT_FILES = [
   { file: "geist-sans-latin-400-normal.woff", weight: 400 },
   { file: "geist-sans-latin-700-normal.woff", weight: 700 },
@@ -36,6 +38,28 @@ function cardImage(card) {
 
 function setLogo(card) {
   return absoluteUrlForSocial(card?.set?.images?.localLogo || card?.set?.images?.logo, BACKEND_ORIGIN);
+}
+
+async function imageDataUrl(url) {
+  const source = text(url);
+  if (!source) return "";
+  if (source.startsWith("data:")) return source;
+  if (imageCache.has(source)) return imageCache.get(source);
+
+  const response = await fetch(source, { headers: { accept: "image/png,image/jpeg,image/webp,*/*" } });
+  if (!response.ok) {
+    throw new Error(`Image fetch failed ${response.status} for ${source}`);
+  }
+
+  const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+  const input = Buffer.from(await response.arrayBuffer());
+  const output = contentType.includes("png") || contentType.includes("jpeg") || contentType.includes("jpg")
+    ? input
+    : await sharp(input).png().toBuffer();
+  const mime = contentType.includes("jpeg") || contentType.includes("jpg") ? "image/jpeg" : "image/png";
+  const dataUrl = `data:${mime};base64,${output.toString("base64")}`;
+  imageCache.set(source, dataUrl);
+  return dataUrl;
 }
 
 function requestOrigin(req) {
@@ -82,9 +106,9 @@ async function socialFonts(req) {
   return fontCache;
 }
 
-function renderSocialCanvas(card) {
-  const image = cardImage(card);
-  const logo = setLogo(card);
+function renderSocialCanvas(card, assets = {}) {
+  const image = assets.image || cardImage(card);
+  const logo = assets.logo || setLogo(card);
   const setName = text(card?.set?.name || card?.set?.id, "Pokemon TCG");
   const number = formatCardNumberForSocial(card) || card?.number || "";
   const cardMeta = [
@@ -309,8 +333,15 @@ module.exports = async (req, res) => {
       return;
     }
 
+    const [resolvedImage, resolvedLogo] = await Promise.all([
+      imageDataUrl(cardImage(card)).catch(() => cardImage(card)),
+      imageDataUrl(setLogo(card)).catch(() => setLogo(card))
+    ]);
     const { ImageResponse } = await import("@vercel/og");
-    const image = new ImageResponse(renderSocialCanvas(card), {
+    const image = new ImageResponse(renderSocialCanvas(card, {
+      image: resolvedImage,
+      logo: resolvedLogo
+    }), {
       width: 1200,
       height: 630,
       fonts: await socialFonts(req)
