@@ -35,6 +35,40 @@ function cardSetId(cardId) {
   return idx > 0 ? id.slice(0, idx) : "";
 }
 
+function titleCaseSlug(value) {
+  return String(value || "")
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
+}
+
+function manualPromoCard(cardId) {
+  const id = String(cardId || "").trim();
+  const cards = {
+    "basep-ancient-mew": {
+      id: "basep-ancient-mew",
+      name: "Ancient Mew",
+      number: "No. 001",
+      rarity: "Promo",
+      supertype: "Pokemon",
+      subtypes: ["Basic"],
+      types: ["Psychic"],
+      images: {
+        small: "https://static.tcgcollector.com/content/images/4e/72/3b/4e723beab389aad8ad532e80f3228d6257a5b5e72240e9489502b1453c1e1346.jpg",
+        large: "https://static.tcgcollector.com/content/images/4e/72/3b/4e723beab389aad8ad532e80f3228d6257a5b5e72240e9489502b1453c1e1346.jpg"
+      },
+      set: {
+        id: "basep-ancient",
+        name: "Miscellaneous Promos",
+        printedTotal: "001",
+        images: {}
+      }
+    }
+  };
+  return cards[id.toLowerCase()] || null;
+}
+
 function route25CardId(cardId) {
   const id = String(cardId || "").trim();
   const setId = cardSetId(id);
@@ -154,15 +188,19 @@ async function fetchJsonWithTimeout(url, timeoutMs) {
 
 function fallbackCardFromRequest(cardId, req) {
   const lookupCardId = route25CardId(cardId);
+  const manualCard = manualPromoCard(lookupCardId);
+  if (manualCard) return manualCard;
   const setId = cardSetId(lookupCardId);
-  const number = String(req.query?.number || lookupCardId.slice(setId.length + 1) || "").trim();
+  const slugNumber = lookupCardId.slice(setId.length + 1);
+  const number = String(req.query?.number || slugNumber || "").trim();
   if (!setId || !number) return null;
   const imageSmall = absoluteUrl(String(req.query?.imageSmall || "").trim(), BACKEND_ORIGIN);
   const imageLarge = absoluteUrl(String(req.query?.imageLarge || "").trim(), BACKEND_ORIGIN);
+  const fallbackName = titleCaseSlug(slugNumber || lookupCardId);
 
   return {
     id: lookupCardId,
-    name: String(req.query?.name || lookupCardId).trim(),
+    name: String(req.query?.name || fallbackName || lookupCardId).trim(),
     number,
     rarity: String(req.query?.rarity || "").trim(),
     images: {
@@ -198,6 +236,11 @@ async function fetchCard(cardId, timings = [], options = {}) {
   const lookupCardId = route25CardId(cardId);
   const setId = cardSetId(lookupCardId);
   if (!setId) return null;
+  const manualCard = manualPromoCard(lookupCardId);
+  if (manualCard) {
+    timings.push("manual;dur=0");
+    return manualCard;
+  }
   const allowBroadFallback = options.allowBroadFallback !== false;
 
   let card = null;
