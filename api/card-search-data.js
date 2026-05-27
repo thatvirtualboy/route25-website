@@ -63,6 +63,44 @@ function marketPrice(card) {
   return values.length ? Math.max(...values) : null;
 }
 
+function tcgplayerProductId(card) {
+  const variants = Array.isArray(card?.cardVariants) ? card.cardVariants : [];
+  for (const variant of variants) {
+    const productId = variant?.sourceRefs?.tcgplayerProductId;
+    if (productId) return productId;
+  }
+  return null;
+}
+
+function mepImageUrl(card, large = false) {
+  if (String(card?.set?.id || "").toLowerCase() !== "mep" && !String(card?.id || "").toLowerCase().startsWith("mep-")) return "";
+
+  const productId = tcgplayerProductId(card);
+  if (productId) {
+    return `https://tcgplayer-cdn.tcgplayer.com/product/${productId}${large ? "_in_1000x1000" : "_200w"}.jpg`;
+  }
+
+  const id = String(card?.id || "");
+  const number = String(card?.number || "").padStart(3, "0");
+  const imageKey = id.toLowerCase().startsWith("mep-") ? id.slice(4) : number;
+  return imageKey ? `${BACKEND_ORIGIN}/card-images/mep/mep-${imageKey}.webp` : "";
+}
+
+function cardImages(card) {
+  const images = card?.images || {};
+  if (String(card?.set?.id || "").toLowerCase() === "mep" || String(card?.id || "").toLowerCase().startsWith("mep-")) {
+    const small = mepImageUrl(card, false);
+    const large = mepImageUrl(card, true) || small;
+    if (small || large) return { small, large };
+  }
+
+  if (images.small || images.large) return images;
+
+  const small = mepImageUrl(card, false);
+  const large = mepImageUrl(card, true) || small;
+  return small || large ? { small, large } : images;
+}
+
 function simplifyCard(card) {
   return {
     id: card?.id || "",
@@ -70,7 +108,8 @@ function simplifyCard(card) {
     number: card?.number || "",
     rarity: card?.rarity || "",
     types: Array.isArray(card?.types) ? card.types : [],
-    images: card?.images || {},
+    images: cardImages(card),
+    cardVariants: Array.isArray(card?.cardVariants) ? card.cardVariants : [],
     set: {
       id: card?.set?.id || "",
       name: card?.set?.name || "",

@@ -332,6 +332,17 @@ function renderSearchPage(req) {
     const resultCache = new Map();
     const prefetchedCardPages = new Set();
 
+    window.route25CardImageFallback = function(img) {
+      const fallbacks = String(img.dataset.fallbacks || "").split("|").filter(Boolean);
+      const next = fallbacks.shift();
+      if (!next) {
+        img.removeAttribute("onerror");
+        return;
+      }
+      img.dataset.fallbacks = fallbacks.join("|");
+      img.src = next;
+    };
+
     function formatCurrency(value) {
       const amount = Number(value);
       if (!Number.isFinite(amount) || amount <= 0) return "";
@@ -402,15 +413,65 @@ function renderSearchPage(req) {
       return searchParamsFor(nextState).toString();
     }
 
+    function tcgplayerImage(card, large) {
+      const variants = Array.isArray(card.cardVariants) ? card.cardVariants : [];
+      for (let i = 0; i < variants.length; i += 1) {
+        const productId = variants[i] && variants[i].sourceRefs && variants[i].sourceRefs.tcgplayerProductId;
+        if (productId) {
+          return "https://tcgplayer-cdn.tcgplayer.com/product/" + productId + (large ? "_in_1000x1000" : "_200w") + ".jpg";
+        }
+      }
+      return "";
+    }
+
+    function mepExtensionFallbacks(url) {
+      const raw = String(url || "");
+      if (raw.indexOf("/card-images/mep/") === -1 || !/mep-[^/]+\.[a-z0-9]+$/i.test(raw)) return [];
+      const base = raw.replace(/\.[a-z0-9]+$/i, "");
+      return ["webp", "png", "jpg"].map(function(ext) {
+        return base + "." + ext;
+      }).filter(function(nextUrl) {
+        return nextUrl !== raw;
+      });
+    }
+
+    function cardImageCandidates(card) {
+      const images = card.images || {};
+      const candidates = [
+        images.small,
+        images.large,
+        tcgplayerImage(card, false),
+        tcgplayerImage(card, true)
+      ];
+      const expanded = [];
+      candidates.forEach(function(candidate) {
+        if (!candidate) return;
+        expanded.push(candidate);
+        mepExtensionFallbacks(candidate).forEach(function(fallback) {
+          expanded.push(fallback);
+        });
+      });
+      return expanded.filter(function(candidate, index) {
+        return candidate && expanded.indexOf(candidate) === index;
+      });
+    }
+
+    function imageFallbackAttribute(candidates) {
+      return candidates.length > 1
+        ? ' data-fallbacks="' + escapeHtml(candidates.slice(1).join("|")) + '" onerror="route25CardImageFallback(this)"'
+        : "";
+    }
+
     function renderCard(card) {
-      const img = card.images && (card.images.small || card.images.large);
+      const imageCandidates = cardImageCandidates(card);
+      const img = imageCandidates[0];
       const setName = card.set && card.set.name ? card.set.name : "";
       const market = formatCurrency(card.market);
       const tags = [card.rarity, market].filter(Boolean).map(function(value) {
         return '<span class="result-tag">' + escapeHtml(value) + '</span>';
       }).join("");
       return '<a class="result-card" href="' + cardUrl(card) + '">' +
-        (img ? '<img src="' + escapeHtml(img) + '" alt="' + escapeHtml(card.name) + ' card" loading="lazy" />' : "") +
+        (img ? '<img src="' + escapeHtml(img) + '" alt="' + escapeHtml(card.name) + ' card" loading="lazy"' + imageFallbackAttribute(imageCandidates) + ' />' : "") +
         '<span><span class="result-name">' + escapeHtml(card.name) + '</span>' +
         '<span class="result-sub">' + escapeHtml([setName, card.number ? "#" + card.number : ""].filter(Boolean).join(" | ")) + '</span>' +
         (tags ? '<span class="result-tags">' + tags + '</span>' : "") +

@@ -35,6 +35,35 @@ function cardSetId(cardId) {
   return idx > 0 ? id.slice(0, idx) : "";
 }
 
+function tcgplayerProductId(card) {
+  const variants = Array.isArray(card?.cardVariants) ? card.cardVariants : [];
+  for (const variant of variants) {
+    const productId = variant?.sourceRefs?.tcgplayerProductId;
+    if (productId) return productId;
+  }
+  return null;
+}
+
+function resolvedCardImage(card, large = true) {
+  if (String(card?.set?.id || cardSetId(card?.id)).toLowerCase() === "mep" || String(card?.id || "").toLowerCase().startsWith("mep-")) {
+    const productId = tcgplayerProductId(card);
+    if (productId) {
+      return `https://tcgplayer-cdn.tcgplayer.com/product/${productId}${large ? "_in_1000x1000" : "_200w"}.jpg`;
+    }
+  }
+
+  const image = large
+    ? (card?.images?.large || card?.images?.small)
+    : (card?.images?.small || card?.images?.large);
+  if (image) return absoluteUrl(image, BACKEND_ORIGIN);
+  if (String(card?.set?.id || cardSetId(card?.id)).toLowerCase() !== "mep" && !String(card?.id || "").toLowerCase().startsWith("mep-")) return "";
+
+  const id = String(card?.id || "");
+  const number = String(card?.number || "").padStart(3, "0");
+  const imageKey = id.toLowerCase().startsWith("mep-") ? id.slice(4) : number;
+  return imageKey ? `${BACKEND_ORIGIN}/card-images/mep/mep-${imageKey}.webp` : "";
+}
+
 function titleCaseSlug(value) {
   return String(value || "")
     .replace(/[-_]+/g, " ")
@@ -716,7 +745,7 @@ function socialToolbar() {
 
 function renderCardPage(card, req, options = {}) {
   const pageUrl = cardPageUrl(req, card.id);
-  const image = absoluteUrl(card?.images?.large || card?.images?.small, BACKEND_ORIGIN);
+  const image = resolvedCardImage(card, true);
   const socialImage = cardSocialImageUrl(req, card.id);
   const setLogo = absoluteUrl(card?.set?.images?.localLogo || card?.set?.images?.logo, BACKEND_ORIGIN);
   const setName = card?.set?.name || card?.set?.id || "Pokemon TCG";
@@ -1106,4 +1135,5 @@ module.exports.fetchCardForSocial = fetchCard;
 module.exports.formatCardNumberForSocial = formatCardNumber;
 module.exports.metaDescriptionForSocial = metaDescription;
 module.exports.absoluteUrlForSocial = absoluteUrl;
+module.exports.cardImageForSocial = resolvedCardImage;
 module.exports.BACKEND_ORIGIN = BACKEND_ORIGIN;

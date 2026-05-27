@@ -5,6 +5,7 @@ const sharp = require("sharp");
 const {
   BACKEND_ORIGIN,
   absoluteUrlForSocial,
+  cardImageForSocial,
   fetchCardForSocial,
   formatCardNumberForSocial
 } = require("./[id].js");
@@ -33,7 +34,7 @@ function shortText(value, maxLength) {
 }
 
 function cardImage(card) {
-  return absoluteUrlForSocial(card?.images?.large || card?.images?.small, BACKEND_ORIGIN);
+  return cardImageForSocial(card, true) || absoluteUrlForSocial(card?.images?.large || card?.images?.small, BACKEND_ORIGIN);
 }
 
 function setLogo(card) {
