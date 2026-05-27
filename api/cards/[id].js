@@ -35,33 +35,47 @@ function cardSetId(cardId) {
   return idx > 0 ? id.slice(0, idx) : "";
 }
 
-function tcgplayerProductId(card) {
+function tcgplayerProductIds(card) {
+  const ids = [];
   const variants = Array.isArray(card?.cardVariants) ? card.cardVariants : [];
   for (const variant of variants) {
     const productId = variant?.sourceRefs?.tcgplayerProductId;
-    if (productId) return productId;
+    if (productId && !ids.includes(productId)) ids.push(productId);
   }
-  return null;
+  return ids;
 }
 
-function resolvedCardImage(card, large = true) {
+function resolvedCardImages(card, large = true) {
+  const candidates = [];
   if (String(card?.set?.id || cardSetId(card?.id)).toLowerCase() === "mep" || String(card?.id || "").toLowerCase().startsWith("mep-")) {
-    const productId = tcgplayerProductId(card);
-    if (productId) {
-      return `https://tcgplayer-cdn.tcgplayer.com/product/${productId}${large ? "_in_1000x1000" : "_200w"}.jpg`;
+    for (const productId of tcgplayerProductIds(card)) {
+      candidates.push(`https://tcgplayer-cdn.tcgplayer.com/product/${productId}${large ? "_in_1000x1000" : "_200w"}.jpg`);
     }
   }
 
   const image = large
     ? (card?.images?.large || card?.images?.small)
     : (card?.images?.small || card?.images?.large);
-  if (image) return absoluteUrl(image, BACKEND_ORIGIN);
-  if (String(card?.set?.id || cardSetId(card?.id)).toLowerCase() !== "mep" && !String(card?.id || "").toLowerCase().startsWith("mep-")) return "";
+  if (image) candidates.push(absoluteUrl(image, BACKEND_ORIGIN));
+  if (String(card?.set?.id || cardSetId(card?.id)).toLowerCase() !== "mep" && !String(card?.id || "").toLowerCase().startsWith("mep-")) {
+    return candidates.filter((candidate, index) => candidate && candidates.indexOf(candidate) === index);
+  }
 
   const id = String(card?.id || "");
   const number = String(card?.number || "").padStart(3, "0");
   const imageKey = id.toLowerCase().startsWith("mep-") ? id.slice(4) : number;
-  return imageKey ? `${BACKEND_ORIGIN}/card-images/mep/mep-${imageKey}.webp` : "";
+  if (imageKey) candidates.push(`${BACKEND_ORIGIN}/card-images/mep/mep-${imageKey}.webp`);
+  return candidates.filter((candidate, index) => candidate && candidates.indexOf(candidate) === index);
+}
+
+function resolvedCardImage(card, large = true) {
+  return resolvedCardImages(card, large)[0] || "";
+}
+
+function imageFallbackAttribute(candidates) {
+  return candidates.length > 1
+    ? ` data-fallbacks="${escapeHtml(candidates.slice(1).join("|"))}" onerror="route25CardImageFallback(this)"`
+    : "";
 }
 
 function titleCaseSlug(value) {
@@ -227,6 +241,10 @@ function fallbackCardFromRequest(cardId, req) {
   if (!setId || !number) return null;
   const imageSmall = absoluteUrl(String(req.query?.imageSmall || "").trim(), BACKEND_ORIGIN);
   const imageLarge = absoluteUrl(String(req.query?.imageLarge || "").trim(), BACKEND_ORIGIN);
+  const imageFallbacks = String(req.query?.imageFallbacks || "")
+    .split("|")
+    .map((url) => absoluteUrl(url.trim(), BACKEND_ORIGIN))
+    .filter(Boolean);
   const fallbackName = titleCaseSlug(slugNumber || lookupCardId);
 
   return {
@@ -236,7 +254,8 @@ function fallbackCardFromRequest(cardId, req) {
     rarity: String(req.query?.rarity || "").trim(),
     images: {
       small: imageSmall,
-      large: imageLarge || imageSmall
+      large: imageLarge || imageSmall,
+      fallbacks: imageFallbacks
     },
     set: {
       id: setId,
@@ -745,7 +764,10 @@ function socialToolbar() {
 
 function renderCardPage(card, req, options = {}) {
   const pageUrl = cardPageUrl(req, card.id);
-  const image = resolvedCardImage(card, true);
+  const hintedFallbacks = Array.isArray(card?.images?.fallbacks) ? card.images.fallbacks : [];
+  const imageCandidates = resolvedCardImages(card, true).concat(hintedFallbacks)
+    .filter((candidate, index, all) => candidate && all.indexOf(candidate) === index);
+  const image = imageCandidates[0] || "";
   const socialImage = cardSocialImageUrl(req, card.id);
   const setLogo = absoluteUrl(card?.set?.images?.localLogo || card?.set?.images?.logo, BACKEND_ORIGIN);
   const setName = card?.set?.name || card?.set?.id || "Pokemon TCG";
@@ -1017,7 +1039,7 @@ function renderCardPage(card, req, options = {}) {
   <main class="card-share-hero">
     <div class="container card-share-grid">
       <div class="card-art-stage">
-        ${image ? `<img class="card-art" src="${escapeHtml(image)}" alt="${escapeHtml(card.name)} card" fetchpriority="high" decoding="async" />` : ""}
+        ${image ? `<img class="card-art" src="${escapeHtml(image)}" alt="${escapeHtml(card.name)} card" fetchpriority="high" decoding="async"${imageFallbackAttribute(imageCandidates)} />` : ""}
       </div>
       <section class="card-copy">
         <div class="card-kicker">
@@ -1045,6 +1067,19 @@ function renderCardPage(card, req, options = {}) {
       </div>
     </section>
   </main>
+  <script>
+    function route25CardImageFallback(img) {
+      const fallbacks = String(img.dataset.fallbacks || "").split("|").filter(Boolean);
+      const next = fallbacks.shift();
+      if (!next) {
+        img.removeAttribute("onerror");
+        return;
+      }
+      img.dataset.fallbacks = fallbacks.join("|");
+      img.src = next;
+    }
+    ${options.cleanUrl ? `window.history.replaceState({}, "", ${JSON.stringify(cleanCardPath(card.id, req.query))});` : ""}
+  </script>
   ${variantScript(card.id)}
 </body>
 </html>`;
@@ -1086,6 +1121,18 @@ const cardPageHandler = async (req, res) => {
     const timings = [];
     let usedFallback = false;
     const requestHasHints = hasRequestHints(req.query);
+    if (requestHasHints) {
+      const hintedCard = fallbackCardFromRequest(cardId, req);
+      if (hintedCard) {
+        timings.push("hint;dur=0");
+        res.statusCode = 200;
+        res.setHeader("content-type", "text/html; charset=utf-8");
+        res.setHeader("server-timing", timings.join(", "));
+        setCacheHeaders(res, "public, s-maxage=30, stale-while-revalidate=300");
+        res.end(renderCardPage(hintedCard, req, { tcgcsvQuote: null, cleanUrl: true }));
+        return;
+      }
+    }
     let card = await fetchCard(cardId, timings);
     if (!card) {
       card = fallbackCardFromRequest(cardId, req);

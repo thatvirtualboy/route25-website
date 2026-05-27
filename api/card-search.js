@@ -365,7 +365,23 @@ function renderSearchPage(req) {
     }
 
     function cardUrl(card) {
-      return "/cards/" + encodeURIComponent(card.id || "");
+      const id = card.id || "";
+      const url = new URL("/cards/" + encodeURIComponent(id), window.location.origin);
+      const images = cardImageCandidates(card);
+      const setName = card.set && card.set.name ? card.set.name : "";
+      const hints = {
+        name: card.name,
+        number: card.number,
+        setName: setName,
+        rarity: card.rarity,
+        imageSmall: images[0],
+        imageLarge: images[0],
+        imageFallbacks: images.slice(1, 8).join("|")
+      };
+      Object.keys(hints).forEach(function(key) {
+        if (hints[key]) url.searchParams.set(key, hints[key]);
+      });
+      return url.pathname + url.search;
     }
 
     function prefetchCardPage(url) {
@@ -413,15 +429,16 @@ function renderSearchPage(req) {
       return searchParamsFor(nextState).toString();
     }
 
-    function tcgplayerImage(card, large) {
+    function tcgplayerImages(card, large) {
       const variants = Array.isArray(card.cardVariants) ? card.cardVariants : [];
+      const urls = [];
       for (let i = 0; i < variants.length; i += 1) {
         const productId = variants[i] && variants[i].sourceRefs && variants[i].sourceRefs.tcgplayerProductId;
         if (productId) {
-          return "https://tcgplayer-cdn.tcgplayer.com/product/" + productId + (large ? "_in_1000x1000" : "_200w") + ".jpg";
+          urls.push("https://tcgplayer-cdn.tcgplayer.com/product/" + productId + (large ? "_in_1000x1000" : "_200w") + ".jpg");
         }
       }
-      return "";
+      return urls;
     }
 
     function mepExtensionFallbacks(url) {
@@ -440,9 +457,7 @@ function renderSearchPage(req) {
       const candidates = [
         images.small,
         images.large,
-        tcgplayerImage(card, false),
-        tcgplayerImage(card, true)
-      ];
+      ].concat(tcgplayerImages(card, false), tcgplayerImages(card, true));
       const expanded = [];
       candidates.forEach(function(candidate) {
         if (!candidate) return;

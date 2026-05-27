@@ -4,6 +4,9 @@ const APP_STORE_ID = "6755665546";
 const DISCORD_URL = "https://discord.gg/WncmGEFuNw";
 const X_URL = "https://x.com/route25app";
 const INSTAGRAM_URL = "https://www.instagram.com/route25app/";
+const KNOWN_SET_TOTALS = {
+  me3: 124
+};
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -38,6 +41,33 @@ async function fetchJson(url) {
   return response.json();
 }
 
+async function fetchJsonWithTimeout(url, timeoutMs) {
+  const controller = new AbortController();
+  let timeout = null;
+  try {
+    return await Promise.race([
+      fetch(url, {
+        headers: { accept: "application/json" },
+        signal: controller.signal
+      }).then((response) => {
+        if (!response.ok) throw new Error(`Fetch failed ${response.status} for ${url}`);
+        return response.json();
+      }),
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          const error = new Error("Fetch timed out");
+          error.name = "TimeoutError";
+          reject(error);
+        }, timeoutMs);
+        if (typeof timeout.unref === "function") timeout.unref();
+      })
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 async function fetchSets() {
   const payload = await fetchJson(`${BACKEND_ORIGIN}/api/tcg/sets`);
   return Array.isArray(payload?.data) ? payload.data : [];
@@ -48,37 +78,96 @@ async function fetchSet(setId) {
   return sets.find((set) => String(set?.id || "").toLowerCase() === setId.toLowerCase()) || null;
 }
 
-async function fetchCards(setId) {
-  const payload = await fetchJson(`${BACKEND_ORIGIN}/api/tcg/by-set?set=${encodeURIComponent(setId)}&pageSize=500`);
-  const items = Array.isArray(payload?.items) ? payload.items : [];
+function syntheticSetCards(set) {
+  const setId = String(set?.id || "").trim();
+  const total = Number(set?.total || set?.printedTotal || set?.cardCount?.total || set?.cardCount?.official || KNOWN_SET_TOTALS[setId.toLowerCase()]);
+  if (!setId || !Number.isFinite(total) || total < 1) return [];
+  return Array.from({ length: Math.min(total, 500) }, (_, index) => {
+    const number = index + 1;
+    return {
+      id: `${setId}-${number}`,
+      name: `${set?.name || setId} #${String(number).padStart(3, "0")}`,
+      number: String(number),
+      rarity: "",
+      images: {
+        small: `https://images.scrydex.com/pokemon/${setId}-${number}/small`,
+        large: `https://images.scrydex.com/pokemon/${setId}-${number}/large`
+      },
+      set
+    };
+  });
+}
+
+async function fetchCards(set) {
+  const setId = set.id;
+  let payload = null;
+  try {
+    payload = await fetchJsonWithTimeout(`${BACKEND_ORIGIN}/api/tcg/by-set?set=${encodeURIComponent(setId)}&pageSize=500`, 2400);
+  } catch {
+    payload = null;
+  }
+  let items = Array.isArray(payload?.items)
+    ? payload.items
+    : Array.isArray(payload?.data)
+      ? payload.data
+      : [];
+  if (!items.length) {
+    let searchPayload = null;
+    try {
+      searchPayload = await fetchJsonWithTimeout(`${BACKEND_ORIGIN}/api/tcg/cards?q=${encodeURIComponent(`set.id:${setId}`)}&page=1&pageSize=500`, 5200);
+    } catch {
+      searchPayload = null;
+    }
+    items = Array.isArray(searchPayload?.data)
+      ? searchPayload.data
+      : Array.isArray(searchPayload?.items)
+        ? searchPayload.items
+        : [];
+  }
+  if (!items.length) return syntheticSetCards(set);
   return items.filter((card) => card?.id).slice(0, 500);
 }
 
-function tcgplayerProductId(card) {
+function tcgplayerProductIds(card) {
+  const ids = [];
   const variants = Array.isArray(card?.cardVariants) ? card.cardVariants : [];
   for (const variant of variants) {
     const productId = variant?.sourceRefs?.tcgplayerProductId;
-    if (productId) return productId;
+    if (productId && !ids.includes(productId)) ids.push(productId);
   }
-  return null;
+  return ids;
 }
 
 function cardImage(card) {
+  const candidates = cardImageCandidates(card);
+  return candidates[0] || "";
+}
+
+function cardImageCandidates(card) {
+  const candidates = [];
   if (String(card?.set?.id || "").toLowerCase() === "mep" || String(card?.id || "").toLowerCase().startsWith("mep-")) {
-    const productId = tcgplayerProductId(card);
-    if (productId) {
-      return `https://tcgplayer-cdn.tcgplayer.com/product/${productId}_200w.jpg`;
+    for (const productId of tcgplayerProductIds(card)) {
+      candidates.push(`https://tcgplayer-cdn.tcgplayer.com/product/${productId}_200w.jpg`);
     }
   }
 
   const image = card?.images?.small || card?.images?.large;
-  if (image) return absoluteUrl(image, BACKEND_ORIGIN);
-  if (String(card?.set?.id || "").toLowerCase() !== "mep" && !String(card?.id || "").toLowerCase().startsWith("mep-")) return "";
+  if (image) candidates.push(absoluteUrl(image, BACKEND_ORIGIN));
+  if (String(card?.set?.id || "").toLowerCase() !== "mep" && !String(card?.id || "").toLowerCase().startsWith("mep-")) {
+    return candidates.filter((candidate, index) => candidate && candidates.indexOf(candidate) === index);
+  }
 
   const id = String(card?.id || "");
   const number = String(card?.number || "").padStart(3, "0");
   const imageKey = id.toLowerCase().startsWith("mep-") ? id.slice(4) : number;
-  return imageKey ? `${BACKEND_ORIGIN}/card-images/mep/mep-${imageKey}.webp` : "";
+  if (imageKey) candidates.push(`${BACKEND_ORIGIN}/card-images/mep/mep-${imageKey}.webp`);
+  return candidates.filter((candidate, index) => candidate && candidates.indexOf(candidate) === index);
+}
+
+function imageFallbackAttribute(candidates) {
+  return candidates.length > 1
+    ? ` data-fallbacks="${escapeHtml(candidates.slice(1).join("|"))}" onerror="route25CardImageFallback(this)"`
+    : "";
 }
 
 function setLogo(set) {
@@ -105,10 +194,11 @@ function rarityCount(cards) {
 
 function renderCardGrid(cards) {
   return cards.map((card) => {
-    const image = cardImage(card);
+    const imageCandidates = cardImageCandidates(card);
+    const image = imageCandidates[0];
     const number = card?.number ? `#${card.number}` : card?.id;
     return `<a class="set-card" href="/cards/${encodeURIComponent(card.id)}" aria-label="${escapeHtml(card?.name || card.id)}">
-      ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(card?.name || "Pokemon card")}" loading="lazy" decoding="async" />` : ""}
+      ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(card?.name || "Pokemon card")}" loading="lazy" decoding="async"${imageFallbackAttribute(imageCandidates)} />` : ""}
       <span>${escapeHtml(card?.name || card.id)}</span>
       <small>${escapeHtml([number, card?.rarity].filter(Boolean).join(" | "))}</small>
     </a>`;
@@ -414,8 +504,9 @@ function renderSetPage(set, cards, req) {
         <div class="set-visual" aria-hidden="true">
           <div class="set-card-stack">
             ${cards.slice(0, 4).map((card) => {
-              const image = cardImage(card);
-              return image ? `<img src="${escapeHtml(image)}" alt="" loading="eager" decoding="async" />` : "";
+              const imageCandidates = cardImageCandidates(card);
+              const image = imageCandidates[0];
+              return image ? `<img src="${escapeHtml(image)}" alt="" loading="eager" decoding="async"${imageFallbackAttribute(imageCandidates)} />` : "";
             }).join("")}
           </div>
         </div>
@@ -437,6 +528,18 @@ function renderSetPage(set, cards, req) {
       </div>
     </section>
   </main>
+  <script>
+    function route25CardImageFallback(img) {
+      const fallbacks = String(img.dataset.fallbacks || "").split("|").filter(Boolean);
+      const next = fallbacks.shift();
+      if (!next) {
+        img.removeAttribute("onerror");
+        return;
+      }
+      img.dataset.fallbacks = fallbacks.join("|");
+      img.src = next;
+    }
+  </script>
 </body>
 </html>`;
 }
@@ -481,7 +584,7 @@ module.exports = async (req, res) => {
       return;
     }
 
-    const cards = await fetchCards(set.id);
+    const cards = await fetchCards(set);
     res.statusCode = 200;
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.setHeader("cache-control", "s-maxage=86400, stale-while-revalidate=604800");

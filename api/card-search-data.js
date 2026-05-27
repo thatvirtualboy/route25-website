@@ -1,6 +1,9 @@
 const BACKEND_ORIGIN = "https://palettetown-backend.vercel.app";
 const responseCache = new Map();
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const KNOWN_SET_TOTALS = {
+  me3: 124
+};
 
 function getCachedJson(key) {
   const entry = responseCache.get(key);
@@ -128,6 +131,33 @@ async function fetchJson(url) {
   return response.json();
 }
 
+async function fetchJsonWithTimeout(url, timeoutMs) {
+  const controller = new AbortController();
+  let timeout = null;
+  try {
+    return await Promise.race([
+      fetch(url, {
+        headers: { accept: "application/json" },
+        signal: controller.signal
+      }).then((response) => {
+        if (!response.ok) throw new Error(`Fetch failed ${response.status} for ${url}`);
+        return response.json();
+      }),
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          const error = new Error("Fetch timed out");
+          error.name = "TimeoutError";
+          reject(error);
+        }, timeoutMs);
+        if (typeof timeout.unref === "function") timeout.unref();
+      })
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 function sortSets(sets) {
   return [...sets].sort((a, b) => {
     const dateA = Date.parse(a?.releaseDate || "") || 0;
@@ -137,6 +167,40 @@ function sortSets(sets) {
   });
 }
 
+function syntheticSetCards(set, page, pageSize) {
+  const setId = String(set?.id || "").trim();
+  const total = Number(set?.total || set?.printedTotal || set?.cardCount?.total || set?.cardCount?.official || KNOWN_SET_TOTALS[setId.toLowerCase()]);
+  if (!setId || !Number.isFinite(total) || total < 1) return null;
+  const start = (page - 1) * pageSize;
+  const numbers = Array.from({ length: Math.max(0, Math.min(pageSize, total - start)) }, (_, index) => start + index + 1);
+  return {
+    rawItems: numbers.map((number) => ({
+      id: `${setId}-${number}`,
+      name: `${set?.name || setId} #${String(number).padStart(3, "0")}`,
+      number: String(number),
+      rarity: "",
+      images: {
+        small: `https://images.scrydex.com/pokemon/${setId}-${number}/small`,
+        large: `https://images.scrydex.com/pokemon/${setId}-${number}/large`
+      },
+      set: {
+        id: setId,
+        name: set?.name || setId,
+        releaseDate: set?.releaseDate || "",
+        images: set?.images || {},
+        printedTotal: set?.printedTotal,
+        total: set?.total
+      }
+    })),
+    payload: {
+      page,
+      pageSize,
+      count: numbers.length,
+      totalCount: total
+    }
+  };
+}
+
 async function fetchSets() {
   const payload = await fetchJson(`${BACKEND_ORIGIN}/api/tcg/sets`);
   const sets = Array.isArray(payload?.data) ? payload.data : [];
@@ -144,7 +208,9 @@ async function fetchSets() {
     id: set?.id || "",
     name: set?.name || set?.id || "",
     releaseDate: set?.releaseDate || "",
-    images: set?.images || {}
+    images: set?.images || {},
+    printedTotal: set?.printedTotal || set?.cardCount?.official || null,
+    total: set?.total || set?.cardCount?.total || null
   })).filter((set) => set.id);
 }
 
@@ -168,17 +234,53 @@ function buildSearchQueries({ q, set }) {
   return terms.map((term) => buildSearchQuery({ q: term, set })).filter(Boolean);
 }
 
-async function fetchCardsBySet(set, page, pageSize) {
+async function fetchCardsBySet(set, page, pageSize, setInfo = null) {
   const url = new URL(`${BACKEND_ORIGIN}/api/tcg/by-set`);
   url.searchParams.set("set", set);
   url.searchParams.set("pageSize", "500");
 
-  const payload = await fetchJson(url.href);
+  let payload = null;
+  try {
+    payload = await fetchJsonWithTimeout(url.href, 2400);
+  } catch {
+    payload = null;
+  }
   const allItems = Array.isArray(payload?.items)
     ? payload.items
     : Array.isArray(payload?.data)
       ? payload.data
       : [];
+  if (!allItems.length) {
+    const searchUrl = new URL(`${BACKEND_ORIGIN}/api/tcg/cards`);
+    searchUrl.searchParams.set("q", `set.id:${set}`);
+    searchUrl.searchParams.set("page", String(page));
+    searchUrl.searchParams.set("pageSize", String(pageSize));
+    let searchPayload = null;
+    try {
+      searchPayload = await fetchJsonWithTimeout(searchUrl.href, 5200);
+    } catch {
+      searchPayload = null;
+    }
+    const searchItems = Array.isArray(searchPayload?.data)
+      ? searchPayload.data
+      : Array.isArray(searchPayload?.items)
+        ? searchPayload.items
+        : [];
+    if (!searchItems.length) {
+      const fallbackSet = setInfo || (await fetchSets()).find((item) => item.id.toLowerCase() === String(set).toLowerCase());
+      const synthetic = syntheticSetCards(fallbackSet, page, pageSize);
+      if (synthetic) return synthetic;
+    }
+    return {
+      rawItems: searchItems,
+      payload: {
+        page: searchPayload?.page || page,
+        pageSize: searchPayload?.pageSize || pageSize,
+        count: searchPayload?.count ?? searchItems.length,
+        totalCount: searchPayload?.totalCount ?? searchItems.length
+      }
+    };
+  }
   const start = (page - 1) * pageSize;
   return {
     rawItems: allItems.slice(start, start + pageSize),
@@ -246,7 +348,7 @@ async function handleSearch(req, res) {
   let rawItems = [];
   const browseSetId = !q ? (set || defaultSet?.id || "") : "";
   if (browseSetId) {
-    const bySetResult = await fetchCardsBySet(browseSetId, page, pageSize);
+    const bySetResult = await fetchCardsBySet(browseSetId, page, pageSize, defaultSet);
     payload = bySetResult.payload;
     rawItems = bySetResult.rawItems;
   } else if (queries.length === 1) {
