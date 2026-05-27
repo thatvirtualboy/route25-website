@@ -78,6 +78,13 @@ function imageFallbackAttribute(candidates) {
     : "";
 }
 
+function imageUpgradeAttribute(candidates, initialImage) {
+  const upgradeCandidates = candidates.filter((candidate) => candidate && candidate !== initialImage);
+  return upgradeCandidates.length
+    ? ` data-hires-candidates="${escapeHtml(upgradeCandidates.join("|"))}"`
+    : "";
+}
+
 function titleCaseSlug(value) {
   return String(value || "")
     .replace(/[-_]+/g, " ")
@@ -765,9 +772,13 @@ function socialToolbar() {
 function renderCardPage(card, req, options = {}) {
   const pageUrl = cardPageUrl(req, card.id);
   const hintedFallbacks = Array.isArray(card?.images?.fallbacks) ? card.images.fallbacks : [];
-  const imageCandidates = resolvedCardImages(card, true).concat(hintedFallbacks)
+  const lowResCandidates = resolvedCardImages(card, false).concat(hintedFallbacks)
     .filter((candidate, index, all) => candidate && all.indexOf(candidate) === index);
-  const image = imageCandidates[0] || "";
+  const highResCandidates = resolvedCardImages(card, true).concat(hintedFallbacks)
+    .filter((candidate, index, all) => candidate && all.indexOf(candidate) === index);
+  const imageCandidates = lowResCandidates.concat(highResCandidates)
+    .filter((candidate, index, all) => candidate && all.indexOf(candidate) === index);
+  const image = (options.cleanUrl ? lowResCandidates[0] : highResCandidates[0]) || imageCandidates[0] || "";
   const socialImage = cardSocialImageUrl(req, card.id);
   const setLogo = absoluteUrl(card?.set?.images?.localLogo || card?.set?.images?.logo, BACKEND_ORIGIN);
   const setName = card?.set?.name || card?.set?.id || "Pokemon TCG";
@@ -1039,7 +1050,7 @@ function renderCardPage(card, req, options = {}) {
   <main class="card-share-hero">
     <div class="container card-share-grid">
       <div class="card-art-stage">
-        ${image ? `<img class="card-art" src="${escapeHtml(image)}" alt="${escapeHtml(card.name)} card" fetchpriority="high" decoding="async"${imageFallbackAttribute(imageCandidates)} />` : ""}
+        ${image ? `<img class="card-art" src="${escapeHtml(image)}" alt="${escapeHtml(card.name)} card" fetchpriority="high" decoding="async"${imageFallbackAttribute(imageCandidates)}${options.cleanUrl ? imageUpgradeAttribute(highResCandidates, image) : ""} />` : ""}
       </div>
       <section class="card-copy">
         <div class="card-kicker">
@@ -1079,6 +1090,29 @@ function renderCardPage(card, req, options = {}) {
       img.src = next;
     }
     ${options.cleanUrl ? `window.history.replaceState({}, "", ${JSON.stringify(cleanCardPath(card.id, req.query))});` : ""}
+    (function upgradeCardImage() {
+      const img = document.querySelector(".card-art[data-hires-candidates]");
+      if (!img) return;
+      const candidates = String(img.dataset.hiresCandidates || "").split("|").filter(Boolean);
+      const loadNext = function() {
+        const next = candidates.shift();
+        if (!next || next === img.currentSrc || next === img.src) return;
+        const hiRes = new Image();
+        hiRes.decoding = "async";
+        hiRes.onload = function() {
+          img.removeAttribute("onerror");
+          img.removeAttribute("data-fallbacks");
+          img.src = next;
+        };
+        hiRes.onerror = loadNext;
+        hiRes.src = next;
+      };
+      if ("requestIdleCallback" in window) {
+        window.requestIdleCallback(loadNext, { timeout: 1200 });
+      } else {
+        window.setTimeout(loadNext, 250);
+      }
+    })();
   </script>
   ${variantScript(card.id)}
 </body>

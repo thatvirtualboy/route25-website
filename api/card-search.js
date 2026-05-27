@@ -367,16 +367,20 @@ function renderSearchPage(req) {
     function cardUrl(card) {
       const id = card.id || "";
       const url = new URL("/cards/" + encodeURIComponent(id), window.location.origin);
-      const images = cardImageCandidates(card);
+      const smallImages = cardImageCandidates(card, false);
+      const largeImages = cardImageCandidates(card, true);
+      const imageFallbacks = largeImages.concat(smallImages).filter(function(candidate, index, all) {
+        return candidate && all.indexOf(candidate) === index;
+      });
       const setName = card.set && card.set.name ? card.set.name : "";
       const hints = {
         name: card.name,
         number: card.number,
         setName: setName,
         rarity: card.rarity,
-        imageSmall: images[0],
-        imageLarge: images[0],
-        imageFallbacks: images.slice(1, 8).join("|")
+        imageSmall: smallImages[0],
+        imageLarge: largeImages[0],
+        imageFallbacks: imageFallbacks.slice(1, 10).join("|")
       };
       Object.keys(hints).forEach(function(key) {
         if (hints[key]) url.searchParams.set(key, hints[key]);
@@ -452,12 +456,12 @@ function renderSearchPage(req) {
       });
     }
 
-    function cardImageCandidates(card) {
+    function cardImageCandidates(card, large) {
       const images = card.images || {};
       const candidates = [
-        images.small,
-        images.large,
-      ].concat(tcgplayerImages(card, false), tcgplayerImages(card, true));
+        large ? images.large : images.small,
+        large ? images.small : images.large,
+      ].concat(tcgplayerImages(card, Boolean(large)), tcgplayerImages(card, !large));
       const expanded = [];
       candidates.forEach(function(candidate) {
         if (!candidate) return;
@@ -478,7 +482,7 @@ function renderSearchPage(req) {
     }
 
     function renderCard(card) {
-      const imageCandidates = cardImageCandidates(card);
+      const imageCandidates = cardImageCandidates(card, false);
       const img = imageCandidates[0];
       const setName = card.set && card.set.name ? card.set.name : "";
       const market = formatCurrency(card.market);
