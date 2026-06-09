@@ -47,6 +47,11 @@ function tcgplayerProductIds(card) {
 
 function resolvedCardImages(card, large = true) {
   const candidates = [];
+  const id = String(card?.id || "");
+  if (id.toLowerCase() === "mep-500") {
+    candidates.push(`${BACKEND_ORIGIN}/card-images/mep/mep-500.webp`);
+  }
+
   if (String(card?.set?.id || cardSetId(card?.id)).toLowerCase() === "mep" || String(card?.id || "").toLowerCase().startsWith("mep-")) {
     for (const productId of tcgplayerProductIds(card)) {
       candidates.push(`https://tcgplayer-cdn.tcgplayer.com/product/${productId}${large ? "_in_1000x1000" : "_200w"}.jpg`);
@@ -61,7 +66,6 @@ function resolvedCardImages(card, large = true) {
     return candidates.filter((candidate, index) => candidate && candidates.indexOf(candidate) === index);
   }
 
-  const id = String(card?.id || "");
   const number = String(card?.number || "").padStart(3, "0");
   const imageKey = id.toLowerCase().startsWith("mep-") ? id.slice(4) : number;
   if (imageKey) candidates.push(`${BACKEND_ORIGIN}/card-images/mep/mep-${imageKey}.webp`);
