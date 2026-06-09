@@ -149,6 +149,10 @@ function renderSearchPage(req) {
       color: var(--muted);
       font-size: 13px;
     }
+    .search-meta-bottom {
+      justify-content: flex-end;
+      margin: 18px 0 0;
+    }
     .pager {
       display: inline-flex;
       gap: 8px;
@@ -296,13 +300,20 @@ function renderSearchPage(req) {
         <div class="search-meta">
           <span id="resultSummary">Loading cards...</span>
           <span class="pager">
-            <button class="button" type="button" id="prevPage" aria-label="Previous page">Prev</button>
-            <span id="pageLabel">Page 1</span>
-            <button class="button" type="button" id="nextPage" aria-label="Next page">Next</button>
+            <button class="button" type="button" data-page-action="prev" aria-label="Previous page">Prev</button>
+            <span data-page-label>Page 1</span>
+            <button class="button" type="button" data-page-action="next" aria-label="Next page">Next</button>
           </span>
         </div>
         <div class="empty-state" id="emptyState">No cards found. Try a broader name or remove the set filter.</div>
         <div class="results-grid" id="resultsGrid"></div>
+        <div class="search-meta search-meta-bottom">
+          <span class="pager">
+            <button class="button" type="button" data-page-action="prev" aria-label="Previous page">Prev</button>
+            <span data-page-label>Page 1</span>
+            <button class="button" type="button" data-page-action="next" aria-label="Next page">Next</button>
+          </span>
+        </div>
       </section>
     </div>
   </main>
@@ -322,9 +333,9 @@ function renderSearchPage(req) {
     const resultsGrid = document.getElementById("resultsGrid");
     const resultSummary = document.getElementById("resultSummary");
     const emptyState = document.getElementById("emptyState");
-    const pageLabel = document.getElementById("pageLabel");
-    const prevPage = document.getElementById("prevPage");
-    const nextPage = document.getElementById("nextPage");
+    const pageLabels = Array.from(document.querySelectorAll("[data-page-label]"));
+    const prevPageButtons = Array.from(document.querySelectorAll("[data-page-action='prev']"));
+    const nextPageButtons = Array.from(document.querySelectorAll("[data-page-action='next']"));
     const openSetInApp = document.getElementById("openSetInApp");
     let debounceTimer = null;
     let activeController = null;
@@ -520,9 +531,15 @@ function renderSearchPage(req) {
       resultsSection.classList.toggle("loading", isLoading);
       resultsSection.setAttribute("aria-busy", isLoading ? "true" : "false");
       const maxPage = Math.max(1, Math.ceil(state.totalCount / state.pageSize));
-      pageLabel.textContent = "Page " + state.page;
-      prevPage.disabled = isLoading || state.page <= 1;
-      nextPage.disabled = isLoading || state.page >= maxPage;
+      pageLabels.forEach(function(label) {
+        label.textContent = "Page " + state.page;
+      });
+      prevPageButtons.forEach(function(button) {
+        button.disabled = isLoading || state.page <= 1;
+      });
+      nextPageButtons.forEach(function(button) {
+        button.disabled = isLoading || state.page >= maxPage;
+      });
     }
 
     async function fetchCardsFor(nextState, options) {
@@ -618,15 +635,18 @@ function renderSearchPage(req) {
       state.page = 1;
       loadCards();
     });
-    prevPage.addEventListener("click", function() {
-      if (state.page > 1) {
-        state.page -= 1;
+    document.querySelectorAll("[data-page-action]").forEach(function(button) {
+      button.addEventListener("click", function() {
+        if (button.dataset.pageAction === "prev") {
+          if (state.page > 1) {
+            state.page -= 1;
+            loadCards();
+          }
+          return;
+        }
+        state.page += 1;
         loadCards();
-      }
-    });
-    nextPage.addEventListener("click", function() {
-      state.page += 1;
-      loadCards();
+      });
     });
     resultsGrid.addEventListener("mouseover", function(event) {
       const link = event.target.closest && event.target.closest(".result-card");
