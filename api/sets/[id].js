@@ -17,6 +17,12 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function cleanText(value) {
+  const text = String(value ?? "").trim();
+  if (!text || /^(none|null|undefined|n\/a)$/i.test(text)) return "";
+  return text;
+}
+
 function jsonScript(value) {
   return JSON.stringify(value).replaceAll("<", "\\u003c");
 }
@@ -33,6 +39,12 @@ function absoluteUrl(value, origin = "https://route25.app") {
 function appDeepLink(path) {
   const cleanPath = String(path || "").replace(/^\/+/, "");
   return `route25://${cleanPath}`;
+}
+
+function formatDate(value) {
+  const date = new Date(String(value || ""));
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-US", { year: "numeric", month: "long", day: "numeric" }).format(date);
 }
 
 async function fetchJson(url) {
@@ -197,10 +209,11 @@ function renderCardGrid(cards) {
     const imageCandidates = cardImageCandidates(card);
     const image = imageCandidates[0];
     const number = card?.number ? `#${card.number}` : card?.id;
+    const rarity = cleanText(card?.rarity);
     return `<a class="set-card" href="/cards/${encodeURIComponent(card.id)}" aria-label="${escapeHtml(card?.name || card.id)}">
       ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(card?.name || "Pokemon card")}" loading="lazy" decoding="async"${imageFallbackAttribute(imageCandidates)} />` : ""}
       <span>${escapeHtml(card?.name || card.id)}</span>
-      <small>${escapeHtml([number, card?.rarity].filter(Boolean).join(" | "))}</small>
+      <small>${escapeHtml([number, rarity].filter(Boolean).join(" | "))}</small>
     </a>`;
   }).join("");
 }
@@ -256,6 +269,24 @@ function structuredData({ set, cards, pageUrl, image }) {
         }))
       },
       {
+        "@type": "BreadcrumbList",
+        "@id": `${pageUrl}#breadcrumb`,
+        itemListElement: [
+          {
+            "@type": "ListItem",
+            position: 1,
+            name: "Route 25",
+            item: "https://route25.app/"
+          },
+          {
+            "@type": "ListItem",
+            position: 2,
+            name,
+            item: pageUrl
+          }
+        ]
+      },
+      {
         "@type": "SoftwareApplication",
         name: "Route 25",
         applicationCategory: "LifestyleApplication",
@@ -265,6 +296,72 @@ function structuredData({ set, cards, pageUrl, image }) {
       }
     ]
   };
+}
+
+function renderInfoRows(rows) {
+  return rows.filter(([, value]) => value).map(([label, value]) => `
+    <div class="set-reference-row">
+      <dt>${escapeHtml(label)}</dt>
+      <dd>${escapeHtml(value)}</dd>
+    </div>
+  `).join("");
+}
+
+function setAliases(set) {
+  return [
+    set?.name,
+    set?.id ? String(set.id).toUpperCase() : "",
+    set?.ptcgoCode,
+    set?.series ? `${set.series} ${set.name}` : ""
+  ].map(cleanText).filter((value, index, all) => value && all.indexOf(value) === index);
+}
+
+function notableCards(cards) {
+  const notable = cards.filter((card) => {
+    const name = String(card?.name || "");
+    const rarity = String(card?.rarity || "");
+    return /\b(ex|gx|vmax|vstar|secret|trainer gallery|illustration|rare|promo)\b/i.test(`${name} ${rarity}`);
+  });
+  return (notable.length ? notable : cards).filter((card) => card?.id && card?.name).slice(0, 12);
+}
+
+function renderSetReference(set, cards) {
+  const name = set?.name || set?.id || "Pokemon TCG";
+  const aliases = setAliases(set);
+  const release = formatDate(set?.releaseDate);
+  const total = setTotal(set, cards);
+  const rarities = rarityCount(cards);
+  const rows = [
+    ["Set name", name],
+    ["Set code", cleanText(set?.id)],
+    ["Series", cleanText(set?.series)],
+    ["Release date", release],
+    ["Cards listed", String(total || cards.length)],
+    ["Rarity groups", rarities ? String(rarities) : ""],
+    ["Also searched as", aliases.filter((alias) => alias !== name).join(", ")]
+  ];
+  const featured = notableCards(cards);
+
+  return `<section class="set-reference-section">
+    <div class="container">
+      <div class="set-reference-heading">
+        <h2>${escapeHtml(name)} set details</h2>
+        <p>${escapeHtml(`${name} is indexed on Route 25 with card names, card numbers, artwork, rarity, and collector price context. This page is designed for searches like "${name} set list", "${name} card list", and individual ${name} card numbers.`)}</p>
+      </div>
+      <div class="set-reference-grid">
+        <article class="set-reference-card">
+          <h3>Set overview</h3>
+          <dl class="set-reference-list">${renderInfoRows(rows)}</dl>
+        </article>
+        <article class="set-reference-card">
+          <h3>Notable cards</h3>
+          <div class="notable-links">
+            ${featured.map((card) => `<a href="/cards/${encodeURIComponent(card.id)}">${escapeHtml(card.name)}${card.number ? ` <span>#${escapeHtml(card.number)}</span>` : ""}</a>`).join("")}
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>`;
 }
 
 function renderSetPage(set, cards, req) {
@@ -458,11 +555,98 @@ function renderSetPage(set, cards, req) {
       color: var(--muted);
       line-height: 1.25;
     }
+    .set-reference-section {
+      padding: clamp(36px, 6vw, 72px) 0;
+      border-top: 1px solid rgba(255,255,255,.1);
+    }
+    .set-reference-heading {
+      max-width: 820px;
+      margin-bottom: 22px;
+    }
+    .set-reference-heading h2 {
+      font-size: clamp(32px, 4.6vw, 58px);
+      line-height: .98;
+      margin: 0 0 12px;
+    }
+    .set-reference-heading p,
+    .set-reference-card p {
+      color: rgba(255,255,255,.72);
+      line-height: 1.58;
+      margin: 0;
+    }
+    .set-reference-grid {
+      display: grid;
+      grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
+      gap: 12px;
+    }
+    .set-reference-card {
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 12px;
+      background: rgba(255,255,255,.05);
+      padding: 18px;
+    }
+    .set-reference-card h3 {
+      font-size: 18px;
+      line-height: 1.15;
+      margin: 0 0 14px;
+    }
+    .set-reference-list {
+      display: grid;
+      gap: 10px;
+      margin: 0;
+    }
+    .set-reference-row {
+      display: grid;
+      grid-template-columns: minmax(108px, .7fr) minmax(0, 1fr);
+      gap: 12px;
+      align-items: baseline;
+    }
+    .set-reference-row dt {
+      color: rgba(255,255,255,.54);
+      font-size: 11px;
+      font-weight: 780;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .set-reference-row dd {
+      margin: 0;
+      font-weight: 720;
+    }
+    .notable-links {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .notable-links a {
+      min-width: 0;
+      padding: 10px 11px;
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 8px;
+      background: rgba(5,6,10,.25);
+      font-weight: 740;
+      line-height: 1.2;
+    }
+    .notable-links a:hover {
+      border-color: rgba(88,199,255,.44);
+      text-decoration: none;
+    }
+    .notable-links span {
+      color: rgba(255,255,255,.58);
+      font-size: 12px;
+    }
     @media (max-width: 860px) {
       .set-grid { grid-template-columns: 1fr; }
       .set-visual { min-height: auto; padding: 12px 0; }
       .set-card-stack { width: min(88vw, 400px); }
       .set-stats { grid-template-columns: 1fr; }
+      .set-reference-grid,
+      .notable-links,
+      .set-reference-row {
+        grid-template-columns: 1fr;
+      }
+      .set-reference-row {
+        gap: 3px;
+      }
     }
   </style>
 </head>
@@ -519,6 +703,7 @@ function renderSetPage(set, cards, req) {
         <div class="set-card-grid">${renderCardGrid(cards)}</div>
       </div>
     </section>
+    ${renderSetReference(set, cards)}
     <section class="container community-cta" aria-labelledby="set-community-title">
       <h2 id="set-community-title">Manage this set in Route 25.</h2>
       <p>Track your binder, view card values, share pulls, and keep your Pokemon TCG collection moving.</p>

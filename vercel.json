@@ -142,6 +142,22 @@
     {
       "source": "/trade/",
       "destination": "https://palettetown-backend.vercel.app/trade/"
+    },
+    {
+      "source": "/folders/:id",
+      "destination": "https://palettetown-backend.vercel.app/folders/:id"
+    },
+    {
+      "source": "/folders/:id/",
+      "destination": "https://palettetown-backend.vercel.app/folders/:id/"
+    },
+    {
+      "source": "/folders",
+      "destination": "https://palettetown-backend.vercel.app/folders"
+    },
+    {
+      "source": "/folders/",
+      "destination": "https://palettetown-backend.vercel.app/folders/"
     }
   ],
   "builds": [

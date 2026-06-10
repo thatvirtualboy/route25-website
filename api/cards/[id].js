@@ -171,6 +171,28 @@ function pokemonText() {
   return "Pokemon";
 }
 
+function cleanText(value) {
+  const text = String(value ?? "").trim();
+  if (!text || /^(none|null|undefined|n\/a)$/i.test(text)) return "";
+  return text;
+}
+
+function listText(value) {
+  if (Array.isArray(value)) return value.map(cleanText).filter(Boolean).join(", ");
+  return cleanText(value);
+}
+
+function formatDate(value) {
+  const date = new Date(String(value || ""));
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-US", { year: "numeric", month: "long", day: "numeric" }).format(date);
+}
+
+function formatWeaknesses(items) {
+  if (!Array.isArray(items)) return "";
+  return items.map((item) => [item?.type, item?.value].map(cleanText).filter(Boolean).join(" ")).filter(Boolean).join(", ");
+}
+
 function formatCurrency(amount, currencyCode = "USD") {
   const value = Number(amount);
   if (!Number.isFinite(value) || value <= 0) return "";
@@ -454,12 +476,25 @@ async function fetchOfficialSet(setId) {
 function metaDescription(card) {
   const setName = card?.set?.name || card?.set?.id || "Pokemon TCG";
   const number = formatCardNumber(card) || (card?.number ? `#${card.number}` : card?.id);
-  const rarity = card?.rarity ? `${card.rarity} ` : "";
+  const rarity = cleanText(card?.rarity) ? `${cleanText(card.rarity)} ` : "";
   return `${card.name} ${number} from ${setName}. View card details, artwork, rarity, type, artist, and set information for this ${rarity}${pokemonText()} TCG card on Route 25.`;
 }
 
 function cardStructuredData(card, pageUrl, image, description, options = {}) {
   const setName = card?.set?.name || card?.set?.id || "Pokemon TCG";
+  const setId = card?.set?.id || cardSetId(card.id);
+  const cardNumber = formatCardNumber(card) || card?.number || "";
+  const properties = [
+    ["Set", setName],
+    ["Card number", cardNumber],
+    ["Rarity", cleanText(card?.rarity)],
+    ["Artist", cleanText(card?.artist || card?.illustrator)],
+    ["Card type", listText([card?.supertype, ...(Array.isArray(card?.subtypes) ? card.subtypes : [])])]
+  ].filter(([, value]) => value).map(([name, value]) => ({
+    "@type": "PropertyValue",
+    name,
+    value
+  }));
   const offers = options.tcgcsvQuote
     ? {
         "@type": "Offer",
@@ -490,7 +525,32 @@ function cardStructuredData(card, pageUrl, image, description, options = {}) {
         category: "Pokemon TCG card",
         brand: { "@type": "Brand", name: "Pokemon Trading Card Game" },
         sku: card.id,
+        additionalProperty: properties.length ? properties : undefined,
         offers
+      },
+      {
+        "@type": "BreadcrumbList",
+        "@id": `${pageUrl}#breadcrumb`,
+        itemListElement: [
+          {
+            "@type": "ListItem",
+            position: 1,
+            name: "Route 25",
+            item: "https://route25.app/"
+          },
+          setId ? {
+            "@type": "ListItem",
+            position: 2,
+            name: setName,
+            item: `https://route25.app/sets/${encodeURIComponent(setId)}`
+          } : null,
+          {
+            "@type": "ListItem",
+            position: 3,
+            name: card.name,
+            item: pageUrl
+          }
+        ].filter(Boolean)
       },
       {
         "@type": "SoftwareApplication",
@@ -526,10 +586,10 @@ function detailRows(card, options = {}) {
     ["Set", card?.set?.name || card?.set?.id],
     ["Card No.", cardNumber],
     ["Variant", options.selectedVariant?.label],
-    ["Rarity", card?.rarity],
-    ["Type", Array.isArray(card?.types) ? card.types.join(", ") : null],
-    ["Artist", card?.artist || card?.illustrator],
-    ["Regulation", card?.regulationMark],
+    ["Rarity", cleanText(card?.rarity)],
+    ["Type", listText(card?.types)],
+    ["Artist", cleanText(card?.artist || card?.illustrator)],
+    ["Regulation", cleanText(card?.regulationMark)],
     ["TCGPlayer Value", tcgcsvValue || (showAsyncPrice ? "Loading..." : null)],
     ["eBay", "Search eBay listings", options.ebayUrl, true]
   ].filter(([, value]) => value);
@@ -547,6 +607,99 @@ function detailRows(card, options = {}) {
       </dd>
     </div>
   `).join("");
+}
+
+function renderInfoRows(rows) {
+  return rows.filter(([, value]) => value).map(([label, value]) => `
+    <div class="reference-row">
+      <dt>${escapeHtml(label)}</dt>
+      <dd>${escapeHtml(value)}</dd>
+    </div>
+  `).join("");
+}
+
+function attackCostText(cost) {
+  return Array.isArray(cost) && cost.length ? cost.join(", ") : "";
+}
+
+function renderAbilities(card) {
+  const abilities = Array.isArray(card?.abilities) ? card.abilities : [];
+  if (!abilities.length) return "";
+  return `<article class="reference-card">
+    <h3>Abilities</h3>
+    ${abilities.map((ability) => `
+      <div class="rules-entry">
+        <strong>${escapeHtml(cleanText(ability?.name) || "Ability")}</strong>
+        ${ability?.type ? `<span>${escapeHtml(ability.type)}</span>` : ""}
+        ${ability?.text ? `<p>${escapeHtml(ability.text)}</p>` : ""}
+      </div>
+    `).join("")}
+  </article>`;
+}
+
+function renderAttacks(card) {
+  const attacks = Array.isArray(card?.attacks) ? card.attacks : [];
+  if (!attacks.length) return "";
+  return `<article class="reference-card">
+    <h3>Attacks</h3>
+    ${attacks.map((attack) => {
+      const bits = [attackCostText(attack?.cost), attack?.damage ? `${attack.damage} damage` : ""].filter(Boolean).join(" | ");
+      return `<div class="rules-entry">
+        <strong>${escapeHtml(cleanText(attack?.name) || "Attack")}</strong>
+        ${bits ? `<span>${escapeHtml(bits)}</span>` : ""}
+        ${attack?.text ? `<p>${escapeHtml(attack.text)}</p>` : ""}
+      </div>`;
+    }).join("")}
+  </article>`;
+}
+
+function renderLegalities(card) {
+  const legalities = card?.legalities && typeof card.legalities === "object"
+    ? Object.entries(card.legalities).map(([format, status]) => [titleCaseSlug(format), cleanText(status)])
+    : [];
+  if (!legalities.length) return "";
+  return `<article class="reference-card">
+    <h3>Format legality</h3>
+    <dl class="reference-list">${renderInfoRows(legalities)}</dl>
+  </article>`;
+}
+
+function renderCardReference(card, options = {}) {
+  const cardNumber = formatCardNumber(card) || cleanText(card?.number);
+  const selected = options.selectedVariant;
+  const quote = variantPricingQuote(selected) || options.tcgcsvQuote;
+  const priceText = quote ? formatCurrency(quote.amount, quote.currencyCode) : "";
+  const updatedAt = cleanText(selected?.pricing?.updatedAt || card?.tcgplayer?.updatedAt);
+  const playRows = [
+    ["Weakness", formatWeaknesses(card?.weaknesses)],
+    ["Resistance", formatWeaknesses(card?.resistances)],
+    ["Retreat cost", listText(card?.retreatCost)],
+    ["Converted retreat cost", cleanText(card?.convertedRetreatCost)]
+  ];
+  const priceSentence = priceText
+    ? `${card.name} ${cardNumber ? cardNumber + " " : ""}currently shows a ${priceText} market value${selected?.label ? ` for the ${selected.label} variant` : ""}${updatedAt ? `, last updated ${formatDate(updatedAt) || updatedAt}` : ""}.`
+    : `${card.name} ${cardNumber ? cardNumber + " " : ""}does not have a live market value available on this Route 25 page yet.`;
+  const gameplayRows = renderInfoRows(playRows);
+  const supplementalCards = [
+    renderAbilities(card),
+    renderAttacks(card),
+    gameplayRows ? `<article class="reference-card"><h3>Gameplay details</h3><dl class="reference-list">${gameplayRows}</dl></article>` : "",
+    renderLegalities(card)
+  ].filter(Boolean).join("");
+
+  return `<section class="container reference-section" aria-labelledby="card-market-title">
+    <div class="reference-heading">
+      <h2 id="card-market-title">${escapeHtml(card.name)} market context</h2>
+    </div>
+    <div class="reference-grid">
+      <article class="reference-card reference-card-wide">
+        <h3>Current value</h3>
+        <p>${escapeHtml(priceSentence)}</p>
+        ${updatedAt ? `<p class="reference-note">Prices can move quickly as listings and sales change. Route 25 shows available market data as collector reference, not a purchase guarantee.</p>` : ""}
+      </article>
+      ${supplementalCards}
+    </div>
+  </section>`;
 }
 
 function cardVariants(card) {
@@ -798,6 +951,7 @@ function renderCardPage(card, req, options = {}) {
   const ebayUrl = ebayAffiliateUrl(ebaySearchQuery(card), `r25-card-${card.id}`);
   const selected = selectedVariant(card, req);
   const pageQuote = variantPricingQuote(selected) || options.tcgcsvQuote;
+  const referenceSection = renderCardReference(card, { selectedVariant: selected, tcgcsvQuote: options.tcgcsvQuote });
 
   return `<!doctype html>
 <html lang="en">
@@ -985,6 +1139,88 @@ function renderCardPage(card, req, options = {}) {
       font-size: 17px;
       line-height: 1.6;
     }
+    .reference-section {
+      padding: clamp(28px, 5vw, 54px) 0 0;
+    }
+    .reference-heading {
+      max-width: 760px;
+      margin-bottom: 20px;
+    }
+    .reference-heading h2 {
+      font-size: clamp(30px, 4vw, 52px);
+      line-height: 1;
+      margin: 0 0 10px;
+    }
+    .reference-heading p,
+    .reference-card p,
+    .reference-note {
+      color: rgba(255, 255, 255, 0.72);
+      line-height: 1.58;
+      margin: 0;
+    }
+    .reference-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .reference-card {
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 18px;
+    }
+    .reference-card-wide {
+      grid-column: 1 / -1;
+    }
+    .reference-card h3 {
+      font-size: 18px;
+      line-height: 1.15;
+      margin: 0 0 14px;
+    }
+    .reference-list {
+      display: grid;
+      gap: 10px;
+      margin: 0;
+    }
+    .reference-row {
+      display: grid;
+      grid-template-columns: minmax(110px, 0.7fr) minmax(0, 1fr);
+      gap: 12px;
+      align-items: baseline;
+    }
+    .reference-row dt {
+      color: rgba(255, 255, 255, 0.54);
+      font-size: 11px;
+      font-weight: 780;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .reference-row dd {
+      margin: 0;
+      font-weight: 720;
+    }
+    .rules-entry + .rules-entry {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .rules-entry strong,
+    .rules-entry span {
+      display: block;
+    }
+    .rules-entry span {
+      margin-top: 4px;
+      color: rgba(255, 255, 255, 0.56);
+      font-size: 13px;
+      font-weight: 720;
+    }
+    .rules-entry p {
+      margin-top: 8px;
+    }
+    .reference-note {
+      margin-top: 12px;
+      font-size: 13px;
+    }
     .card-actions {
       display: flex;
       flex-wrap: wrap;
@@ -1035,6 +1271,13 @@ function renderCardPage(card, req, options = {}) {
       .detail-list {
         grid-template-columns: 1fr;
       }
+      .reference-grid {
+        grid-template-columns: 1fr;
+      }
+      .reference-row {
+        grid-template-columns: 1fr;
+        gap: 3px;
+      }
     }
   </style>
 </head>
@@ -1073,6 +1316,7 @@ function renderCardPage(card, req, options = {}) {
         </div>
       </section>
     </div>
+    ${referenceSection}
     <section class="container community-cta" aria-labelledby="community-cta-title">
       <h2 id="community-cta-title">Join a better ${pokemonText()} TCG community.</h2>
       <p>Track your collection, share pulls, talk trades, and connect with collectors who care about the cards as much as you do.</p>
