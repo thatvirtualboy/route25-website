@@ -144,6 +144,22 @@
       "destination": "https://palettetown-backend.vercel.app/trade/"
     },
     {
+      "source": "/collection/:id",
+      "destination": "https://palettetown-backend.vercel.app/collection/:id"
+    },
+    {
+      "source": "/collection/:id/",
+      "destination": "https://palettetown-backend.vercel.app/collection/:id/"
+    },
+    {
+      "source": "/collection",
+      "destination": "https://palettetown-backend.vercel.app/collection"
+    },
+    {
+      "source": "/collection/",
+      "destination": "https://palettetown-backend.vercel.app/collection/"
+    },
+    {
       "source": "/folders/:id",
       "destination": "https://palettetown-backend.vercel.app/folders/:id"
     },
