@@ -4,8 +4,15 @@ const X_URL = "https://x.com/route25app";
 const INSTAGRAM_URL = "https://www.instagram.com/route25app/";
 const DISCORD_URL = "https://discord.gg/WncmGEFuNw";
 const EBAY_CAMPAIGN_ID = "5339132958";
+const TCGPLAYER_PROMOTION_URL = "https://partner.tcgplayer.com/c/6678178/1780961/21018";
+const TCGPLAYER_SEARCH_API_URL = "https://mp-search-api.tcgplayer.com/v1/search/request";
 const APP_STORE_ID = "6755665546";
 const SOCIAL_PREVIEW_VERSION = "2";
+const tcgplayerResolveCache = new Map();
+const {
+  tcgplayerProductOverride,
+  withTcgplayerProductOverride
+} = require("../tcgplayer-overrides");
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -223,6 +230,176 @@ function ebayAffiliateUrl(query, customId) {
   return url.href;
 }
 
+function selectedTcgplayerProductId(card, selectedVariant) {
+  const selectedProductId = selectedVariant?.sourceRefs?.tcgplayerProductId;
+  if (selectedProductId) return selectedProductId;
+  const overrideProductId = tcgplayerProductOverride(card)?.productId;
+  if (overrideProductId) return overrideProductId;
+  return tcgplayerProductIds(card)[0] || "";
+}
+
+function normalizeLookupText(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/gi, " ")
+    .toLowerCase()
+    .trim();
+}
+
+function normalizeCardNumber(value) {
+  const text = String(value || "").toLowerCase();
+  const match = text.match(/[a-z]*0*([0-9]+)[a-z]*/);
+  return match ? match[1] : text.replace(/^0+/, "");
+}
+
+function tcgplayerSetUrlValue(card) {
+  const setId = String(card?.set?.id || cardSetId(card?.id) || "").toLowerCase();
+  const setName = tcgplayerSlugPart(card?.set?.name || "");
+  if (!setId || !setName) return "";
+  const meMatch = setId.match(/^me(\d+)$/);
+  if (meMatch) return `me${meMatch[1].padStart(2, "0")}-${setName}`;
+  if (/^sv\d+$/i.test(setId)) return `${setId}-${setName}`;
+  return `${setId}-${setName}`;
+}
+
+function productNumberMatches(card, product) {
+  const cardNumber = normalizeCardNumber(card?.number);
+  if (!cardNumber) return false;
+  const productNumber = normalizeCardNumber(product?.customAttributes?.number || product?.productName || "");
+  return productNumber === cardNumber;
+}
+
+function productNameMatches(card, product) {
+  const cardName = normalizeLookupText(card?.name);
+  if (!cardName) return false;
+  const productName = normalizeLookupText(String(product?.productName || "").replace(/\s+-\s+[0-9a-z/]+$/i, ""));
+  return productName === cardName || productName.includes(cardName) || cardName.includes(productName);
+}
+
+async function resolveTcgplayerProduct(card, timings = []) {
+  if (tcgplayerProductIds(card).length) return card;
+  const setUrlValue = tcgplayerSetUrlValue(card);
+  if (!setUrlValue) return card;
+  const cacheKey = `${setUrlValue}:${normalizeCardNumber(card?.number)}:${normalizeLookupText(card?.name)}`;
+  const cached = tcgplayerResolveCache.get(cacheKey);
+  if (cached === null) return card;
+  if (cached) return withTcgplayerProductOverride({
+    ...card,
+    cardVariants: [cached, ...(Array.isArray(card.cardVariants) ? card.cardVariants : [])]
+  });
+
+  const startedAt = Date.now();
+  try {
+    for (let from = 0; from <= 144; from += 24) {
+      const payload = await fetchJsonWithTimeout(TCGPLAYER_SEARCH_API_URL, 1000, {
+        method: "POST",
+        body: JSON.stringify({
+          algorithm: "salesrel",
+          from,
+          size: 24,
+          filters: {
+            term: {
+              productLineName: ["pokemon"],
+              setName: [setUrlValue],
+              productTypeName: ["Cards"]
+            }
+          },
+          query: [card?.name, card?.number, card?.set?.name, "Pokemon"].filter(Boolean).join(" ")
+        })
+      });
+      const result = Array.isArray(payload?.results) ? payload.results[0] : null;
+      const products = Array.isArray(result?.results) ? result.results : [];
+      const match = products.find((product) => productNumberMatches(card, product) && productNameMatches(card, product));
+      if (match?.productId) {
+        const variant = {
+          id: `${card.id}:tcgplayer`,
+          cardId: card.id,
+          label: "TCGPlayer",
+          kind: "master",
+          isDefault: true,
+          sourceRefs: {
+            tcgplayerProductId: String(Math.trunc(Number(match.productId))),
+            tcgplayerSlug: match.productUrlName ? tcgplayerSlugPart(match.productUrlName) : undefined
+          },
+          pricing: Number(match.marketPrice) > 0 ? { marketUsd: Number(match.marketPrice) } : undefined
+        };
+        tcgplayerResolveCache.set(cacheKey, variant);
+        timings.push(`tcgplayer_resolve;dur=${Date.now() - startedAt}`);
+        return {
+          ...card,
+          cardVariants: [variant, ...(Array.isArray(card.cardVariants) ? card.cardVariants : [])]
+        };
+      }
+      if (!products.length || from + 24 >= Number(result?.totalResults || 0)) break;
+    }
+  } catch (error) {
+    timings.push(`tcgplayer_resolve_${error.name === "AbortError" || error.name === "TimeoutError" ? "timeout" : "error"};dur=${Date.now() - startedAt}`);
+    return card;
+  }
+  tcgplayerResolveCache.set(cacheKey, null);
+  timings.push(`tcgplayer_resolve_miss;dur=${Date.now() - startedAt}`);
+  return card;
+}
+
+function tcgplayerSearchQuery(card) {
+  return [
+    card?.name,
+    card?.number,
+    card?.set?.name || card?.set?.id,
+    "Pokemon"
+  ].filter(Boolean).join(" ");
+}
+
+function tcgplayerSlugPart(value) {
+  return String(value || "")
+    .replace(/&/g, " and ")
+    .replace(/['’]/g, "")
+    .toLowerCase()
+    .match(/[a-z0-9]+/g)?.join("-") || "";
+}
+
+function tcgplayerProductSlug(card) {
+  const set = card?.set || {};
+  const setPrefix = /^sv/i.test(String(set.id || "")) ? "sv" : "";
+  const setPart = [setPrefix, set.series, set.name].map(tcgplayerSlugPart).filter(Boolean).join("-");
+  const numberPart = [card?.number, set.printedTotal || set.cardCount?.official || card?.printedTotal]
+    .map(tcgplayerSlugPart)
+    .filter(Boolean)
+    .join("-");
+  return [
+    "pokemon",
+    setPart,
+    tcgplayerSlugPart(card?.name),
+    numberPart
+  ].filter(Boolean).join("-");
+}
+
+function tcgplayerProductUrl(productId, card, selectedVariant) {
+  const slug = selectedVariant?.sourceRefs?.tcgplayerSlug || tcgplayerProductOverride(card)?.slug || tcgplayerProductSlug(card);
+  const url = new URL(`https://www.tcgplayer.com/product/${encodeURIComponent(productId)}${slug ? `/${slug}` : ""}`);
+  url.searchParams.set("page", "1");
+  url.searchParams.set("Language", "English");
+  return url.href;
+}
+
+function tcgplayerAffiliateUrl(card, selectedVariant) {
+  const productId = selectedTcgplayerProductId(card, selectedVariant);
+  const destination = productId
+    ? tcgplayerProductUrl(productId, card, selectedVariant)
+    : (() => {
+        const url = new URL("https://www.tcgplayer.com/search/pokemon/product");
+        url.searchParams.set("productLineName", "pokemon");
+        url.searchParams.set("q", tcgplayerSearchQuery(card));
+        url.searchParams.set("view", "grid");
+        return url.href;
+      })();
+  const url = new URL(TCGPLAYER_PROMOTION_URL);
+  url.searchParams.set("u", destination);
+  url.searchParams.set("subId1", "affiliate");
+  return url.href;
+}
+
 function ebaySearchQuery(card) {
   return [
     card?.name,
@@ -234,7 +411,12 @@ function ebaySearchQuery(card) {
 
 async function fetchJson(url, options = {}) {
   const response = await fetch(url, {
-    headers: { accept: "application/json" },
+    method: options.method || "GET",
+    headers: {
+      accept: "application/json",
+      ...(options.body ? { "content-type": "application/json" } : {})
+    },
+    body: options.body,
     signal: options.signal
   });
   if (!response.ok) {
@@ -243,12 +425,12 @@ async function fetchJson(url, options = {}) {
   return response.json();
 }
 
-async function fetchJsonWithTimeout(url, timeoutMs) {
+async function fetchJsonWithTimeout(url, timeoutMs, fetchOptions = {}) {
   const controller = new AbortController();
   let timeout = null;
   try {
     return await Promise.race([
-      fetchJson(url, { signal: controller.signal }),
+      fetchJson(url, { ...fetchOptions, signal: controller.signal }),
       new Promise((_, reject) => {
         timeout = setTimeout(() => {
           controller.abort();
@@ -279,12 +461,35 @@ function fallbackCardFromRequest(cardId, req) {
     .map((url) => absoluteUrl(url.trim(), BACKEND_ORIGIN))
     .filter(Boolean);
   const fallbackName = titleCaseSlug(slugNumber || lookupCardId);
+  const tcgplayerProductId = queryText(req.query, "tcgplayerProductId") || tcgplayerProductOverride(lookupCardId)?.productId;
 
-  return {
+  return withTcgplayerProductOverride({
     id: lookupCardId,
-    name: String(req.query?.name || fallbackName || lookupCardId).trim(),
+    name: queryText(req.query, "name") || fallbackName || lookupCardId,
     number,
-    rarity: String(req.query?.rarity || "").trim(),
+    hp: queryText(req.query, "hp"),
+    rarity: queryText(req.query, "rarity"),
+    supertype: queryText(req.query, "supertype"),
+    subtypes: queryList(req.query?.subtypes),
+    types: queryList(req.query?.types),
+    artist: queryText(req.query, "artist"),
+    illustrator: queryText(req.query, "illustrator"),
+    flavorText: queryText(req.query, "flavorText"),
+    attacks: Array.isArray(queryJson(req.query?.attacks, [])) ? queryJson(req.query?.attacks, []) : [],
+    abilities: Array.isArray(queryJson(req.query?.abilities, [])) ? queryJson(req.query?.abilities, []) : [],
+    weaknesses: Array.isArray(queryJson(req.query?.weaknesses, [])) ? queryJson(req.query?.weaknesses, []) : [],
+    resistances: Array.isArray(queryJson(req.query?.resistances, [])) ? queryJson(req.query?.resistances, []) : [],
+    retreatCost: queryList(req.query?.retreatCost),
+    convertedRetreatCost: queryText(req.query, "convertedRetreatCost"),
+    regulationMark: queryText(req.query, "regulationMark"),
+    legalities: queryJson(req.query?.legalities, undefined),
+    cardVariants: tcgplayerProductId ? [{
+      id: `${lookupCardId}:tcgplayer`,
+      cardId: lookupCardId,
+      label: "TCGPlayer",
+      sourceRefs: { tcgplayerProductId },
+      isDefault: true
+    }] : [],
     images: {
       small: imageSmall,
       large: imageLarge || imageSmall,
@@ -292,10 +497,10 @@ function fallbackCardFromRequest(cardId, req) {
     },
     set: {
       id: setId,
-      name: String(req.query?.setName || setId).trim(),
+      name: queryText(req.query, "setName") || setId,
       images: {}
     }
-  };
+  });
 }
 
 function hasRequestHints(query = {}) {
@@ -313,6 +518,28 @@ function cleanCardPath(cardId, query = {}) {
   const url = new URL(`/cards/${encodeURIComponent(cardId)}`, "https://route25.app");
   if (query.variant) url.searchParams.set("variant", String(query.variant));
   return url.pathname + url.search;
+}
+
+function queryText(query, key) {
+  return String(query?.[key] || "").trim();
+}
+
+function queryList(value) {
+  return String(value || "")
+    .split("|")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function queryJson(value, fallback) {
+  const text = String(value || "").trim();
+  if (!text) return fallback;
+  try {
+    const parsed = JSON.parse(text);
+    return parsed ?? fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 async function fetchCard(cardId, timings = [], options = {}) {
@@ -341,6 +568,16 @@ async function fetchCard(cardId, timings = [], options = {}) {
     // Fall through to the broader set endpoints below.
   }
 
+  if (allowBroadFallback && card && !tcgplayerProductIds(card).length) {
+    try {
+      const startedAt = Date.now();
+      setCard = await fetchCardFromSet(setId, lookupCardId);
+      timings.push(`byset_supplement;dur=${Date.now() - startedAt}`);
+    } catch (error) {
+      timings.push(`byset_supplement_${error.name === "AbortError" || error.name === "TimeoutError" ? "timeout" : "error"};dur=1800`);
+    }
+  }
+
   if (!card && allowBroadFallback) {
     try {
       const startedAt = Date.now();
@@ -367,29 +604,33 @@ async function fetchCard(cardId, timings = [], options = {}) {
   }
 
   if (setCard) {
+    const cardHasTcgplayerProduct = tcgplayerProductIds(card).length > 0;
     card = {
-      ...card,
       ...setCard,
+      ...card,
+      cardVariants: cardHasTcgplayerProduct ? card.cardVariants : (setCard.cardVariants || card.cardVariants),
       images: {
-        ...(card?.images || {}),
-        ...(setCard?.images || {})
+        ...(setCard?.images || {}),
+        ...(card?.images || {})
       },
       set: {
-        ...(card?.set || {}),
         ...(setCard?.set || {}),
+        ...(card?.set || {}),
         images: {
-          ...(card?.set?.images || {}),
-          ...(setCard?.set?.images || {})
+          ...(setCard?.set?.images || {}),
+          ...(card?.set?.images || {})
         }
       }
     };
   }
 
   if (!card) return null;
+  card = withTcgplayerProductOverride(card);
   const enrichStartedAt = Date.now();
   const enrichedCard = await enrichCardSet(card, setId);
   timings.push(`enrich;dur=${Date.now() - enrichStartedAt}`);
-  return enrichedCard;
+  const resolvedCard = await resolveTcgplayerProduct(withTcgplayerProductOverride(enrichedCard), timings);
+  return withTcgplayerProductOverride(resolvedCard);
 }
 
 async function fetchCardFromSet(setId, lookupCardId) {
@@ -418,7 +659,7 @@ async function enrichCardSet(card, setId) {
   );
 
   const [setsResult, officialSetResult] = await Promise.allSettled([
-    fetchJson(`${BACKEND_ORIGIN}/api/tcg/sets`),
+    fetchJsonWithTimeout(`${BACKEND_ORIGIN}/api/tcg/sets`, 1200),
     needsOfficialSet ? fetchOfficialSet(setId) : Promise.resolve(null)
   ]);
 
@@ -469,7 +710,7 @@ function setCacheHeaders(res, value) {
 }
 
 async function fetchOfficialSet(setId) {
-  const payload = await fetchJson(`https://api.pokemontcg.io/v2/sets/${encodeURIComponent(setId)}`);
+  const payload = await fetchJsonWithTimeout(`https://api.pokemontcg.io/v2/sets/${encodeURIComponent(setId)}`, 1200);
   return payload?.data || null;
 }
 
@@ -480,31 +721,49 @@ function metaDescription(card) {
   return `${card.name} ${number} from ${setName}. View card details, artwork, rarity, type, artist, and set information for this ${rarity}${pokemonText()} TCG card on Route 25.`;
 }
 
-function cardStructuredData(card, pageUrl, image, description, options = {}) {
+function cardSeoProfile(card) {
+  const name = cleanText(card?.name) || "Pokemon card";
+  const setName = cleanText(card?.set?.name || card?.set?.id) || "Pokemon TCG";
+  const fullNumber = formatCardNumber(card) || cleanText(card?.number || card?.id);
+  const rarity = cleanText(card?.rarity);
+  const artist = cleanText(card?.artist || card?.illustrator);
+  const cardLabel = `${name}${fullNumber ? ` ${fullNumber}` : ""}`;
+  const rarityText = rarity ? `${rarity} ` : "";
+
+  if (String(card?.id || "").toLowerCase() !== "me4-116") {
+    return {
+      title: `${cardLabel} — ${setName} Pokemon Card | Route 25`,
+      description: `${cardLabel} from ${setName}. View the ${rarityText}Pokemon TCG card, artwork, card text, artist, set details, and current value on Route 25.`,
+      heading: `${cardLabel} card guide`,
+      summary: `${cardLabel} is a ${rarityText}card from ${setName}${artist ? `, illustrated by ${artist}` : ""}.`,
+      facts: [],
+      faqs: []
+    };
+  }
+  return {
+    title: "Mega Greninja ex 116/086 — Chaos Rising Card Guide | Route 25",
+    description: "Mega Greninja ex 116/086 from Pokemon TCG: Mega Evolution—Chaos Rising. See the Special Illustration Rare artwork, card text, artist, set details, and current value.",
+    summary: "Mega Greninja ex 116/086 is a Special Illustration Rare from Pokemon TCG: Mega Evolution—Chaos Rising, illustrated by Susumu Maeya. It is one of the set's signature chase cards and completes a connected-art scene with Froakie and Frogadier.",
+    heading: "Mega Greninja ex 116/086 card guide",
+    facts: [
+      ["Full card number", "116/086"],
+      ["Expansion", "Mega Evolution—Chaos Rising"],
+      ["Rarity", "Special Illustration Rare (SIR)"],
+      ["Illustrator", "Susumu Maeya"],
+      ["Release date", "May 22, 2026"]
+    ],
+    faqs: [
+      ["What set is Mega Greninja ex 116/086 from?", "Mega Greninja ex 116/086 is from Pokemon TCG: Mega Evolution—Chaos Rising, released May 22, 2026."],
+      ["What rarity is Mega Greninja ex 116/086?", "It is a Special Illustration Rare, commonly abbreviated SIR."],
+      ["Who illustrated Mega Greninja ex 116/086?", "The card was illustrated by Susumu Maeya. Its artwork connects horizontally with the Froakie and Frogadier illustration rares from Chaos Rising."],
+      ["What does Mega Greninja ex do?", "Its Mortal Shuriken Ability places six damage counters on one of the opponent's Pokemon after a Basic Water Energy is discarded, while Ninja Spinner does 120 damage plus 80 more when a Water Energy attached to Mega Greninja ex is returned to the hand."]
+    ]
+  };
+}
+
+function cardStructuredData(card, pageUrl, image, description, seoProfile) {
   const setName = card?.set?.name || card?.set?.id || "Pokemon TCG";
   const setId = card?.set?.id || cardSetId(card.id);
-  const cardNumber = formatCardNumber(card) || card?.number || "";
-  const properties = [
-    ["Set", setName],
-    ["Card number", cardNumber],
-    ["Rarity", cleanText(card?.rarity)],
-    ["Artist", cleanText(card?.artist || card?.illustrator)],
-    ["Card type", listText([card?.supertype, ...(Array.isArray(card?.subtypes) ? card.subtypes : [])])]
-  ].filter(([, value]) => value).map(([name, value]) => ({
-    "@type": "PropertyValue",
-    name,
-    value
-  }));
-  const offers = options.tcgcsvQuote
-    ? {
-        "@type": "Offer",
-        price: Number(options.tcgcsvQuote.amount).toFixed(2),
-        priceCurrency: String(options.tcgcsvQuote.currencyCode || "USD").toUpperCase(),
-        availability: "https://schema.org/InStock",
-        url: pageUrl
-      }
-    : undefined;
-
   return {
     "@context": "https://schema.org",
     "@graph": [
@@ -517,16 +776,26 @@ function cardStructuredData(card, pageUrl, image, description, options = {}) {
         image
       },
       {
-        "@type": "Product",
+        "@type": "CreativeWork",
         "@id": `${pageUrl}#card`,
         name: `${card.name} ${formatCardNumber(card) || card?.number || ""}`.trim(),
         description,
         image,
-        category: "Pokemon TCG card",
-        brand: { "@type": "Brand", name: "Pokemon Trading Card Game" },
-        sku: card.id,
-        additionalProperty: properties.length ? properties : undefined,
-        offers
+        url: pageUrl,
+        identifier: card.id,
+        genre: "Collectible trading card",
+        isPartOf: {
+          "@type": "CreativeWork",
+          name: setName
+        },
+        creator: cleanText(card?.artist || card?.illustrator) ? {
+          "@type": "Person",
+          name: cleanText(card?.artist || card?.illustrator)
+        } : undefined,
+        about: {
+          "@type": "Thing",
+          name: card.name
+        }
       },
       {
         "@type": "BreadcrumbList",
@@ -559,7 +828,16 @@ function cardStructuredData(card, pageUrl, image, description, options = {}) {
         operatingSystem: "iOS",
         url: "https://route25.app/",
         downloadUrl: APP_STORE_URL
-      }
+      },
+      seoProfile?.faqs?.length ? {
+        "@type": "FAQPage",
+        "@id": `${pageUrl}#faq`,
+        mainEntity: seoProfile.faqs.map(([name, text]) => ({
+          "@type": "Question",
+          name,
+          acceptedAnswer: { "@type": "Answer", text }
+        }))
+      } : null
     ].filter(Boolean)
   };
 }
@@ -590,7 +868,8 @@ function detailRows(card, options = {}) {
     ["Type", listText(card?.types)],
     ["Artist", cleanText(card?.artist || card?.illustrator)],
     ["Regulation", cleanText(card?.regulationMark)],
-    ["TCGPlayer Value", tcgcsvValue || (showAsyncPrice ? "Loading..." : null)],
+    ["Estimated Value", tcgcsvValue || (showAsyncPrice ? "Loading..." : null)],
+    ["TCGPlayer", "Shop on TCGPlayer", options.tcgplayerUrl, true],
     ["eBay", "Search eBay listings", options.ebayUrl, true]
   ].filter(([, value]) => value);
 
@@ -599,10 +878,10 @@ function detailRows(card, options = {}) {
       <dt>${escapeHtml(label)}</dt>
       <dd>${label === "Variant"
         ? `<span id="selected-variant-label">${escapeHtml(value)}</span>`
-        : label === "TCGPlayer Value"
+        : label === "Estimated Value"
           ? `<span id="selected-variant-price">${escapeHtml(value)}</span>`
-          : linkUrl
-        ? `<a class="detail-link" href="${escapeHtml(linkUrl)}" target="_blank" rel="nofollow sponsored noopener noreferrer">${escapeHtml(value)}${isExternal ? '<span class="external-link-icon" aria-hidden="true">↗</span>' : ""}<span class="sr-only"> Opens in a new tab</span></a>`
+        : linkUrl
+        ? `<a class="detail-link" href="${escapeHtml(linkUrl)}" target="_blank" rel="nofollow sponsored noopener noreferrer"${label === "TCGPlayer" ? " data-tcgplayer-affiliate-link" : ""}>${escapeHtml(value)}${isExternal ? '<span class="external-link-icon" aria-hidden="true">↗</span>' : ""}<span class="sr-only"> Opens in a new tab</span></a>`
         : escapeHtml(value)}
       </dd>
     </div>
@@ -653,52 +932,67 @@ function renderAttacks(card) {
   </article>`;
 }
 
-function renderLegalities(card) {
-  const legalities = card?.legalities && typeof card.legalities === "object"
-    ? Object.entries(card.legalities).map(([format, status]) => [titleCaseSlug(format), cleanText(status)])
-    : [];
-  if (!legalities.length) return "";
-  return `<article class="reference-card">
-    <h3>Format legality</h3>
-    <dl class="reference-list">${renderInfoRows(legalities)}</dl>
+function legalityRows(card) {
+  if (!card?.legalities || typeof card.legalities !== "object") return [];
+  return Object.entries(card.legalities)
+    .map(([format, status]) => [`${titleCaseSlug(format)} legality`, cleanText(status)])
+    .filter(([, status]) => status);
+}
+
+function renderCollectorDetails(card, seoProfile) {
+  const setName = cleanText(card?.set?.name || card?.set?.id);
+  const collectorRows = renderInfoRows([
+    ["Expansion", setName],
+    ["Card number", formatCardNumber(card)],
+    ["Rarity", cleanText(card?.rarity)],
+    ["Illustrator", cleanText(card?.artist || card?.illustrator)],
+    ["Release date", formatDate(card?.set?.releaseDate || card?.releaseDate)],
+    ["Pokemon type", listText(card?.types)],
+    ["Card stage", listText(card?.subtypes)],
+    ["Regulation mark", cleanText(card?.regulationMark)]
+  ]);
+  return `<article class="reference-card collector-details">
+    <h3>Collector details</h3>
+    ${seoProfile?.summary ? `<p class="collector-summary">${escapeHtml(seoProfile.summary)}</p>` : ""}
+    ${collectorRows ? `<dl class="reference-list">${collectorRows}</dl>` : ""}
   </article>`;
 }
 
-function renderCardReference(card, options = {}) {
-  const cardNumber = formatCardNumber(card) || cleanText(card?.number);
-  const selected = options.selectedVariant;
-  const quote = variantPricingQuote(selected) || options.tcgcsvQuote;
-  const priceText = quote ? formatCurrency(quote.amount, quote.currencyCode) : "";
-  const updatedAt = cleanText(selected?.pricing?.updatedAt || card?.tcgplayer?.updatedAt);
-  const playRows = [
+function renderCollectorQuestions(seoProfile) {
+  const questions = Array.isArray(seoProfile?.faqs) ? seoProfile.faqs : [];
+  if (!questions.length) return "";
+  return `<div class="collector-questions">
+    <h4>Collector questions</h4>
+    ${questions.map(([question, answer]) => `<details><summary>${escapeHtml(question)}</summary><p>${escapeHtml(answer)}</p></details>`).join("")}
+  </div>`;
+}
+
+function renderCardDetailsSection(card, seoProfile) {
+  const gameplayRows = renderInfoRows([
+    ["HP", cleanText(card?.hp)],
     ["Weakness", formatWeaknesses(card?.weaknesses)],
     ["Resistance", formatWeaknesses(card?.resistances)],
     ["Retreat cost", listText(card?.retreatCost)],
-    ["Converted retreat cost", cleanText(card?.convertedRetreatCost)]
-  ];
-  const priceSentence = priceText
-    ? `${card.name} ${cardNumber ? cardNumber + " " : ""}currently shows a ${priceText} market value${selected?.label ? ` for the ${selected.label} variant` : ""}${updatedAt ? `, last updated ${formatDate(updatedAt) || updatedAt}` : ""}.`
-    : `${card.name} ${cardNumber ? cardNumber + " " : ""}does not have a live market value available on this Route 25 page yet.`;
-  const gameplayRows = renderInfoRows(playRows);
-  const supplementalCards = [
+    ["Converted retreat cost", cleanText(card?.convertedRetreatCost)],
+    ...legalityRows(card)
+  ]);
+  const collectorQuestions = renderCollectorQuestions(seoProfile);
+  const cards = [
     renderAbilities(card),
     renderAttacks(card),
-    gameplayRows ? `<article class="reference-card"><h3>Gameplay details</h3><dl class="reference-list">${gameplayRows}</dl></article>` : "",
-    renderLegalities(card)
+    gameplayRows || collectorQuestions
+      ? `<article class="reference-card"><h3>Gameplay details</h3>${gameplayRows ? `<dl class="reference-list">${gameplayRows}</dl>` : ""}${collectorQuestions}</article>`
+      : "",
+    renderCollectorDetails(card, seoProfile)
   ].filter(Boolean).join("");
 
-  return `<section class="container reference-section" aria-labelledby="card-market-title">
+  if (!cards) return "";
+
+  return `<section class="container reference-section" aria-labelledby="card-details-title">
     <div class="reference-heading">
-      <h2 id="card-market-title">${escapeHtml(card.name)} market context</h2>
+      <h2 id="card-details-title">Card details</h2>
     </div>
-    <div class="reference-grid">
-      <article class="reference-card reference-card-wide">
-        <h3>Current value</h3>
-        <p>${escapeHtml(priceSentence)}</p>
-        ${updatedAt ? `<p class="reference-note">Prices can move quickly as listings and sales change. Route 25 shows available market data as collector reference, not a purchase guarantee.</p>` : ""}
-      </article>
-      ${supplementalCards}
-    </div>
+    <div class="reference-grid">${cards}</div>
   </section>`;
 }
 
@@ -790,12 +1084,16 @@ function variantChips(card, selected, fallbackQuote) {
     const isSelected = selected && variant.id === selected.id;
     const price = variantPricingQuote(variant);
     const formattedPrice = price ? formatCurrency(price.amount, price.currencyCode) : fallbackPrice;
+    const productId = variant?.sourceRefs?.tcgplayerProductId || "";
+    const affiliateUrl = productId ? tcgplayerAffiliateUrl(card, variant) : "";
     return `<button
       class="variant-chip${isSelected ? " active" : ""}"
       type="button"
       data-variant-id="${escapeHtml(variant.id)}"
       data-variant-label="${escapeHtml(variant.label)}"
       data-variant-price="${escapeHtml(formattedPrice)}"
+      data-tcgplayer-product-id="${escapeHtml(productId)}"
+      data-tcgplayer-affiliate-url="${escapeHtml(affiliateUrl)}"
       aria-pressed="${isSelected ? "true" : "false"}"
     >${escapeHtml(variant.label)}</button>`;
   }).join("");
@@ -811,11 +1109,12 @@ function variantScript(cardId) {
       const chips = Array.from(document.querySelectorAll(".variant-chip"));
       const variantLabel = document.getElementById("selected-variant-label");
       const variantPrice = document.getElementById("selected-variant-price");
-      if (!variantPrice) return;
-      const needsPricingFetch = chips.length
+      const tcgplayerLink = document.querySelector("[data-tcgplayer-affiliate-link]");
+      const promotionUrl = ${JSON.stringify(TCGPLAYER_PROMOTION_URL)};
+      const needsPricingFetch = variantPrice ? (chips.length
         ? chips.some((chip) => !chip.dataset.variantPrice)
-        : (!variantPrice.textContent || variantPrice.textContent === "Loading...");
-      const initialPrice = variantPrice.textContent || "";
+        : (!variantPrice.textContent || variantPrice.textContent === "Loading...")) : false;
+      const initialPrice = variantPrice ? (variantPrice.textContent || "") : "";
       const priceCache = new Map();
       const runWhenIdle = (callback) => {
         if (!needsPricingFetch) return;
@@ -857,6 +1156,7 @@ function variantScript(cardId) {
         return fallback;
       };
       const setPriceForChip = async (chip, loadingText) => {
+        if (!variantPrice) return;
         const existing = chip.dataset.variantPrice || "";
         if (existing) {
           variantPrice.textContent = existing;
@@ -868,8 +1168,21 @@ function variantScript(cardId) {
           variantPrice.textContent = hydrated || "Price unavailable";
         }
       };
+      const affiliateUrl = (productId) => {
+        if (!productId) return "";
+        const destination = "https://www.tcgplayer.com/product/" + encodeURIComponent(productId);
+        const url = new URL(promotionUrl);
+        url.searchParams.set("u", destination);
+        url.searchParams.set("subId1", "affiliate");
+        return url.href;
+      };
+      const setTcgplayerLinkForChip = (chip) => {
+        if (!tcgplayerLink) return;
+        const next = chip.dataset.tcgplayerAffiliateUrl || affiliateUrl(chip.dataset.tcgplayerProductId || "");
+        if (next) tcgplayerLink.href = next;
+      };
       if (!chips.length || !variantLabel) {
-        if (needsPricingFetch) {
+        if (variantPrice && needsPricingFetch) {
           runWhenIdle(() => fetchPrice(cardId).then((price) => {
             variantPrice.textContent = price || "Price unavailable";
           }));
@@ -884,6 +1197,7 @@ function variantScript(cardId) {
           }
           variantLabel.textContent = chip.dataset.variantLabel || "";
           setPriceForChip(chip, initialPrice || "Loading...");
+          setTcgplayerLinkForChip(chip);
           const url = new URL(window.location.href);
           url.searchParams.set("variant", chip.dataset.variantId || "");
           window.history.replaceState({}, "", url);
@@ -944,14 +1258,15 @@ function renderCardPage(card, req, options = {}) {
   const appCardUrl = appDeepLink(`cards/${card.id}`);
   const cardNumber = card?.number ? ` #${card.number}` : "";
   const setCardNumber = formatCardNumber(card);
-  const title = `${card.name}${cardNumber} ${setName} ${pokemonText()} Card | Route 25`;
-  const description = metaDescription(card);
+  const seoProfile = cardSeoProfile(card);
+  const title = seoProfile?.title || `${card.name}${cardNumber} ${setName} ${pokemonText()} Card | Route 25`;
+  const description = seoProfile?.description || metaDescription(card);
   const typeText = [card?.supertype, ...(Array.isArray(card?.subtypes) ? card.subtypes : [])].filter(Boolean).join(" / ");
   const flavorText = card?.flavorText ? `<blockquote>${escapeHtml(card.flavorText)}</blockquote>` : "";
   const ebayUrl = ebayAffiliateUrl(ebaySearchQuery(card), `r25-card-${card.id}`);
   const selected = selectedVariant(card, req);
-  const pageQuote = variantPricingQuote(selected) || options.tcgcsvQuote;
-  const referenceSection = renderCardReference(card, { selectedVariant: selected, tcgcsvQuote: options.tcgcsvQuote });
+  const tcgplayerUrl = tcgplayerAffiliateUrl(card, selected);
+  const detailsSection = renderCardDetailsSection(card, seoProfile);
 
   return `<!doctype html>
 <html lang="en">
@@ -981,7 +1296,7 @@ function renderCardPage(card, req, options = {}) {
   <link rel="icon" href="/favicon.png" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="stylesheet" href="/assets/site.css" />
-  <script type="application/ld+json">${jsonScript(cardStructuredData(card, pageUrl, image, description, { tcgcsvQuote: pageQuote }))}</script>
+  <script type="application/ld+json">${jsonScript(cardStructuredData(card, pageUrl, image, description, seoProfile))}</script>
   <style>
     .card-share-hero {
       min-height: calc(100vh - 64px);
@@ -1151,9 +1466,7 @@ function renderCardPage(card, req, options = {}) {
       line-height: 1;
       margin: 0 0 10px;
     }
-    .reference-heading p,
-    .reference-card p,
-    .reference-note {
+    .reference-card p {
       color: rgba(255, 255, 255, 0.72);
       line-height: 1.58;
       margin: 0;
@@ -1168,9 +1481,6 @@ function renderCardPage(card, req, options = {}) {
       border-radius: 12px;
       background: rgba(255, 255, 255, 0.05);
       padding: 18px;
-    }
-    .reference-card-wide {
-      grid-column: 1 / -1;
     }
     .reference-card h3 {
       font-size: 18px;
@@ -1217,9 +1527,29 @@ function renderCardPage(card, req, options = {}) {
     .rules-entry p {
       margin-top: 8px;
     }
-    .reference-note {
-      margin-top: 12px;
-      font-size: 13px;
+    .collector-summary {
+      margin-bottom: 16px !important;
+    }
+    .collector-questions {
+      margin-top: 20px;
+      padding-top: 18px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .collector-questions h4 {
+      margin: 0 0 8px;
+      font-size: 14px;
+    }
+    .collector-questions details {
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 10px 0;
+    }
+    .collector-questions summary {
+      cursor: pointer;
+      font-weight: 720;
+      line-height: 1.35;
+    }
+    .collector-questions details p {
+      margin: 8px 0 0;
     }
     .card-actions {
       display: flex;
@@ -1290,6 +1620,7 @@ function renderCardPage(card, req, options = {}) {
       </a>
       <nav class="nav" aria-label="Primary">
         <a href="/#features">Features</a>
+        <a href="/search">Search cards</a>
         ${socialToolbar()}
       </nav>
     </div>
@@ -1297,7 +1628,7 @@ function renderCardPage(card, req, options = {}) {
   <main class="card-share-hero">
     <div class="container card-share-grid">
       <div class="card-art-stage">
-        ${image ? `<img class="card-art" src="${escapeHtml(image)}" alt="${escapeHtml(card.name)} card" fetchpriority="high" decoding="async"${imageFallbackAttribute(imageCandidates)}${options.cleanUrl ? imageUpgradeAttribute(highResCandidates, image) : ""} />` : ""}
+        ${image ? `<img class="card-art" src="${escapeHtml(image)}" alt="${escapeHtml(`${card.name}${setCardNumber ? ` ${setCardNumber}` : ""} ${card?.rarity || "Pokemon"} card from ${setName}`)}" fetchpriority="high" decoding="async"${imageFallbackAttribute(imageCandidates)}${options.cleanUrl ? imageUpgradeAttribute(highResCandidates, image) : ""} />` : ""}
       </div>
       <section class="card-copy">
         <div class="card-kicker">
@@ -1307,7 +1638,7 @@ function renderCardPage(card, req, options = {}) {
         <h1>${escapeHtml(card.name)}</h1>
         <p class="card-meta-line">${escapeHtml([typeText, card?.rarity, setCardNumber ? `Card ${setCardNumber}` : null].filter(Boolean).join(" | "))}</p>
         ${variantChips(card, selected, options.tcgcsvQuote)}
-        <dl class="detail-list">${detailRows(card, { tcgcsvQuote: options.tcgcsvQuote, ebayUrl, selectedVariant: selected, enableAsyncPricing: true })}</dl>
+        <dl class="detail-list">${detailRows(card, { tcgcsvQuote: options.tcgcsvQuote, ebayUrl, tcgplayerUrl, selectedVariant: selected, enableAsyncPricing: true })}</dl>
         ${flavorText}
         <div class="card-actions">
           <a class="button primary" href="${APP_STORE_URL}" target="_blank" rel="noopener noreferrer">Get Route 25</a>
@@ -1316,7 +1647,7 @@ function renderCardPage(card, req, options = {}) {
         </div>
       </section>
     </div>
-    ${referenceSection}
+    ${detailsSection}
     <section class="container community-cta" aria-labelledby="community-cta-title">
       <h2 id="community-cta-title">Join a better ${pokemonText()} TCG community.</h2>
       <p>Track your collection, share pulls, talk trades, and connect with collectors who care about the cards as much as you do.</p>
@@ -1403,21 +1734,16 @@ const cardPageHandler = async (req, res) => {
     const timings = [];
     let usedFallback = false;
     const requestHasHints = hasRequestHints(req.query);
-    if (requestHasHints) {
-      const hintedCard = fallbackCardFromRequest(cardId, req);
-      if (hintedCard) {
-        timings.push("hint;dur=0");
-        res.statusCode = 200;
-        res.setHeader("content-type", "text/html; charset=utf-8");
-        res.setHeader("server-timing", timings.join(", "));
-        setCacheHeaders(res, "public, s-maxage=30, stale-while-revalidate=300");
-        res.end(renderCardPage(hintedCard, req, { tcgcsvQuote: null, cleanUrl: true }));
-        return;
-      }
-    }
+    const hintedCard = requestHasHints ? fallbackCardFromRequest(cardId, req) : null;
     let card = await fetchCard(cardId, timings);
+    if (card && hintedCard && !tcgplayerProductIds(card).length && tcgplayerProductIds(hintedCard).length) {
+      card = {
+        ...card,
+        cardVariants: hintedCard.cardVariants
+      };
+    }
     if (!card) {
-      card = fallbackCardFromRequest(cardId, req);
+      card = hintedCard || fallbackCardFromRequest(cardId, req);
       usedFallback = Boolean(card);
       if (usedFallback) timings.push("fallback;dur=0");
     }
@@ -1428,13 +1754,6 @@ const cardPageHandler = async (req, res) => {
       res.end(renderNotFound(cardId));
       return;
     }
-    if (requestHasHints && !usedFallback) {
-      res.statusCode = 301;
-      res.setHeader("location", cleanCardPath(card.id || cardId, req.query));
-      res.end();
-      return;
-    }
-
     res.statusCode = 200;
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.setHeader("server-timing", timings.join(", "));
@@ -1451,7 +1770,7 @@ const cardPageHandler = async (req, res) => {
         timings
       }));
     }
-    res.end(renderCardPage(card, req, { tcgcsvQuote: null }));
+    res.end(renderCardPage(card, req, { cleanUrl: requestHasHints && !usedFallback }));
   } catch (error) {
     res.statusCode = 500;
     res.setHeader("content-type", "text/html; charset=utf-8");
