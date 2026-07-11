@@ -175,7 +175,7 @@ module.exports = async (req, res) => {
       if (snap.empty || snap.docs[0].data().status !== "published") return json(res, 404, { error: "Issue not found" });
       return json(res, 200, { issue: docData(snap.docs[0]) });
     }
-    if (action === "publish-due" && req.method === "POST") {
+    if (action === "publish-due" && (req.method === "GET" || req.method === "POST")) {
       const expected = text(process.env.CRON_SECRET, 500);
       const supplied = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
       if (!expected || !crypto.timingSafeEqual(Buffer.from(supplied.padEnd(expected.length).slice(0, expected.length)), Buffer.from(expected))) return json(res, 401, { error: "Unauthorized" });
