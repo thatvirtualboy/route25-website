@@ -28,7 +28,7 @@
 
   <link rel="icon" href="/favicon.png" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-  <link rel="stylesheet" href="/assets/site.css" />
+  <link rel="stylesheet" href="/assets/site.css?v=20260610c" />
   <script defer src="/assets/site.js"></script>
   <script type="application/ld+json">
     {
@@ -87,8 +87,8 @@
       </a>
 
       <nav id="site-nav" class="nav" aria-label="Primary">
-        <a href="/search">Search</a>
         <a href="#features">Features</a>
+        <a href="/search">Search cards</a>
         <a href="/assets/Route_25_Press_Kit.zip" download>Press kit</a>
         <span class="social-toolbar" aria-label="Route 25 social links">
           <a
@@ -149,7 +149,9 @@
             <span class="pulse" aria-hidden="true"></span>
             Available Now
           </div>
-          <h1 data-reveal>Route 25</h1>
+          <h1 class="hero-logo-title" data-reveal>
+            <img src="/assets/route25-logo-white.png" alt="Route 25" loading="eager" decoding="async" />
+          </h1>
           <p class="lead" data-reveal>
             Your TCG collection is a journey. Share it.
           </p>
@@ -230,6 +232,12 @@
               <p>Build your Binder, browse expansions, customize slabs, and highlight your favorite cards in your Binder Showcase.</p>
             </article>
 
+            <article class="feature-step" data-screen="/assets/screenshots/custom-folders.png">
+              <div class="feature-kicker"><span class="dot" aria-hidden="true"></span>Custom Folders</div>
+              <h3>Create focused folders for any collecting goal.</h3>
+              <p>Group cards into custom folders for favorite Pokémon, master set progress, deck ideas, or trade lists, then share those folders with other Trainers.</p>
+            </article>
+
             <article class="feature-step" data-screen="/assets/screenshots/pricing-value.png">
               <div class="feature-kicker"><span class="dot" aria-hidden="true"></span>Collection value</div>
               <h3>Know what your collection is worth.</h3>
@@ -268,7 +276,7 @@
             </article>
             <article>
               <h3>Collection management</h3>
-              <p>Use Route 25 to organize your binder and slabs, share favorite pulls, plan trades, and connect with other Trainers along the way.</p>
+              <p>Use Route 25 to organize your binder, slabs, and shareable custom folders, share favorite pulls, plan trades, and connect with other Trainers along the way.</p>
             </article>
           </div>
           <div class="hero-actions">

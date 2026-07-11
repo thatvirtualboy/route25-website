@@ -231,6 +231,15 @@ h1 {
   max-width: 100%;
   white-space: nowrap;
 }
+.hero-logo-title {
+  width: min(560px, 100%);
+}
+.hero-logo-title img {
+  display: block;
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(0 20px 46px rgba(0, 0, 0, 0.5));
+}
 .lead {
   font-size: 1.34rem;
   line-height: 1.36;
@@ -517,10 +526,11 @@ h1 {
   transform: translateZ(0) scale(1.105);
 }
 #featurePhoneImgA[src$="pricing-value.png"],
-#featurePhoneImgB[src$="pricing-value.png"] {
+#featurePhoneImgB[src$="pricing-value.png"],
+#featurePhoneImgA[src$="custom-folders.png"],
+#featurePhoneImgB[src$="custom-folders.png"] {
   transform: translateZ(0) scale(0.91);
 }
-
 .gallery {
   margin-top: 26px;
   position: relative;
