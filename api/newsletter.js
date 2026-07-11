@@ -36,7 +36,17 @@ const DEFAULT_QUESTIONS = [
   ["under-25", "What is your favorite pickup under $25?", "cards"],
   ["era", "Which Pokémon era feels most like home to you?", "personal"],
   ["goal", "What would make your collection feel complete?", "story"],
-  ["gear", "Which piece of collecting gear has earned your trust?", "gear"]
+  ["gear", "Which piece of collecting gear has earned your trust?", "gear"],
+  ["first-pack", "What do you remember about the first Pokémon pack you opened?", "story"],
+  ["best-trade", "What is the most memorable trade you have ever made?", "community"],
+  ["artwork", "Which card artwork would you hang on your wall as a print?", "cards"],
+  ["changed-mind", "Which Pokémon or card changed your mind after you saw it in person?", "cards"],
+  ["collecting-rule", "What personal rule helps you enjoy collecting without overdoing it?", "personal"],
+  ["shop", "Is there a local card shop or community space that matters to your story?", "community"],
+  ["display-choice", "How do you decide what gets displayed and what stays in a binder?", "gear"],
+  ["surprise-set", "Which set surprised you most, for better or worse?", "cards"],
+  ["one-page", "If you could show someone one binder page, which page would it be?", "story"],
+  ["next-chapter", "What is the next chapter of your collection?", "story"]
 ];
 
 function json(res, status, body) {
@@ -240,16 +250,18 @@ module.exports = async (req, res) => {
     if (req.method !== "GET" && !sameOrigin(req)) return json(res, 403, { error: "Invalid origin" });
 
     if (action === "questions" && req.method === "GET") {
-      let snap = await db.collection("newsletterQuestions").where("active", "==", true).get();
-      if (snap.empty) {
+      let snap = await db.collection("newsletterQuestions").get();
+      const existingIds = new Set(snap.docs.map(doc => doc.id));
+      const missing = DEFAULT_QUESTIONS.filter(([id]) => !existingIds.has(id));
+      if (missing.length) {
         const batch = db.batch();
-        for (const [id, question, category] of DEFAULT_QUESTIONS) batch.set(db.collection("newsletterQuestions").doc(id), { text: question, category, active: true, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+        for (const [id, question, category] of missing) batch.set(db.collection("newsletterQuestions").doc(id), { text: question, category, active: true, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
         await batch.commit();
-        snap = await db.collection("newsletterQuestions").where("active", "==", true).get();
+        snap = await db.collection("newsletterQuestions").get();
       }
       const excluded = new Set(text(req.query.exclude, 1000).split(",").map(x => x.trim()).filter(Boolean));
       const count = Math.max(1, Math.min(5, Number(req.query.count) || 5));
-      const all = snap.docs.map(docData).filter(question => !excluded.has(question.id));
+      const all = snap.docs.map(docData).filter(question => question.active === true && !excluded.has(question.id));
       for (let i = all.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [all[i], all[j]] = [all[j], all[i]]; }
       return json(res, 200, { questions: all.slice(0, count) });
     }
@@ -267,7 +279,8 @@ module.exports = async (req, res) => {
       const b = req.body || {};
       const images = Array.isArray(b.images) ? b.images.slice(0, MAX_IMAGES) : [];
       if (!text(b.name, 120) || !/^\S+@\S+\.\S+$/.test(text(b.email, 254)) || !text(b.bio, 3000) || !text(b.collectionFocus, 1000)) return json(res, 400, { error: "Name, valid email, bio, and collection focus are required." });
-      if (!b.consentPublish || !b.consentOriginal || !b.consentTerms || !b.consentCommunity) return json(res, 400, { error: "All permission and community-standard fields are required." });
+      const consentRights = b.consentRights === true || (b.consentPublish && b.consentOriginal && b.consentTerms);
+      if (!consentRights || !b.consentCommunity) return json(res, 400, { error: "Both permission and community-standard fields are required." });
       if (!images.length) return json(res, 400, { error: "At least one image is required." });
       const checked = [];
       for (const image of images) {
@@ -280,7 +293,7 @@ module.exports = async (req, res) => {
       const now = admin.firestore.FieldValue.serverTimestamp();
       const interviewAnswers = normalizeAnswers(b.interviewAnswers);
       const flags = languageFlags([text(b.bio,3000), text(b.collectionFocus,1000), text(b.favorite,1000), text(b.currentChase,1000), text(b.grail,1000), ...interviewAnswers.map(answer => answer.answer)]);
-      const submission = { status: "submitted", name: text(b.name,120), email: text(b.email,254).toLowerCase(), location: text(b.location,200), socials: list(b.socials,5), bio: text(b.bio,3000), collectionFocus: text(b.collectionFocus,1000), favoritePokemon: text(b.favoritePokemon,100), collectingEra: text(b.collectingEra,100), collectingStyle: text(b.collectingStyle,100), favorite: text(b.favorite,1000), currentChase: text(b.currentChase,1000), grail: text(b.grail,1000), gear: list(b.gear,20), interviewAnswers, images: checked, moderation: { status: flags.length ? "flagged" : "clear", flags }, consent: { publish: true, original: true, terms: true, community: true, attributionName: text(b.attributionName,120) || text(b.name,120), submittedAt: now }, createdAt: now, updatedAt: now };
+      const submission = { status: "submitted", name: text(b.name,120), email: text(b.email,254).toLowerCase(), location: text(b.location,200), socials: list(b.socials,5), bio: text(b.bio,3000), collectionFocus: text(b.collectionFocus,1000), favorite: text(b.favorite,1000), currentChase: text(b.currentChase,1000), grail: text(b.grail,1000), gear: list(b.gear,20), interviewAnswers, images: checked, moderation: { status: flags.length ? "flagged" : "clear", flags }, consent: { publish: true, original: true, terms: true, community: true, attributionName: text(b.attributionName,120) || text(b.name,120), submittedAt: now }, createdAt: now, updatedAt: now };
       const ref = await db.collection("newsletterSubmissions").add(submission);
       try { if (await notifyNewSubmission(submission)) await ref.update({ slackNotifiedAt: admin.firestore.FieldValue.serverTimestamp() }); } catch (error) { console.error(error); }
       return json(res, 201, { id: ref.id, status: "submitted" });
@@ -341,6 +354,7 @@ module.exports = async (req, res) => {
         const baseUpdate = { status: "published", images, publishedAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp() };
         if (!liveEnabled) {
           await doc.ref.update({ ...baseUpdate, emailStatus: "live-disabled", emailSkippedAt: admin.firestore.FieldValue.serverTimestamp() });
+          if (data.submissionId) await db.collection("newsletterSubmissions").doc(data.submissionId).set({ status: "published", updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
           results.push({ id: doc.id, published: true, email: "live-disabled" });
           continue;
         }
@@ -352,6 +366,7 @@ module.exports = async (req, res) => {
           return true;
         });
         if (!claimed) { results.push({ id: doc.id, published: false, email: "already-claimed" }); continue; }
+        if (data.submissionId) await db.collection("newsletterSubmissions").doc(data.submissionId).set({ status: "published", updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
         try {
           const campaign = await createSenderCampaign(published, groupId, "Route 25 Collector Stories");
           await doc.ref.update({ emailStatus: "sending", senderCampaignId: campaign.campaignId, senderGroup: "live", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
@@ -410,6 +425,7 @@ module.exports = async (req, res) => {
       const ref = existing.empty ? db.collection("newsletterIssues").doc() : existing.docs[0].ref;
       const previewToken = existing.empty ? crypto.randomBytes(32).toString("hex") : (existing.docs[0].data().previewToken || crypto.randomBytes(32).toString("hex"));
       await ref.set({ ...issue, previewToken, createdAt: existing.empty ? admin.firestore.FieldValue.serverTimestamp() : existing.docs[0].data().createdAt }, { merge:true });
+      if (issue.submissionId) await db.collection("newsletterSubmissions").doc(issue.submissionId).set({ status: issue.status, scheduledIssue: ref.id, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
       return json(res,200,{id:ref.id,slug});
     }
     if (action === "email-export" && req.method === "GET") {
