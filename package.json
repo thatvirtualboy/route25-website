@@ -4,6 +4,7 @@
     "@fontsource/geist-sans": "^5.2.5",
     "@vercel/og": "^0.8.5",
     "react": "^19.1.1",
-    "sharp": "^0.34.5"
+    "sharp": "^0.34.5",
+    "firebase-admin": "^13.6.0"
   }
 }

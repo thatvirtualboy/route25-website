@@ -12,6 +12,26 @@
   ],
   "rewrites": [
     {
+      "source": "/api/newsletter",
+      "destination": "/api/newsletter.js"
+    },
+    {
+      "source": "/newsletter/submit",
+      "destination": "/newsletter/submit.html"
+    },
+    {
+      "source": "/newsletter/admin",
+      "destination": "/newsletter/admin.html"
+    },
+    {
+      "source": "/newsletter/subscribe",
+      "destination": "/newsletter/subscribe.html"
+    },
+    {
+      "source": "/newsletter/:slug",
+      "destination": "/newsletter/issue.html?slug=:slug"
+    },
+    {
       "source": "/apple-review/route25-screenshots-iphone.zip",
       "destination": "/assets/Route25-App-Store-Screenshots-iPhone.zip"
     },
