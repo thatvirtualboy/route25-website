@@ -129,6 +129,15 @@ async function senderRequest(path, options = {}) {
   let body = {};
   try { body = raw ? JSON.parse(raw) : {}; } catch { body = { message: raw }; }
   if (!response.ok) {
+    console.error("Sender API error", {
+      endpoint: path,
+      method: options.method || "GET",
+      status: response.status,
+      response: raw.slice(0, 2000),
+      requestId: response.headers.get("x-request-id") || response.headers.get("x-correlation-id") || response.headers.get("cf-ray") || "",
+      contentType: response.headers.get("content-type") || "",
+      timestamp: new Date().toISOString()
+    });
     const detail = text(body?.message || body?.error || body?.errors?.[0]?.message, 500) || `HTTP ${response.status}`;
     throw Object.assign(new Error(`Sender request failed: ${detail}`), { status: response.status >= 500 ? 502 : 400, providerStatus: response.status });
   }
