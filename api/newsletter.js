@@ -123,6 +123,19 @@ function isWeeklyPublicationSlot(date = new Date()) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/Denver", weekday: "short", hour: "2-digit", hourCycle: "h23" }).formatToParts(date).filter(p => p.type !== "literal").map(p => [p.type, p.value]));
   return parts.weekday === "Sat" && Number(parts.hour) === 7;
 }
+function isExactPublicationSlot(date) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/Denver", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(date).filter(p => p.type !== "literal").map(p => [p.type, p.value]));
+  return parts.weekday === "Sat" && Number(parts.hour) === 7 && Number(parts.minute) === 0;
+}
+function languageFlags(values) {
+  const source = values.join(" ").toLowerCase();
+  const checks = [
+    ["profanity", /\b(fuck|shit|bitch|asshole)\b/i],
+    ["threatening-language", /\b(kill|hurt|attack)\s+(you|them|him|her)\b/i],
+    ["sexual-language", /\b(porn|nudes?|sexually explicit)\b/i]
+  ];
+  return checks.filter(([, pattern]) => pattern.test(source)).map(([name]) => name);
+}
 async function notifyNewSubmission(submission) {
   const webhook = text(process.env.NEWSLETTER_SLACK_WEBHOOK_URL, 2000);
   if (!/^https:\/\/hooks\.slack\.com\//.test(webhook)) return false;
@@ -234,9 +247,11 @@ module.exports = async (req, res) => {
         await batch.commit();
         snap = await db.collection("newsletterQuestions").where("active", "==", true).get();
       }
-      const all = snap.docs.map(docData);
+      const excluded = new Set(text(req.query.exclude, 1000).split(",").map(x => x.trim()).filter(Boolean));
+      const count = Math.max(1, Math.min(5, Number(req.query.count) || 5));
+      const all = snap.docs.map(docData).filter(question => !excluded.has(question.id));
       for (let i = all.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [all[i], all[j]] = [all[j], all[i]]; }
-      return json(res, 200, { questions: all.slice(0, 5) });
+      return json(res, 200, { questions: all.slice(0, count) });
     }
     if (action === "upload-url" && req.method === "POST") {
       const { contentType, size, filename } = req.body || {};
@@ -252,7 +267,7 @@ module.exports = async (req, res) => {
       const b = req.body || {};
       const images = Array.isArray(b.images) ? b.images.slice(0, MAX_IMAGES) : [];
       if (!text(b.name, 120) || !/^\S+@\S+\.\S+$/.test(text(b.email, 254)) || !text(b.bio, 3000) || !text(b.collectionFocus, 1000)) return json(res, 400, { error: "Name, valid email, bio, and collection focus are required." });
-      if (!b.consentPublish || !b.consentOriginal || !b.consentTerms) return json(res, 400, { error: "All permission fields are required." });
+      if (!b.consentPublish || !b.consentOriginal || !b.consentTerms || !b.consentCommunity) return json(res, 400, { error: "All permission and community-standard fields are required." });
       if (!images.length) return json(res, 400, { error: "At least one image is required." });
       const checked = [];
       for (const image of images) {
@@ -263,7 +278,9 @@ module.exports = async (req, res) => {
         checked.push({ objectPath, contentType: meta.contentType, size: Number(meta.size), caption: text(image.caption, 500), alt: text(image.alt, 300) });
       }
       const now = admin.firestore.FieldValue.serverTimestamp();
-      const submission = { status: "submitted", name: text(b.name,120), email: text(b.email,254).toLowerCase(), location: text(b.location,200), socials: list(b.socials,5), bio: text(b.bio,3000), collectionFocus: text(b.collectionFocus,1000), favorite: text(b.favorite,1000), currentChase: text(b.currentChase,1000), grail: text(b.grail,1000), gear: list(b.gear,20), interviewAnswers: normalizeAnswers(b.interviewAnswers), images: checked, consent: { publish: true, original: true, terms: true, attributionName: text(b.attributionName,120) || text(b.name,120), submittedAt: now }, createdAt: now, updatedAt: now };
+      const interviewAnswers = normalizeAnswers(b.interviewAnswers);
+      const flags = languageFlags([text(b.bio,3000), text(b.collectionFocus,1000), text(b.favorite,1000), text(b.currentChase,1000), text(b.grail,1000), ...interviewAnswers.map(answer => answer.answer)]);
+      const submission = { status: "submitted", name: text(b.name,120), email: text(b.email,254).toLowerCase(), location: text(b.location,200), socials: list(b.socials,5), bio: text(b.bio,3000), collectionFocus: text(b.collectionFocus,1000), favoritePokemon: text(b.favoritePokemon,100), collectingEra: text(b.collectingEra,100), collectingStyle: text(b.collectingStyle,100), favorite: text(b.favorite,1000), currentChase: text(b.currentChase,1000), grail: text(b.grail,1000), gear: list(b.gear,20), interviewAnswers, images: checked, moderation: { status: flags.length ? "flagged" : "clear", flags }, consent: { publish: true, original: true, terms: true, community: true, attributionName: text(b.attributionName,120) || text(b.name,120), submittedAt: now }, createdAt: now, updatedAt: now };
       const ref = await db.collection("newsletterSubmissions").add(submission);
       try { if (await notifyNewSubmission(submission)) await ref.update({ slackNotifiedAt: admin.firestore.FieldValue.serverTimestamp() }); } catch (error) { console.error(error); }
       return json(res, 201, { id: ref.id, status: "submitted" });
@@ -314,7 +331,7 @@ module.exports = async (req, res) => {
       if (!expected || !crypto.timingSafeEqual(Buffer.from(supplied.padEnd(expected.length).slice(0, expected.length)), Buffer.from(expected))) return json(res, 401, { error: "Unauthorized" });
       if (!isWeeklyPublicationSlot()) return json(res, 200, { published: 0, skipped: "Outside Saturday 7:00 AM America/Denver publication window" });
       const snap = await db.collection("newsletterIssues").where("status", "==", "scheduled").limit(100).get();
-      const now = Date.now(), due = snap.docs.filter(doc => doc.data().publishAt?.toMillis?.() <= now);
+      const now = Date.now(), due = snap.docs.filter(doc => doc.data().publishAt?.toMillis?.() <= now).sort((a,b) => a.data().publishAt.toMillis() - b.data().publishAt.toMillis()).slice(0, 1);
       const results = [];
       for (const doc of due) {
         const data = doc.data();
@@ -381,10 +398,15 @@ module.exports = async (req, res) => {
       const b = req.body || {}, slug = safeSlug(b.slug || b.title); if (!slug || !text(b.title,200) || !text(b.summary,2000)) return json(res,400,{error:"Title, slug, and summary required"});
       const status = ["draft", "scheduled", "published"].includes(b.status) ? b.status : "draft";
       const parsedPublishAt = b.publishAt ? new Date(b.publishAt) : null;
-      if (status === "scheduled" && (!parsedPublishAt || !Number.isFinite(parsedPublishAt.getTime()) || parsedPublishAt.getTime() <= Date.now())) return json(res, 400, { error: "Scheduled issues require a future publication date." });
+      if (status === "scheduled" && (!parsedPublishAt || !Number.isFinite(parsedPublishAt.getTime()) || parsedPublishAt.getTime() <= Date.now() || !isExactPublicationSlot(parsedPublishAt))) return json(res, 400, { error: "Choose a future Saturday publication date; issues publish at 7:00 AM Mountain." });
       const issue = { slug, title:text(b.title,200), dek:text(b.dek,500), summary:text(b.summary,2000), bodyHtml:text(b.bodyHtml,50000), trainerName:text(b.trainerName,120), submissionId:text(b.submissionId,100), images:await normalizeIssueImages(b.images, status === "published"), interviewAnswers:normalizeAnswers(b.interviewAnswers), products:normalizeProducts(b.products), status, publishAt: status === "scheduled" ? admin.firestore.Timestamp.fromDate(parsedPublishAt) : null, subscribeUrl:/^https:\/\//.test(text(b.subscribeUrl,2000))?text(b.subscribeUrl,2000):"", updatedAt:admin.firestore.FieldValue.serverTimestamp() };
       if (issue.status === "published") issue.publishedAt = admin.firestore.FieldValue.serverTimestamp();
       const existing = await db.collection("newsletterIssues").where("slug","==",slug).limit(1).get();
+      if (status === "scheduled") {
+        const scheduled = await db.collection("newsletterIssues").where("status", "==", "scheduled").limit(100).get();
+        const conflict = scheduled.docs.find(doc => doc.id !== existing.docs[0]?.id && doc.data().publishAt?.toMillis?.() === parsedPublishAt.getTime());
+        if (conflict) return json(res, 409, { error: `That Saturday is already assigned to “${text(conflict.data().title, 200)}”. Choose another week.` });
+      }
       const ref = existing.empty ? db.collection("newsletterIssues").doc() : existing.docs[0].ref;
       const previewToken = existing.empty ? crypto.randomBytes(32).toString("hex") : (existing.docs[0].data().previewToken || crypto.randomBytes(32).toString("hex"));
       await ref.set({ ...issue, previewToken, createdAt: existing.empty ? admin.firestore.FieldValue.serverTimestamp() : existing.docs[0].data().createdAt }, { merge:true });
