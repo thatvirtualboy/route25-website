@@ -18,6 +18,7 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/heic"]);
 const STATUSES = new Set(["submitted", "reviewing", "selected", "draft", "scheduled", "published", "declined"]);
 const AFFILIATES = new Set(["amazon", "ebay", "tcgplayer", "direct"]);
+const PRODUCT_CATEGORIES = new Set(["gear", "card"]);
 const SENDER_API_BASE = "https://api.sender.net/v2";
 let uploadCorsReady = null;
 const DEFAULT_QUESTIONS = [
@@ -64,6 +65,7 @@ async function requireAdmin(req) {
 function normalizeProducts(v) {
   return Array.isArray(v) ? v.slice(0, 20).map(p => ({
     name: text(p?.name, 200), type: AFFILIATES.has(p?.type) ? p.type : "direct",
+    category: PRODUCT_CATEGORIES.has(p?.category) ? p.category : "gear",
     url: /^https:\/\//.test(text(p?.url, 2000)) ? text(p.url, 2000) : "",
     note: text(p?.note, 500)
   })).filter(p => p.name) : [];
@@ -180,14 +182,15 @@ async function syncSubscriberToSender(email) {
 }
 function buildEmail(issue) {
   const site = (process.env.PUBLIC_SITE_URL || "https://route25.app").replace(/\/$/, "");
-  const canonicalUrl = `${site}/newsletter/${issue.slug}`;
+  const canonicalUrl = issue.emailCanonicalUrl || `${site}/newsletter/${issue.slug}`;
   const hero = (issue.images || []).find(image => /^https:\/\//.test(image.emailUrl || image.url || ""));
   const storyImage = (issue.images || []).slice(1).find(image => /^https:\/\//.test(image.emailUrl || image.url || ""));
   const remainingPhotos = Math.max(0, (issue.images || []).length - (storyImage ? 2 : 1));
-  const products = (issue.products || []).filter(product => product.name).slice(0, 4);
-  const gear = products.length ? `<div style="margin:30px 0 0;padding:24px;background:#f3f6fa;border:1px solid #e3e8ef;border-radius:16px"><h2 style="margin:0 0 14px;color:#101828;font-size:22px">Collector’s corner</h2>${products.map(product => `<p style="margin:12px 0;color:#475467;font-size:15px;line-height:1.5"><strong style="color:#101828">${html(product.name)}</strong>${product.note ? ` — ${html(product.note)}` : ""}${product.url ? ` <a href="${html(product.url)}" style="color:#087bb5;font-weight:bold">View gear</a>` : ""}</p>`).join("")}</div>` : "";
+  const products = (issue.products || []).filter(product => product.name).slice(0, 8);
+  const productGroup = (title, items) => items.length ? `<h3 style="margin:20px 0 8px;color:#101828;font-size:17px">${title}</h3>${items.map(product => `<p style="margin:10px 0;color:#475467;font-size:15px;line-height:1.5"><strong style="color:#101828">${html(product.name)}</strong>${product.note ? ` — ${html(product.note)}` : ""}${product.url ? ` <a href="${html(product.url)}" style="color:#087bb5;font-weight:bold">View</a>` : ""}</p>`).join("")}` : "";
+  const gear = products.length ? `<div style="margin:30px 0 0;padding:24px;background:#f3f6fa;border:1px solid #e3e8ef;border-radius:16px"><h2 style="margin:0;color:#101828;font-size:22px">Collector’s corner</h2>${productGroup("Cards mentioned", products.filter(product => product.category === "card"))}${productGroup("Gear used", products.filter(product => product.category !== "card"))}</div>` : "";
   const interview = (issue.interviewAnswers || []).length ? `<div style="margin-top:34px"><p style="margin:0 0 8px;color:#168fc8;font-size:12px;font-weight:bold;letter-spacing:1.5px;text-transform:uppercase">Five questions</p>${issue.interviewAnswers.map(answer => `<h3 style="margin:22px 0 7px;color:#101828;font-size:18px;line-height:1.35">${html(answer.question)}</h3><p style="margin:0;color:#475467;font-size:16px;line-height:1.7">${html(answer.answer)}</p>`).join("")}</div>` : "";
-  const content = `<div style="display:none;max-height:0;overflow:hidden">${html(issue.dek || issue.summary).slice(0, 180)}</div><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#eef2f6"><tr><td align="center" style="padding:24px 10px"><table role="presentation" width="640" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:640px;background:#ffffff;border:1px solid #dde3ea;border-radius:20px;overflow:hidden"><tr><td style="padding:30px 32px 18px"><p style="margin:0 0 8px;color:#168fc8;font-family:Arial,sans-serif;font-size:12px;font-weight:bold;letter-spacing:1.6px;text-transform:uppercase">Route 25 · Collector Stories</p><h1 style="margin:0;color:#101828;font-family:Arial,sans-serif;font-size:40px;line-height:1.08;letter-spacing:-1.2px">${html(issue.title)}</h1><p style="margin:18px 0 0;color:#475467;font-family:Arial,sans-serif;font-size:18px;line-height:1.65">${html(issue.summary)}</p></td></tr>${hero ? `<tr><td style="padding:10px 24px 24px"><img src="${html(hero.emailUrl || hero.url)}" width="592" alt="${html(hero.alt || issue.title)}" style="display:block;width:100%;max-width:592px;height:auto;border-radius:16px"></td></tr>` : ""}<tr><td style="padding:4px 32px 34px;color:#344054;font-family:Arial,sans-serif;font-size:16px;line-height:1.7"><div style="color:#344054">${issue.bodyHtml || `<p>${html(issue.summary)}</p>`}</div>${storyImage ? `<img src="${html(storyImage.emailUrl || storyImage.url)}" width="576" alt="${html(storyImage.alt || `${issue.trainerName} collection`)}" style="display:block;width:100%;max-width:576px;height:auto;border-radius:14px;margin:30px 0">` : ""}${interview}${gear}<div style="margin:34px 0 10px;padding:24px;text-align:center;background:#07111f;border-radius:16px"><p style="margin:0 0 16px;color:#d7e1eb;font-size:15px;line-height:1.55">${remainingPhotos ? `${remainingPhotos} more collection photo${remainingPhotos === 1 ? "" : "s"}, captions, and the complete tour are waiting on Route 25.` : "See the complete, shareable collector story on Route 25."}</p><a href="${html(canonicalUrl)}" style="display:inline-block;background:#28a9ea;color:#ffffff;text-decoration:none;font-weight:bold;padding:13px 20px;border-radius:999px">See the full collection tour</a></div><p style="margin:28px 0 0;color:#667085;font-size:12px;line-height:1.55;text-align:center">Some links may be affiliate links. Purchases support Route 25 at no additional cost to you.</p><p style="margin:10px 0 0;text-align:center;font-size:11px"><a href="{{unsubscribe_link}}" style="color:#667085">{{unsubscribe_text}}</a></p></td></tr></table></td></tr></table>`;
+  const content = `<style>@media screen and (max-width:600px){.r25-shell{padding:8px 0!important}.r25-card{border-left:0!important;border-right:0!important;border-radius:0!important}.r25-pad{padding-left:20px!important;padding-right:20px!important}.r25-image-pad{padding-left:12px!important;padding-right:12px!important}.r25-title{font-size:34px!important}}</style><div style="display:none;max-height:0;overflow:hidden">${html(issue.dek || issue.summary).slice(0, 180)}</div><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#eef2f6"><tr><td class="r25-shell" align="center" style="padding:18px 8px"><table class="r25-card" role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:720px;background:#ffffff;border:1px solid #dde3ea;border-radius:20px;overflow:hidden"><tr><td class="r25-pad" style="padding:30px 36px 18px"><p style="margin:0 0 8px;color:#168fc8;font-family:Arial,sans-serif;font-size:12px;font-weight:bold;letter-spacing:1.6px;text-transform:uppercase">Route 25 · Collector Stories</p><h1 class="r25-title" style="margin:0;color:#101828;font-family:Arial,sans-serif;font-size:40px;line-height:1.08;letter-spacing:-1.2px">${html(issue.title)}</h1><p style="margin:18px 0 0;color:#475467;font-family:Arial,sans-serif;font-size:18px;line-height:1.65">${html(issue.summary)}</p></td></tr>${hero ? `<tr><td class="r25-image-pad" style="padding:10px 20px 24px"><img src="${html(hero.emailUrl || hero.url)}" width="680" alt="${html(hero.alt || issue.title)}" style="display:block;width:100%;max-width:680px;height:auto;border-radius:16px"></td></tr>` : ""}<tr><td class="r25-pad" style="padding:4px 36px 34px;color:#344054;font-family:Arial,sans-serif;font-size:16px;line-height:1.7"><div style="color:#344054">${issue.bodyHtml || `<p>${html(issue.summary)}</p>`}</div>${storyImage ? `<img src="${html(storyImage.emailUrl || storyImage.url)}" width="648" alt="${html(storyImage.alt || `${issue.trainerName} collection`)}" style="display:block;width:100%;max-width:648px;height:auto;border-radius:14px;margin:30px 0">` : ""}${interview}${gear}<div style="margin:34px 0 10px;padding:24px;text-align:center;background:#07111f;border-radius:16px"><p style="margin:0 0 16px;color:#d7e1eb;font-size:15px;line-height:1.55">${remainingPhotos ? `${remainingPhotos} more collection photo${remainingPhotos === 1 ? "" : "s"}, captions, and the complete tour are waiting on Route 25.` : "See the complete, shareable collector story on Route 25."}</p><a href="${html(canonicalUrl)}" style="display:inline-block;background:#28a9ea;color:#ffffff;text-decoration:none;font-weight:bold;padding:13px 20px;border-radius:999px">See the full collection tour</a></div><p style="margin:28px 0 0;color:#667085;font-size:12px;line-height:1.55;text-align:center">Some links may be affiliate links. Purchases support Route 25 at no additional cost to you.</p><p style="margin:10px 0 0;text-align:center;font-size:11px"><a href="{{unsubscribe_link}}" style="color:#667085">{{unsubscribe_text}}</a></p></td></tr></table></td></tr></table>`;
   return { subject: issue.title, preheader: issue.dek || String(issue.summary || "").slice(0, 140), content, canonicalUrl };
 }
 async function createSenderCampaign(issue, groupId, label) {
@@ -292,6 +295,19 @@ module.exports = async (req, res) => {
       if (snap.empty || snap.docs[0].data().status !== "published") return json(res, 404, { error: "Issue not found" });
       return json(res, 200, { issue: docData(snap.docs[0]) });
     }
+    if (action === "issue-preview" && req.method === "GET") {
+      const token = text(req.query.token, 100);
+      if (!/^[a-f0-9]{64}$/.test(token)) return json(res, 404, { error: "Preview not found" });
+      const snap = await db.collection("newsletterIssues").where("previewToken", "==", token).limit(1).get();
+      if (snap.empty) return json(res, 404, { error: "Preview not found" });
+      const issue = docData(snap.docs[0]);
+      issue.images = await Promise.all((issue.images || []).map(async image => {
+        if (!image.objectPath) return image;
+        const [url] = await bucket.file(image.objectPath).getSignedUrl({ version: "v4", action: "read", expires: Date.now() + 86400000 });
+        return { ...image, url };
+      }));
+      return json(res, 200, { issue });
+    }
     if (action === "publish-due" && (req.method === "GET" || req.method === "POST")) {
       const expected = text(process.env.CRON_SECRET, 500);
       const supplied = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
@@ -370,7 +386,8 @@ module.exports = async (req, res) => {
       if (issue.status === "published") issue.publishedAt = admin.firestore.FieldValue.serverTimestamp();
       const existing = await db.collection("newsletterIssues").where("slug","==",slug).limit(1).get();
       const ref = existing.empty ? db.collection("newsletterIssues").doc() : existing.docs[0].ref;
-      await ref.set({ ...issue, createdAt: existing.empty ? admin.firestore.FieldValue.serverTimestamp() : existing.docs[0].data().createdAt }, { merge:true });
+      const previewToken = existing.empty ? crypto.randomBytes(32).toString("hex") : (existing.docs[0].data().previewToken || crypto.randomBytes(32).toString("hex"));
+      await ref.set({ ...issue, previewToken, createdAt: existing.empty ? admin.firestore.FieldValue.serverTimestamp() : existing.docs[0].data().createdAt }, { merge:true });
       return json(res,200,{id:ref.id,slug});
     }
     if (action === "email-export" && req.method === "GET") {
@@ -389,7 +406,10 @@ module.exports = async (req, res) => {
       const group = (await senderRequest(`/groups/${encodeURIComponent(groupId)}`))?.data || {};
       const activeSubscribers = Number(group.active_subscribers);
       if (!/test/i.test(text(group.title, 200)) || !Number.isFinite(activeSubscribers) || activeSubscribers > 5) return json(res, 409, { error: "Test send blocked: Sender target must be a test-named group with no more than 5 active subscribers" });
-      const campaign = await createSenderCampaign(issue, groupId, "TEST");
+      const previewToken = issue.previewToken || crypto.randomBytes(32).toString("hex");
+      if (!issue.previewToken) await snap.docs[0].ref.set({ previewToken }, { merge: true });
+      const previewUrl = `${(process.env.PUBLIC_SITE_URL || "https://route25.app").replace(/\/$/, "")}/newsletter/preview/${previewToken}`;
+      const campaign = await createSenderCampaign({ ...issue, emailCanonicalUrl: previewUrl }, groupId, "TEST");
       await sendSenderCampaign(campaign.campaignId);
       await snap.docs[0].ref.set({ lastTestEmailAt: admin.firestore.FieldValue.serverTimestamp(), lastTestCampaignId: campaign.campaignId, testEmailCount: admin.firestore.FieldValue.increment(1), updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
       return json(res, 200, { ok: true, campaignId: campaign.campaignId, recipient: "test-group" });

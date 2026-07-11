@@ -28,6 +28,10 @@
       "destination": "/newsletter/subscribe.html"
     },
     {
+      "source": "/newsletter/preview/:token",
+      "destination": "/newsletter/issue.html?preview=:token"
+    },
+    {
       "source": "/newsletter/:slug",
       "destination": "/newsletter/issue.html?slug=:slug"
     },
