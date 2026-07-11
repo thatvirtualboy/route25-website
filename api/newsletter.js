@@ -1,6 +1,7 @@
 const admin = require("firebase-admin");
 const { getFirestore } = require("firebase-admin/firestore");
 const crypto = require("node:crypto");
+const sharp = require("sharp");
 
 if (!admin.apps.length) {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
@@ -91,6 +92,27 @@ async function normalizeIssueImages(v, publish) {
     return { ...image, url };
   }));
 }
+async function emailImageVariant(image, role) {
+  if (!image?.objectPath) return image?.url || "";
+  const dimensions = role === "hero" ? { width: 1200, height: 800 } : { width: 900, height: 675 };
+  const key = crypto.createHash("sha256").update(`${image.objectPath}:${role}:v1`).digest("hex").slice(0, 32);
+  const outputPath = `newsletter/derived/${key}-${dimensions.width}x${dimensions.height}.jpg`;
+  const output = bucket.file(outputPath);
+  try {
+    const [exists] = await output.exists();
+    if (!exists) {
+      const [source] = await bucket.file(image.objectPath).download();
+      const rendered = await sharp(source).rotate().resize(dimensions.width, dimensions.height, { fit: "cover", position: sharp.strategy.attention }).jpeg({ quality: 84, progressive: true }).toBuffer();
+      await output.save(rendered, { resumable: false, contentType: "image/jpeg", metadata: { cacheControl: "public,max-age=31536000,immutable", metadata: { firebaseStorageDownloadTokens: crypto.randomUUID(), sourceObject: image.objectPath, role } } });
+    }
+    const [metadata] = await output.getMetadata();
+    const token = metadata.metadata?.firebaseStorageDownloadTokens;
+    return `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(outputPath)}?alt=media&token=${encodeURIComponent(token)}`;
+  } catch (error) {
+    console.error("Newsletter image variant failed", { objectPath: image.objectPath, role, message: error.message });
+    return image.url || "";
+  }
+}
 function docData(doc) {
   const d = doc.data(), iso = value => value?.toDate?.()?.toISOString?.() || value;
   return { id: doc.id, ...d, createdAt: iso(d.createdAt), updatedAt: iso(d.updatedAt), publishedAt: iso(d.publishedAt), publishAt: iso(d.publishAt), lastTestEmailAt: iso(d.lastTestEmailAt), emailSentAt: iso(d.emailSentAt), emailFailedAt: iso(d.emailFailedAt), emailSkippedAt: iso(d.emailSkippedAt) };
@@ -159,15 +181,19 @@ async function syncSubscriberToSender(email) {
 function buildEmail(issue) {
   const site = (process.env.PUBLIC_SITE_URL || "https://route25.app").replace(/\/$/, "");
   const canonicalUrl = `${site}/newsletter/${issue.slug}`;
-  const hero = (issue.images || []).find(image => /^https:\/\//.test(image.url || ""));
+  const hero = (issue.images || []).find(image => /^https:\/\//.test(image.emailUrl || image.url || ""));
+  const storyImage = (issue.images || []).slice(1).find(image => /^https:\/\//.test(image.emailUrl || image.url || ""));
+  const remainingPhotos = Math.max(0, (issue.images || []).length - (storyImage ? 2 : 1));
   const products = (issue.products || []).filter(product => product.name).slice(0, 4);
-  const gear = products.length ? `<div style="margin-top:28px;padding:22px;background:#111827;border:1px solid #263246;border-radius:16px"><h2 style="margin:0 0 14px;color:#fff;font-size:20px">Gear spotlight</h2>${products.map(product => `<p style="margin:10px 0;color:#d1d5db"><strong style="color:#fff">${html(product.name)}</strong>${product.note ? ` — ${html(product.note)}` : ""}${product.url ? ` <a href="${html(product.url)}" style="color:#38bdf8">View</a>` : ""}</p>`).join("")}</div>` : "";
-  const content = `<div style="display:none;max-height:0;overflow:hidden">${html(issue.dek || issue.summary).slice(0, 180)}</div><div style="margin:0;background:#050811;padding:28px 12px;font-family:Arial,sans-serif;color:#f5f7fb"><div style="max-width:640px;margin:auto"><p style="color:#38bdf8;font-size:12px;font-weight:bold;letter-spacing:1.5px;text-transform:uppercase">Route 25 · Collector Stories</p><h1 style="font-size:38px;line-height:1.08;margin:10px 0 14px;color:#fff">${html(issue.title)}</h1><p style="font-size:18px;line-height:1.6;color:#cbd5e1">${html(issue.summary)}</p>${hero ? `<img src="${html(hero.url)}" alt="${html(hero.alt || issue.title)}" style="display:block;width:100%;height:auto;border-radius:18px;margin:24px 0">` : ""}<p style="margin:26px 0"><a href="${html(canonicalUrl)}" style="display:inline-block;background:#ef4444;color:#fff;text-decoration:none;font-weight:bold;padding:14px 20px;border-radius:999px">See the full collection tour</a></p>${gear}<p style="margin-top:30px;color:#94a3b8;font-size:12px;line-height:1.5">Some links may be affiliate links. Purchases support Route 25 at no additional cost to you.</p><p style="margin-top:18px;color:#64748b;font-size:11px"><a href="{{unsubscribe_link}}" style="color:#94a3b8">{{unsubscribe_text}}</a></p></div></div>`;
+  const gear = products.length ? `<div style="margin:30px 0 0;padding:24px;background:#f3f6fa;border:1px solid #e3e8ef;border-radius:16px"><h2 style="margin:0 0 14px;color:#101828;font-size:22px">Collector’s corner</h2>${products.map(product => `<p style="margin:12px 0;color:#475467;font-size:15px;line-height:1.5"><strong style="color:#101828">${html(product.name)}</strong>${product.note ? ` — ${html(product.note)}` : ""}${product.url ? ` <a href="${html(product.url)}" style="color:#087bb5;font-weight:bold">View gear</a>` : ""}</p>`).join("")}</div>` : "";
+  const interview = (issue.interviewAnswers || []).length ? `<div style="margin-top:34px"><p style="margin:0 0 8px;color:#168fc8;font-size:12px;font-weight:bold;letter-spacing:1.5px;text-transform:uppercase">Five questions</p>${issue.interviewAnswers.map(answer => `<h3 style="margin:22px 0 7px;color:#101828;font-size:18px;line-height:1.35">${html(answer.question)}</h3><p style="margin:0;color:#475467;font-size:16px;line-height:1.7">${html(answer.answer)}</p>`).join("")}</div>` : "";
+  const content = `<div style="display:none;max-height:0;overflow:hidden">${html(issue.dek || issue.summary).slice(0, 180)}</div><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#eef2f6"><tr><td align="center" style="padding:24px 10px"><table role="presentation" width="640" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:640px;background:#ffffff;border:1px solid #dde3ea;border-radius:20px;overflow:hidden"><tr><td style="padding:30px 32px 18px"><p style="margin:0 0 8px;color:#168fc8;font-family:Arial,sans-serif;font-size:12px;font-weight:bold;letter-spacing:1.6px;text-transform:uppercase">Route 25 · Collector Stories</p><h1 style="margin:0;color:#101828;font-family:Arial,sans-serif;font-size:40px;line-height:1.08;letter-spacing:-1.2px">${html(issue.title)}</h1><p style="margin:18px 0 0;color:#475467;font-family:Arial,sans-serif;font-size:18px;line-height:1.65">${html(issue.summary)}</p></td></tr>${hero ? `<tr><td style="padding:10px 24px 24px"><img src="${html(hero.emailUrl || hero.url)}" width="592" alt="${html(hero.alt || issue.title)}" style="display:block;width:100%;max-width:592px;height:auto;border-radius:16px"></td></tr>` : ""}<tr><td style="padding:4px 32px 34px;color:#344054;font-family:Arial,sans-serif;font-size:16px;line-height:1.7"><div style="color:#344054">${issue.bodyHtml || `<p>${html(issue.summary)}</p>`}</div>${storyImage ? `<img src="${html(storyImage.emailUrl || storyImage.url)}" width="576" alt="${html(storyImage.alt || `${issue.trainerName} collection`)}" style="display:block;width:100%;max-width:576px;height:auto;border-radius:14px;margin:30px 0">` : ""}${interview}${gear}<div style="margin:34px 0 10px;padding:24px;text-align:center;background:#07111f;border-radius:16px"><p style="margin:0 0 16px;color:#d7e1eb;font-size:15px;line-height:1.55">${remainingPhotos ? `${remainingPhotos} more collection photo${remainingPhotos === 1 ? "" : "s"}, captions, and the complete tour are waiting on Route 25.` : "See the complete, shareable collector story on Route 25."}</p><a href="${html(canonicalUrl)}" style="display:inline-block;background:#28a9ea;color:#ffffff;text-decoration:none;font-weight:bold;padding:13px 20px;border-radius:999px">See the full collection tour</a></div><p style="margin:28px 0 0;color:#667085;font-size:12px;line-height:1.55;text-align:center">Some links may be affiliate links. Purchases support Route 25 at no additional cost to you.</p><p style="margin:10px 0 0;text-align:center;font-size:11px"><a href="{{unsubscribe_link}}" style="color:#667085">{{unsubscribe_text}}</a></p></td></tr></table></td></tr></table>`;
   return { subject: issue.title, preheader: issue.dek || String(issue.summary || "").slice(0, 140), content, canonicalUrl };
 }
 async function createSenderCampaign(issue, groupId, label) {
   if (!senderConfigured() || !groupId) throw Object.assign(new Error("Sender campaign delivery is not configured"), { status: 503 });
-  const email = buildEmail(issue);
+  const images = await Promise.all((issue.images || []).map(async (image, index) => index < 2 ? { ...image, emailUrl: await emailImageVariant(image, index === 0 ? "hero" : "story") } : image));
+  const email = buildEmail({ ...issue, images });
   const replyTo = text(process.env.SENDER_REPLY_TO, 254) || text(process.env.SENDER_FROM_EMAIL, 254);
   const result = await senderRequest("/campaigns", { method: "POST", body: JSON.stringify({
     title: `${label}: ${issue.title}`, subject: email.subject, from: text(process.env.SENDER_FROM_NAME, 200), reply_to: replyTo,
