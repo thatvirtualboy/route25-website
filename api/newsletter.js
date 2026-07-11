@@ -17,6 +17,7 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/heic"]);
 const STATUSES = new Set(["submitted", "reviewing", "selected", "draft", "scheduled", "published", "declined"]);
 const AFFILIATES = new Set(["amazon", "ebay", "tcgplayer", "direct"]);
+let uploadCorsReady = null;
 const DEFAULT_QUESTIONS = [
   ["origin", "What brought you into Pokémon collecting?", "story"],
   ["never-sell", "Which card would you never sell, and why?", "cards"],
@@ -89,6 +90,17 @@ async function normalizeIssueImages(v, publish) {
   }));
 }
 function docData(doc) { const d = doc.data(); return { id: doc.id, ...d, createdAt: d.createdAt?.toDate?.()?.toISOString?.() || d.createdAt, updatedAt: d.updatedAt?.toDate?.()?.toISOString?.() || d.updatedAt, publishedAt: d.publishedAt?.toDate?.()?.toISOString?.() || d.publishedAt }; }
+async function ensureUploadCors() {
+  if (uploadCorsReady) return uploadCorsReady;
+  uploadCorsReady = (async () => {
+    const [metadata] = await bucket.getMetadata();
+    const current = Array.isArray(metadata.cors) ? metadata.cors : [];
+    const origins = ["https://route25.app", "http://localhost:3000", "http://127.0.0.1:3000"];
+    const alreadyCovered = current.some(rule => origins.every(origin => (rule.origin || []).includes(origin)) && (rule.method || []).includes("PUT"));
+    if (!alreadyCovered) await bucket.setCorsConfiguration([...current, { origin: origins, method: ["PUT"], responseHeader: ["Content-Type", "x-goog-resumable"], maxAgeSeconds: 3600 }]);
+  })().catch(error => { uploadCorsReady = null; throw error; });
+  return uploadCorsReady;
+}
 
 module.exports = async (req, res) => {
   try {
@@ -111,6 +123,7 @@ module.exports = async (req, res) => {
       const { contentType, size, filename } = req.body || {};
       if (!IMAGE_TYPES.has(contentType) || !Number.isInteger(size) || size < 1 || size > MAX_IMAGE_BYTES) return json(res, 400, { error: "Images must be JPEG, PNG, WebP, or HEIC and 10 MB or less." });
       const ext = ({"image/jpeg":"jpg", "image/png":"png", "image/webp":"webp", "image/heic":"heic"})[contentType];
+      await ensureUploadCors();
       const objectPath = `newsletter/submissions/${new Date().toISOString().slice(0,10)}/${crypto.randomUUID()}.${ext}`;
       const file = bucket.file(objectPath);
       const [uploadUrl] = await file.getSignedUrl({ version: "v4", action: "write", expires: Date.now() + 10 * 60 * 1000, contentType });
