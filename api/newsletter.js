@@ -432,13 +432,11 @@ module.exports = async (req, res) => {
     }
     if (action === "admin-save-issue" && req.method === "POST") {
       const b = req.body || {}, slug = safeSlug(b.slug || b.title); if (!slug || !text(b.title,200) || !text(b.summary,2000)) return json(res,400,{error:"Title, slug, and summary required"});
-      const status = ["draft", "scheduled", "published"].includes(b.status) ? b.status : "draft";
-      if (status === "scheduled" && b.isTest === true) return json(res, 400, { error: "Test issues cannot be scheduled for live publication. Keep the issue as draft or published/hidden and use Send test." });
-      if (status === "published" && b.isTest !== true) return json(res, 400, { error: "Live issues must be scheduled or sent with Publish now so the website and email are released together." });
+      const requestedStatus = ["draft", "scheduled"].includes(b.status) ? b.status : "draft";
+      const status = b.isTest === true ? "draft" : requestedStatus;
       const parsedPublishAt = b.publishAt ? new Date(b.publishAt) : null;
       if (status === "scheduled" && (!parsedPublishAt || !Number.isFinite(parsedPublishAt.getTime()) || parsedPublishAt.getTime() <= Date.now() || !isExactPublicationSlot(parsedPublishAt))) return json(res, 400, { error: "Choose a future Saturday publication date; issues publish at 7:00 AM Mountain." });
       const issue = { slug, title:text(b.title,200), dek:text(b.dek,500), summary:text(b.summary,2000), bodyHtml:text(b.bodyHtml,50000), trainerName:text(b.trainerName,120), submissionId:text(b.submissionId,100), images:await normalizeIssueImages(b.images, status === "published"), interviewAnswers:normalizeAnswers(b.interviewAnswers), products:normalizeProducts(b.products), pokemonTags:list(b.pokemonTags,30), cardTags:list(b.cardTags,30), setTags:list(b.setTags,30), collectionTags:list(b.collectionTags,30), status, isTest:b.isTest === true, publicVisibility:b.isTest !== true, publishAt: status === "scheduled" ? admin.firestore.Timestamp.fromDate(parsedPublishAt) : null, subscribeUrl:/^https:\/\//.test(text(b.subscribeUrl,2000))?text(b.subscribeUrl,2000):"", updatedAt:admin.firestore.FieldValue.serverTimestamp() };
-      if (issue.status === "published") issue.publishedAt = admin.firestore.FieldValue.serverTimestamp();
       const existing = await db.collection("newsletterIssues").where("slug","==",slug).limit(1).get();
       if (status === "scheduled") {
         const scheduled = await db.collection("newsletterIssues").where("status", "==", "scheduled").limit(100).get();
