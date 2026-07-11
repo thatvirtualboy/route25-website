@@ -350,6 +350,9 @@ module.exports = async (req, res) => {
       if (!groupId || !liveGroupId) return json(res, 503, { error: "Both Sender test and live groups must be configured" });
       if (groupId === liveGroupId) return json(res, 409, { error: "Test send blocked: the Sender test and live group IDs must be different" });
       if (/^true$/i.test(text(process.env.NEWSLETTER_LIVE_SEND_ENABLED, 10))) return json(res, 409, { error: "Test send blocked while live sending is enabled" });
+      const group = (await senderRequest(`/groups/${encodeURIComponent(groupId)}`))?.data || {};
+      const activeSubscribers = Number(group.active_subscribers);
+      if (!/test/i.test(text(group.title, 200)) || !Number.isFinite(activeSubscribers) || activeSubscribers > 5) return json(res, 409, { error: "Test send blocked: Sender target must be a test-named group with no more than 5 active subscribers" });
       const campaign = await createSenderCampaign(issue, groupId, "TEST");
       await sendSenderCampaign(campaign.campaignId);
       await snap.docs[0].ref.set({ lastTestEmailAt: admin.firestore.FieldValue.serverTimestamp(), lastTestCampaignId: campaign.campaignId, testEmailCount: admin.firestore.FieldValue.increment(1), updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
