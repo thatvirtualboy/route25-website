@@ -7,7 +7,7 @@ The newsletter stays inside the existing static Vercel site. `api/newsletter.js`
 ## Local setup
 
 1. Run `npm install`.
-2. Set `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_STORAGE_BUCKET`, `FIRESTORE_DATABASE_ID=ptdb`, `CRON_SECRET`, and at least one of `NEWSLETTER_ADMIN_UIDS` or `NEWSLETTER_ADMIN_EMAILS` (comma-separated). Set `PUBLIC_SITE_URL=http://localhost:3000` locally. Optionally set `NEWSLETTER_SLACK_WEBHOOK_URL` for new-submission alerts.
+2. Set `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_STORAGE_BUCKET`, `FIRESTORE_DATABASE_ID=ptdb`, `CRON_SECRET`, and at least one of `NEWSLETTER_ADMIN_UIDS` or `NEWSLETTER_ADMIN_EMAILS` (comma-separated). Set `PUBLIC_SITE_URL=http://localhost:3000` locally. Optionally set `NEWSLETTER_SLACK_WEBHOOK_URL` for new-submission alerts. Sender delivery uses `SENDER_API_TOKEN`, `SENDER_GROUP_ID`, `SENDER_TEST_GROUP_ID`, `SENDER_FROM_NAME`, `SENDER_FROM_EMAIL`, and `SENDER_REPLY_TO`.
 3. Run `node scripts/seed-newsletter-questions.js` once per Firebase project.
 4. Start with `npx vercel dev`.
 
@@ -30,12 +30,13 @@ Firestore is schemaless, so the idempotent question seed is the only migration. 
 - Public APIs return only published issues. Affiliate links use `rel="sponsored nofollow"`; every issue includes a disclosure.
 - Consent is explicit and timestamped. Add self-service deletion and a retention policy before scaling submissions.
 - Scheduled issues publish once weekly on Saturday at 7:00 AM America/Denver. Two UTC cron checks plus a timezone guard preserve the local hour across daylight-saving changes.
+- Set `NEWSLETTER_LIVE_SEND_ENABLED=false` while testing. Admin test sends can only use `SENDER_TEST_GROUP_ID`; the weekly job can only use `SENDER_GROUP_ID` when this switch is exactly `true`.
 
 ## Practical phases
 
 1. **MVP (implemented):** submission/uploads/consent, rotating questions, review queue/status, issue editor, archive and issue pages, affiliate products, subscriber endpoint, email export.
 2. **Editorial hardening:** automatic Route 25 web auth, rich-text editor, image reorder/captions and durable public derivatives, previews, scheduling, audit history.
-3. **Distribution:** one low-cost provider adapter, double opt-in/unsubscribe sync, scheduled sends, analytics, reusable Gear Spotlight.
+3. **Distribution (Sender adapter implemented):** subscriber synchronization, isolated test-group sends, live-send kill switch, scheduled sends, and campaign IDs/delivery state. Remaining: Sender webhook-based unsubscribe reconciliation and richer analytics.
 4. **Scale:** collector/card/gear taxonomy, affiliate matching, moderation/optimization, retention controls, social exports, aggregate gear reporting.
 
 ## Email provider hook

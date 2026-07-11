@@ -17,6 +17,7 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/heic"]);
 const STATUSES = new Set(["submitted", "reviewing", "selected", "draft", "scheduled", "published", "declined"]);
 const AFFILIATES = new Set(["amazon", "ebay", "tcgplayer", "direct"]);
+const SENDER_API_BASE = "https://api.sender.net/v2";
 let uploadCorsReady = null;
 const DEFAULT_QUESTIONS = [
   ["origin", "What brought you into Pokémon collecting?", "story"],
@@ -44,6 +45,7 @@ function json(res, status, body) {
 function text(v, max = 5000) { return typeof v === "string" ? v.trim().slice(0, max) : ""; }
 function list(v, max = 20) { return Array.isArray(v) ? v.slice(0, max).map(x => text(x, 500)).filter(Boolean) : []; }
 function safeSlug(v) { return text(v, 100).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); }
+function html(v) { return String(v || "").replace(/[&<>\"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
 function sameOrigin(req) {
   const origin = req.headers.origin;
   if (!origin) return true;
@@ -89,7 +91,10 @@ async function normalizeIssueImages(v, publish) {
     return { ...image, url };
   }));
 }
-function docData(doc) { const d = doc.data(); return { id: doc.id, ...d, createdAt: d.createdAt?.toDate?.()?.toISOString?.() || d.createdAt, updatedAt: d.updatedAt?.toDate?.()?.toISOString?.() || d.updatedAt, publishedAt: d.publishedAt?.toDate?.()?.toISOString?.() || d.publishedAt, publishAt: d.publishAt?.toDate?.()?.toISOString?.() || d.publishAt }; }
+function docData(doc) {
+  const d = doc.data(), iso = value => value?.toDate?.()?.toISOString?.() || value;
+  return { id: doc.id, ...d, createdAt: iso(d.createdAt), updatedAt: iso(d.updatedAt), publishedAt: iso(d.publishedAt), publishAt: iso(d.publishAt), lastTestEmailAt: iso(d.lastTestEmailAt), emailSentAt: iso(d.emailSentAt), emailFailedAt: iso(d.emailFailedAt), emailSkippedAt: iso(d.emailSkippedAt) };
+}
 function isWeeklyPublicationSlot(date = new Date()) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/Denver", weekday: "short", hour: "2-digit", hourCycle: "h23" }).formatToParts(date).filter(p => p.type !== "literal").map(p => [p.type, p.value]));
   return parts.weekday === "Sat" && Number(parts.hour) === 7;
@@ -102,6 +107,68 @@ async function notifyNewSubmission(submission) {
   const response = await fetch(webhook, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: lines.join("\n") }) });
   if (!response.ok) throw new Error(`Slack notification failed (${response.status})`);
   return true;
+}
+async function notifyEditorial(textLines) {
+  const webhook = text(process.env.NEWSLETTER_SLACK_WEBHOOK_URL, 2000);
+  if (!/^https:\/\/hooks\.slack\.com\//.test(webhook)) return false;
+  const response = await fetch(webhook, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: textLines.filter(Boolean).join("\n") }) });
+  if (!response.ok) throw new Error(`Slack notification failed (${response.status})`);
+  return true;
+}
+function senderConfigured() {
+  return Boolean(text(process.env.SENDER_API_TOKEN, 2000) && text(process.env.SENDER_FROM_NAME, 200) && /^\S+@\S+\.\S+$/.test(text(process.env.SENDER_FROM_EMAIL, 254)));
+}
+async function senderRequest(path, options = {}) {
+  const token = text(process.env.SENDER_API_TOKEN, 2000);
+  if (!token) throw Object.assign(new Error("Sender is not configured"), { status: 503 });
+  const response = await fetch(`${SENDER_API_BASE}${path}`, {
+    ...options,
+    headers: { authorization: `Bearer ${token}`, accept: "application/json", "content-type": "application/json", ...(options.headers || {}) }
+  });
+  const raw = await response.text();
+  let body = {};
+  try { body = raw ? JSON.parse(raw) : {}; } catch { body = { message: raw }; }
+  if (!response.ok) {
+    const detail = text(body?.message || body?.error || body?.errors?.[0]?.message, 500) || `HTTP ${response.status}`;
+    throw Object.assign(new Error(`Sender request failed: ${detail}`), { status: response.status >= 500 ? 502 : 400, providerStatus: response.status });
+  }
+  return body;
+}
+async function syncSubscriberToSender(email) {
+  const groupId = text(process.env.SENDER_GROUP_ID, 200);
+  if (!senderConfigured() || !groupId) throw Object.assign(new Error("Sender subscriber sync is not configured"), { status: 503 });
+  try {
+    const created = await senderRequest("/subscribers", { method: "POST", body: JSON.stringify({ email, groups: [groupId], trigger_automation: false }) });
+    return { subscriberId: text(created?.data?.id, 200), groupId };
+  } catch (error) {
+    if (![400, 409, 422].includes(error.providerStatus)) throw error;
+    await senderRequest(`/subscribers/groups/${encodeURIComponent(groupId)}`, { method: "POST", body: JSON.stringify({ subscribers: [email], trigger_automation: false }) });
+    return { subscriberId: "", groupId };
+  }
+}
+function buildEmail(issue) {
+  const site = (process.env.PUBLIC_SITE_URL || "https://route25.app").replace(/\/$/, "");
+  const canonicalUrl = `${site}/newsletter/${issue.slug}`;
+  const hero = (issue.images || []).find(image => /^https:\/\//.test(image.url || ""));
+  const products = (issue.products || []).filter(product => product.name).slice(0, 4);
+  const gear = products.length ? `<div style="margin-top:28px;padding:22px;background:#111827;border:1px solid #263246;border-radius:16px"><h2 style="margin:0 0 14px;color:#fff;font-size:20px">Gear spotlight</h2>${products.map(product => `<p style="margin:10px 0;color:#d1d5db"><strong style="color:#fff">${html(product.name)}</strong>${product.note ? ` — ${html(product.note)}` : ""}${product.url ? ` <a href="${html(product.url)}" style="color:#38bdf8">View</a>` : ""}</p>`).join("")}</div>` : "";
+  const content = `<div style="display:none;max-height:0;overflow:hidden">${html(issue.dek || issue.summary).slice(0, 180)}</div><div style="margin:0;background:#050811;padding:28px 12px;font-family:Arial,sans-serif;color:#f5f7fb"><div style="max-width:640px;margin:auto"><p style="color:#38bdf8;font-size:12px;font-weight:bold;letter-spacing:1.5px;text-transform:uppercase">Route 25 · Collector Stories</p><h1 style="font-size:38px;line-height:1.08;margin:10px 0 14px;color:#fff">${html(issue.title)}</h1><p style="font-size:18px;line-height:1.6;color:#cbd5e1">${html(issue.summary)}</p>${hero ? `<img src="${html(hero.url)}" alt="${html(hero.alt || issue.title)}" style="display:block;width:100%;height:auto;border-radius:18px;margin:24px 0">` : ""}<p style="margin:26px 0"><a href="${html(canonicalUrl)}" style="display:inline-block;background:#ef4444;color:#fff;text-decoration:none;font-weight:bold;padding:14px 20px;border-radius:999px">See the full collection tour</a></p>${gear}<p style="margin-top:30px;color:#94a3b8;font-size:12px;line-height:1.5">Some links may be affiliate links. Purchases support Route 25 at no additional cost to you.</p></div></div>`;
+  return { subject: issue.title, preheader: issue.dek || String(issue.summary || "").slice(0, 140), content, canonicalUrl };
+}
+async function createSenderCampaign(issue, groupId, label) {
+  if (!senderConfigured() || !groupId) throw Object.assign(new Error("Sender campaign delivery is not configured"), { status: 503 });
+  const email = buildEmail(issue);
+  const replyTo = text(process.env.SENDER_REPLY_TO, 254) || text(process.env.SENDER_FROM_EMAIL, 254);
+  const result = await senderRequest("/campaigns", { method: "POST", body: JSON.stringify({
+    title: `${label}: ${issue.title}`, subject: email.subject, from: text(process.env.SENDER_FROM_NAME, 200), reply_to: replyTo,
+    preheader: email.preheader, content_type: "html", groups: [groupId], content: email.content, google_analytics: 1
+  }) });
+  const campaignId = text(result?.data?.id, 200);
+  if (!campaignId) throw Object.assign(new Error("Sender did not return a campaign ID"), { status: 502 });
+  return { campaignId, email };
+}
+async function sendSenderCampaign(campaignId) {
+  return senderRequest(`/campaigns/${encodeURIComponent(campaignId)}/send`, { method: "POST" });
 }
 async function ensureUploadCors() {
   if (uploadCorsReady) return uploadCorsReady;
@@ -166,8 +233,18 @@ module.exports = async (req, res) => {
       const email = text(req.body?.email, 254).toLowerCase();
       if (!/^\S+@\S+\.\S+$/.test(email) || req.body?.consent !== true) return json(res, 400, { error: "A valid email and consent are required." });
       const id = crypto.createHash("sha256").update(email).digest("hex");
-      await db.collection("newsletterSubscribers").doc(id).set({ email, status: "subscribed", source: text(req.body?.source, 100) || "archive", consentAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-      return json(res, 201, { ok: true });
+      const ref = db.collection("newsletterSubscribers").doc(id);
+      await ref.set({ email, status: "subscribed", source: text(req.body?.source, 100) || "archive", consentAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+      let senderSynced = false;
+      try {
+        const synced = await syncSubscriberToSender(email);
+        await ref.set({ senderStatus: "synced", senderSubscriberId: synced.subscriberId, senderGroupId: synced.groupId, senderSyncedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+        senderSynced = true;
+      } catch (error) {
+        console.error("Sender subscriber sync failed", error);
+        await ref.set({ senderStatus: "failed", senderSyncError: text(error.message, 500), senderSyncFailedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+      }
+      return json(res, 201, { ok: true, senderSynced });
     }
     if (action === "issues" && req.method === "GET") {
       const snap = await db.collection("newsletterIssues").where("status", "==", "published").limit(100).get();
@@ -186,8 +263,41 @@ module.exports = async (req, res) => {
       if (!isWeeklyPublicationSlot()) return json(res, 200, { published: 0, skipped: "Outside Saturday 7:00 AM America/Denver publication window" });
       const snap = await db.collection("newsletterIssues").where("status", "==", "scheduled").limit(100).get();
       const now = Date.now(), due = snap.docs.filter(doc => doc.data().publishAt?.toMillis?.() <= now);
-      for (const doc of due) { const data = doc.data(); await doc.ref.update({ status: "published", images: await normalizeIssueImages(data.images, true), publishedAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp() }); }
-      return json(res, 200, { published: due.length });
+      const results = [];
+      for (const doc of due) {
+        const data = doc.data();
+        const images = await normalizeIssueImages(data.images, true);
+        const published = { ...data, images, status: "published" };
+        const liveEnabled = /^true$/i.test(text(process.env.NEWSLETTER_LIVE_SEND_ENABLED, 10));
+        const baseUpdate = { status: "published", images, publishedAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp() };
+        if (!liveEnabled) {
+          await doc.ref.update({ ...baseUpdate, emailStatus: "live-disabled", emailSkippedAt: admin.firestore.FieldValue.serverTimestamp() });
+          results.push({ id: doc.id, published: true, email: "live-disabled" });
+          continue;
+        }
+        const groupId = text(process.env.SENDER_GROUP_ID, 200);
+        const claimed = await db.runTransaction(async transaction => {
+          const current = await transaction.get(doc.ref);
+          if (!current.exists || current.data().status !== "scheduled") return false;
+          transaction.update(doc.ref, { ...baseUpdate, emailStatus: "preparing" });
+          return true;
+        });
+        if (!claimed) { results.push({ id: doc.id, published: false, email: "already-claimed" }); continue; }
+        try {
+          const campaign = await createSenderCampaign(published, groupId, "Route 25 Collector Stories");
+          await doc.ref.update({ emailStatus: "sending", senderCampaignId: campaign.campaignId, senderGroup: "live", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+          await sendSenderCampaign(campaign.campaignId);
+          await doc.ref.update({ emailStatus: "sent", emailSentAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+          try { await notifyEditorial(["*Collector Stories issue published and emailed*", `*${data.title}*`, `Sender campaign: ${campaign.campaignId}`, `<${process.env.PUBLIC_SITE_URL || "https://route25.app"}/newsletter/${data.slug}|View issue>`]); } catch (notifyError) { console.error(notifyError); }
+          results.push({ id: doc.id, published: true, email: "sent", campaignId: campaign.campaignId });
+        } catch (error) {
+          console.error("Sender live campaign failed", error);
+          await doc.ref.set({ emailStatus: "failed", emailError: text(error.message, 500), emailFailedAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+          try { await notifyEditorial(["*:warning: Collector Stories email failed*", `*${data.title}* published on the website, but Sender delivery failed.`, text(error.message, 500)]); } catch (notifyError) { console.error(notifyError); }
+          results.push({ id: doc.id, published: true, email: "failed" });
+        }
+      }
+      return json(res, 200, { published: due.length, results });
     }
 
     await requireAdmin(req);
@@ -205,6 +315,9 @@ module.exports = async (req, res) => {
       const snap = await db.collection("newsletterIssues").limit(100).get();
       const issues = snap.docs.map(docData).sort((a,b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
       return json(res, 200, { issues });
+    }
+    if (action === "admin-email-config" && req.method === "GET") {
+      return json(res, 200, { configured: senderConfigured(), testGroupConfigured: Boolean(text(process.env.SENDER_TEST_GROUP_ID, 200)), liveGroupConfigured: Boolean(text(process.env.SENDER_GROUP_ID, 200)), liveSendEnabled: /^true$/i.test(text(process.env.NEWSLETTER_LIVE_SEND_ENABLED, 10)), fromName: text(process.env.SENDER_FROM_NAME, 200), fromEmail: text(process.env.SENDER_FROM_EMAIL, 254) });
     }
     if (action === "admin-update" && req.method === "PATCH") {
       const id = text(req.query.id,100), b = req.body || {}; if (!id || !STATUSES.has(b.status)) return json(res,400,{error:"Valid id and status required"});
@@ -225,9 +338,19 @@ module.exports = async (req, res) => {
     }
     if (action === "email-export" && req.method === "GET") {
       const slug=safeSlug(req.query.slug), snap=await db.collection("newsletterIssues").where("slug","==",slug).limit(1).get(); if(snap.empty)return json(res,404,{error:"Issue not found"});
-      const i=docData(snap.docs[0]); const url=`${process.env.PUBLIC_SITE_URL||"https://route25.app"}/newsletter/${i.slug}`;
-      const html=`<h1>${i.title}</h1><p>${i.summary}</p><p><a href="${url}">See the full collection tour</a></p><p><small>Some links may be affiliate links. Purchases support Route 25 at no extra cost to you.</small></p>`;
-      return json(res,200,{subject:i.title,previewText:i.dek||i.summary.slice(0,140),html,text:`${i.title}\n\n${i.summary}\n\nSee the full collection tour: ${url}`,canonicalUrl:url});
+      const i=docData(snap.docs[0]), email=buildEmail(i);
+      return json(res,200,{subject:email.subject,previewText:email.preheader,html:email.content,text:`${i.title}\n\n${i.summary}\n\nSee the full collection tour: ${email.canonicalUrl}`,canonicalUrl:email.canonicalUrl});
+    }
+    if (action === "admin-test-email" && req.method === "POST") {
+      const slug = safeSlug(req.body?.slug), snap = await db.collection("newsletterIssues").where("slug", "==", slug).limit(1).get();
+      if (snap.empty) return json(res, 404, { error: "Issue not found" });
+      const issue = docData(snap.docs[0]);
+      const groupId = text(process.env.SENDER_TEST_GROUP_ID, 200);
+      if (!groupId) return json(res, 503, { error: "SENDER_TEST_GROUP_ID is not configured" });
+      const campaign = await createSenderCampaign(issue, groupId, "TEST");
+      await sendSenderCampaign(campaign.campaignId);
+      await snap.docs[0].ref.set({ lastTestEmailAt: admin.firestore.FieldValue.serverTimestamp(), lastTestCampaignId: campaign.campaignId, testEmailCount: admin.firestore.FieldValue.increment(1), updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+      return json(res, 200, { ok: true, campaignId: campaign.campaignId, recipient: "test-group" });
     }
     return json(res,404,{error:"Unknown action"});
   } catch (error) { console.error(error); return json(res,error.status||500,{error:error.status?error.message:"Unexpected server error"}); }
