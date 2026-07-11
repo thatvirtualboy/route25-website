@@ -4,6 +4,7 @@ const APP_STORE_ID = "6755665546";
 const DISCORD_URL = "https://discord.gg/WncmGEFuNw";
 const X_URL = "https://x.com/route25app";
 const INSTAGRAM_URL = "https://www.instagram.com/route25app/";
+const { tcgplayerProductOverride } = require("../tcgplayer-overrides");
 const KNOWN_SET_TOTALS = {
   me3: 124
 };
@@ -142,6 +143,8 @@ async function fetchCards(set) {
 
 function tcgplayerProductIds(card) {
   const ids = [];
+  const overrideProductId = tcgplayerProductOverride(card)?.productId;
+  if (overrideProductId) ids.push(overrideProductId);
   const variants = Array.isArray(card?.cardVariants) ? card.cardVariants : [];
   for (const variant of variants) {
     const productId = variant?.sourceRefs?.tcgplayerProductId;
@@ -182,6 +185,41 @@ function imageFallbackAttribute(candidates) {
     : "";
 }
 
+function cardDetailUrl(card, set) {
+  const id = String(card?.id || "").trim();
+  if (!id) return "/search";
+  const cardSet = {
+    ...(set || {}),
+    ...(card?.set || {}),
+    name: card?.set?.name || set?.name
+  };
+
+  const url = new URL(`/cards/${encodeURIComponent(id)}`, "https://route25.app");
+  const smallImages = cardImageCandidates(card);
+  const largeImage = absoluteUrl(card?.images?.large || card?.images?.small, BACKEND_ORIGIN);
+  const hints = {
+    name: card?.name,
+    number: card?.number,
+    setName: cardSet.name,
+    rarity: card?.rarity,
+    hp: card?.hp,
+    supertype: card?.supertype,
+    subtypes: Array.isArray(card?.subtypes) ? card.subtypes.join("|") : "",
+    types: Array.isArray(card?.types) ? card.types.join("|") : "",
+    artist: card?.artist,
+    illustrator: card?.illustrator,
+    tcgplayerProductId: tcgplayerProductIds(card)[0],
+    imageSmall: smallImages[0],
+    imageLarge: largeImage
+  };
+
+  for (const [key, value] of Object.entries(hints)) {
+    if (value) url.searchParams.set(key, value);
+  }
+
+  return url.pathname + url.search;
+}
+
 function setLogo(set) {
   return absoluteUrl(set?.images?.localLogo || set?.images?.logo || set?.images?.symbol, BACKEND_ORIGIN);
 }
@@ -204,13 +242,13 @@ function rarityCount(cards) {
   return rarities.size;
 }
 
-function renderCardGrid(cards) {
+function renderCardGrid(cards, set) {
   return cards.map((card) => {
     const imageCandidates = cardImageCandidates(card);
     const image = imageCandidates[0];
     const number = card?.number ? `#${card.number}` : card?.id;
     const rarity = cleanText(card?.rarity);
-    return `<a class="set-card" href="/cards/${encodeURIComponent(card.id)}" aria-label="${escapeHtml(card?.name || card.id)}">
+    return `<a class="set-card" href="${escapeHtml(cardDetailUrl(card, set))}" aria-label="${escapeHtml(card?.name || card.id)}">
       ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(card?.name || "Pokemon card")}" loading="lazy" decoding="async"${imageFallbackAttribute(imageCandidates)} />` : ""}
       <span>${escapeHtml(card?.name || card.id)}</span>
       <small>${escapeHtml([number, rarity].filter(Boolean).join(" | "))}</small>
@@ -356,7 +394,7 @@ function renderSetReference(set, cards) {
         <article class="set-reference-card">
           <h3>Notable cards</h3>
           <div class="notable-links">
-            ${featured.map((card) => `<a href="/cards/${encodeURIComponent(card.id)}">${escapeHtml(card.name)}${card.number ? ` <span>#${escapeHtml(card.number)}</span>` : ""}</a>`).join("")}
+            ${featured.map((card) => `<a href="${escapeHtml(cardDetailUrl(card, set))}">${escapeHtml(card.name)}${card.number ? ` <span>#${escapeHtml(card.number)}</span>` : ""}</a>`).join("")}
           </div>
         </article>
       </div>
@@ -677,7 +715,7 @@ function renderSetPage(set, cards, req) {
           <div class="set-stats">
             <div class="set-stat"><b>${escapeHtml(String(total || cards.length))}</b><span>Cards</span></div>
             <div class="set-stat"><b>${escapeHtml(year || "TCG")}</b><span>Released</span></div>
-            <div class="set-stat"><b>${escapeHtml(rarities ? String(rarities) : "Live")}</b><span>Rarities</span></div>
+            <div class="set-stat"><b>${escapeHtml(rarities ? String(rarities) : "N/A")}</b><span>Rarities</span></div>
           </div>
           <div class="hero-actions">
             <a class="button primary" href="${escapeHtml(appUrl)}">Open this set in Route 25</a>
@@ -700,7 +738,7 @@ function renderSetPage(set, cards, req) {
       <div class="container">
         <h2 class="section-title">${escapeHtml(name)} card list</h2>
         <p class="section-subtitle">Browse artwork, rarity, card numbers, TCGPlayer values, and collection context for this set.</p>
-        <div class="set-card-grid">${renderCardGrid(cards)}</div>
+        <div class="set-card-grid">${renderCardGrid(cards, set)}</div>
       </div>
     </section>
     ${renderSetReference(set, cards)}

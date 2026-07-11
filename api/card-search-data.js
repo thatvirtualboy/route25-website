@@ -46,12 +46,62 @@ function isCardIdSearch(value) {
   return /^[a-z0-9]+(?:pt[0-9]+)?-[a-z0-9]+$/i.test(String(value || "").trim());
 }
 
+function nameSearchQuery(value) {
+  const tokens = Array.from(String(value || "").matchAll(/[\p{L}\p{N}]+/gu), (match) => match[0])
+    .map((token) => escapePokemonQueryValue(token))
+    .filter(Boolean);
+  return tokens.map((token) => `name:*${token}*`).join(" ");
+}
+
 function searchTerms(value) {
   const terms = String(value || "")
     .split(",")
     .map((term) => term.trim())
     .filter(Boolean);
   return terms.length ? terms : [String(value || "").trim()].filter(Boolean);
+}
+
+function textTokens(value) {
+  return Array.from(String(value || "").matchAll(/[\p{L}\p{N}]+/gu), (match) => match[0].toLowerCase());
+}
+
+function cardMatchesSearchTerm(card, term) {
+  const normalizedTerm = normalizeCardId(term).toLowerCase();
+  if (!normalizedTerm) return true;
+
+  const id = String(card?.id || "").toLowerCase();
+  const number = String(card?.number || "").toLowerCase();
+  if (id === normalizedTerm || number === normalizedTerm) return true;
+
+  const haystack = [
+    card?.name,
+    card?.id,
+    card?.number,
+    card?.set?.name,
+    card?.rarity,
+    ...(Array.isArray(card?.types) ? card.types : [])
+  ].map((value) => String(value || "").toLowerCase()).join(" ");
+
+  const tokens = textTokens(term);
+  return tokens.length ? tokens.every((token) => haystack.includes(token)) : haystack.includes(normalizedTerm);
+}
+
+async function fetchCardsBySetSearch(set, q, page, pageSize, setInfo = null) {
+  const bySetResult = await fetchAllCardsForSet(set, setInfo);
+  const terms = searchTerms(q);
+  const filtered = bySetResult.rawItems.filter((card) => {
+    return terms.some((term) => cardMatchesSearchTerm(card, term));
+  });
+  const start = (page - 1) * pageSize;
+  return {
+    rawItems: filtered.slice(start, start + pageSize),
+    payload: {
+      page,
+      pageSize,
+      count: Math.min(pageSize, Math.max(0, filtered.length - start)),
+      totalCount: filtered.length
+    }
+  };
 }
 
 function marketPrice(card) {
@@ -222,10 +272,11 @@ function buildSearchQuery({ q, set }) {
   if (setId) parts.push(`set.id:${setId}`);
   if (term) {
     const normalized = normalizeCardId(term);
-    parts.push(isCardIdSearch(normalized) ? `id:${normalized}` : `name:*${term}*`);
+    const nameQuery = nameSearchQuery(term);
+    parts.push(isCardIdSearch(normalized) ? `id:${normalized}` : nameQuery);
   }
 
-  return parts.join(" ");
+  return parts.filter(Boolean).join(" ");
 }
 
 function buildSearchQueries({ q, set }) {
@@ -234,61 +285,200 @@ function buildSearchQueries({ q, set }) {
   return terms.map((term) => buildSearchQuery({ q: term, set })).filter(Boolean);
 }
 
-async function fetchCardsBySet(set, page, pageSize, setInfo = null) {
+function payloadItems(payload) {
+  return Array.isArray(payload?.data)
+    ? payload.data
+    : Array.isArray(payload?.items)
+      ? payload.items
+      : [];
+}
+
+function rejectWithoutItems(result) {
+  if (Array.isArray(result?.rawItems) && result.rawItems.length) return result;
+  throw new Error("No cards returned");
+}
+
+async function fetchRemoteSearchResults(queries, page, pageSize, timeoutMs = 2200) {
+  if (queries.length === 1) {
+    const url = new URL(`${BACKEND_ORIGIN}/api/tcg/cards`);
+    url.searchParams.set("q", queries[0]);
+    url.searchParams.set("page", String(page));
+    url.searchParams.set("pageSize", String(pageSize));
+
+    const payload = await fetchJsonWithTimeout(url.href, timeoutMs);
+    const rawItems = payloadItems(payload);
+    return {
+      payload,
+      rawItems
+    };
+  }
+
+  const merged = new Map();
+  const fetchSize = Math.min(page * pageSize, 250);
+  const payloads = await Promise.all(queries.map(async (query) => {
+    const url = new URL(`${BACKEND_ORIGIN}/api/tcg/cards`);
+    url.searchParams.set("q", query);
+    url.searchParams.set("page", "1");
+    url.searchParams.set("pageSize", String(fetchSize));
+    return fetchJsonWithTimeout(url.href, timeoutMs);
+  }));
+
+  for (const itemPayload of payloads) {
+    for (const item of payloadItems(itemPayload)) {
+      if (item?.id && !merged.has(item.id)) merged.set(item.id, item);
+    }
+  }
+  const allItems = [...merged.values()];
+  const rawItems = allItems.slice((page - 1) * pageSize, page * pageSize);
+  return {
+    rawItems,
+    payload: {
+      page,
+      pageSize,
+      count: rawItems.length,
+      totalCount: allItems.length
+    }
+  };
+}
+
+async function fetchAllCardsForSet(set, setInfo = null) {
+  const normalizedSet = String(set || "").trim();
+  const cacheKey = `set-cards:${normalizedSet.toLowerCase()}`;
+  const cached = getCachedJson(cacheKey);
+  if (cached) return cached;
+
   const url = new URL(`${BACKEND_ORIGIN}/api/tcg/by-set`);
-  url.searchParams.set("set", set);
+  url.searchParams.set("set", normalizedSet);
   url.searchParams.set("pageSize", "500");
 
   let payload = null;
   try {
-    payload = await fetchJsonWithTimeout(url.href, 2400);
+    payload = await fetchJsonWithTimeout(url.href, 1800);
   } catch {
     payload = null;
   }
-  const allItems = Array.isArray(payload?.items)
-    ? payload.items
-    : Array.isArray(payload?.data)
-      ? payload.data
-      : [];
-  if (!allItems.length) {
-    const searchUrl = new URL(`${BACKEND_ORIGIN}/api/tcg/cards`);
-    searchUrl.searchParams.set("q", `set.id:${set}`);
-    searchUrl.searchParams.set("page", String(page));
-    searchUrl.searchParams.set("pageSize", String(pageSize));
-    let searchPayload = null;
-    try {
-      searchPayload = await fetchJsonWithTimeout(searchUrl.href, 5200);
-    } catch {
-      searchPayload = null;
-    }
-    const searchItems = Array.isArray(searchPayload?.data)
-      ? searchPayload.data
-      : Array.isArray(searchPayload?.items)
-        ? searchPayload.items
-        : [];
-    if (!searchItems.length) {
-      const fallbackSet = setInfo || (await fetchSets()).find((item) => item.id.toLowerCase() === String(set).toLowerCase());
-      const synthetic = syntheticSetCards(fallbackSet, page, pageSize);
-      if (synthetic) return synthetic;
-    }
-    return {
+  const allItems = payloadItems(payload);
+
+  if (allItems.length) {
+    const result = {
+      rawItems: allItems,
+      payload: {
+        page: 1,
+        pageSize: allItems.length,
+        count: allItems.length,
+        totalCount: payload?.totalCount ?? payload?.count ?? allItems.length
+      }
+    };
+    setCachedJson(cacheKey, result);
+    return result;
+  }
+
+  const searchUrl = new URL(`${BACKEND_ORIGIN}/api/tcg/cards`);
+  searchUrl.searchParams.set("q", `set.id:${normalizedSet}`);
+  searchUrl.searchParams.set("page", "1");
+  searchUrl.searchParams.set("pageSize", "500");
+  let searchPayload = null;
+  try {
+    searchPayload = await fetchJsonWithTimeout(searchUrl.href, 1800);
+  } catch {
+    searchPayload = null;
+  }
+  const searchItems = payloadItems(searchPayload);
+  if (searchItems.length) {
+    const result = {
       rawItems: searchItems,
       payload: {
-        page: searchPayload?.page || page,
-        pageSize: searchPayload?.pageSize || pageSize,
-        count: searchPayload?.count ?? searchItems.length,
-        totalCount: searchPayload?.totalCount ?? searchItems.length
+        page: 1,
+        pageSize: searchItems.length,
+        count: searchItems.length,
+        totalCount: searchPayload?.totalCount ?? searchPayload?.count ?? searchItems.length
+      }
+    };
+    setCachedJson(cacheKey, result);
+    return result;
+  }
+
+  const fallbackSet = setInfo || (await fetchSets()).find((item) => item.id.toLowerCase() === normalizedSet.toLowerCase());
+  const total = Number(fallbackSet?.total || fallbackSet?.printedTotal || fallbackSet?.cardCount?.total || fallbackSet?.cardCount?.official || KNOWN_SET_TOTALS[normalizedSet.toLowerCase()]);
+  const synthetic = syntheticSetCards({ ...fallbackSet, id: normalizedSet, total }, 1, Number.isFinite(total) ? total : 0);
+  if (synthetic) return synthetic;
+
+  return {
+    rawItems: [],
+    payload: {
+      page: 1,
+      pageSize: 0,
+      count: 0,
+      totalCount: 0
+    }
+  };
+}
+
+async function fetchCardsBySet(set, page, pageSize, setInfo = null) {
+  const normalizedSet = String(set || "").trim();
+  const fullSetCacheKey = `set-cards:${normalizedSet.toLowerCase()}`;
+  const cachedFullSet = getCachedJson(fullSetCacheKey);
+  if (cachedFullSet) {
+    const start = (page - 1) * pageSize;
+    return {
+      rawItems: cachedFullSet.rawItems.slice(start, start + pageSize),
+      payload: {
+        page,
+        pageSize,
+        count: Math.min(pageSize, Math.max(0, cachedFullSet.rawItems.length - start)),
+        totalCount: cachedFullSet.payload?.totalCount ?? cachedFullSet.rawItems.length
       }
     };
   }
+
+  const searchUrl = new URL(`${BACKEND_ORIGIN}/api/tcg/cards`);
+  searchUrl.searchParams.set("q", `set.id:${normalizedSet}`);
+  searchUrl.searchParams.set("page", String(page));
+  searchUrl.searchParams.set("pageSize", String(pageSize));
+
+  const searchPromise = fetchJsonWithTimeout(searchUrl.href, 1800)
+    .then((searchPayload) => {
+      const searchItems = payloadItems(searchPayload);
+      return rejectWithoutItems({
+        rawItems: searchItems,
+        payload: {
+          page: searchPayload?.page || page,
+          pageSize: searchPayload?.pageSize || pageSize,
+          count: searchPayload?.count ?? searchItems.length,
+          totalCount: searchPayload?.totalCount ?? searchItems.length
+        }
+      });
+    });
+
+  const fullSetPromise = fetchAllCardsForSet(normalizedSet, setInfo)
+    .then((setResult) => {
+      const start = (page - 1) * pageSize;
+      return rejectWithoutItems({
+        rawItems: setResult.rawItems.slice(start, start + pageSize),
+        payload: {
+          page,
+          pageSize,
+          count: Math.min(pageSize, Math.max(0, setResult.rawItems.length - start)),
+          totalCount: setResult.payload?.totalCount ?? setResult.rawItems.length
+        }
+      });
+    });
+
+  let setResult = null;
+  try {
+    return await Promise.any([searchPromise, fullSetPromise]);
+  } catch {
+    setResult = await fetchAllCardsForSet(normalizedSet, setInfo);
+  }
+
   const start = (page - 1) * pageSize;
   return {
-    rawItems: allItems.slice(start, start + pageSize),
+    rawItems: setResult.rawItems.slice(start, start + pageSize),
     payload: {
       page,
       pageSize,
-      count: Math.min(pageSize, Math.max(0, allItems.length - start)),
-      totalCount: payload?.totalCount ?? payload?.count ?? allItems.length
+      count: Math.min(pageSize, Math.max(0, setResult.rawItems.length - start)),
+      totalCount: setResult.payload?.totalCount ?? setResult.rawItems.length
     }
   };
 }
@@ -351,47 +541,25 @@ async function handleSearch(req, res) {
     const bySetResult = await fetchCardsBySet(browseSetId, page, pageSize, defaultSet);
     payload = bySetResult.payload;
     rawItems = bySetResult.rawItems;
-  } else if (queries.length === 1) {
-    const url = new URL(`${BACKEND_ORIGIN}/api/tcg/cards`);
-    url.searchParams.set("q", queries[0]);
-    url.searchParams.set("page", String(page));
-    url.searchParams.set("pageSize", String(pageSize));
-
-    payload = await fetchJson(url.href);
-    rawItems = Array.isArray(payload?.data)
-      ? payload.data
-      : Array.isArray(payload?.items)
-        ? payload.items
-        : [];
-  } else {
-    const merged = new Map();
-    const fetchSize = Math.min(page * pageSize, 250);
-    const payloads = await Promise.all(queries.map(async (query) => {
-      const url = new URL(`${BACKEND_ORIGIN}/api/tcg/cards`);
-      url.searchParams.set("q", query);
-      url.searchParams.set("page", "1");
-      url.searchParams.set("pageSize", String(fetchSize));
-      return fetchJson(url.href);
-    }));
-
-    for (const itemPayload of payloads) {
-      const items = Array.isArray(itemPayload?.data)
-        ? itemPayload.data
-        : Array.isArray(itemPayload?.items)
-          ? itemPayload.items
-          : [];
-      for (const item of items) {
-        if (item?.id && !merged.has(item.id)) merged.set(item.id, item);
-      }
+  } else if (set && q) {
+    const bySetSearchPromise = fetchCardsBySetSearch(set, q, page, pageSize, defaultSet).then(rejectWithoutItems);
+    const remoteSearchPromise = fetchRemoteSearchResults(queries, page, pageSize, 1800).then(rejectWithoutItems);
+    let searchResult = null;
+    try {
+      searchResult = await Promise.any([bySetSearchPromise, remoteSearchPromise]);
+    } catch {
+      searchResult = await fetchCardsBySetSearch(set, q, page, pageSize, defaultSet);
     }
-    const allItems = [...merged.values()];
-    rawItems = allItems.slice((page - 1) * pageSize, page * pageSize);
-    payload = {
-      page,
-      pageSize,
-      count: rawItems.length,
-      totalCount: allItems.length
-    };
+    payload = searchResult.payload;
+    rawItems = searchResult.rawItems;
+  } else if (queries.length === 1) {
+    const remoteResult = await fetchRemoteSearchResults(queries, page, pageSize, 2600);
+    payload = remoteResult.payload;
+    rawItems = remoteResult.rawItems;
+  } else {
+    const remoteResult = await fetchRemoteSearchResults(queries, page, pageSize, 2600);
+    payload = remoteResult.payload;
+    rawItems = remoteResult.rawItems;
   }
 
   const body = JSON.stringify({
