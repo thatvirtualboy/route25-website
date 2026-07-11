@@ -64,6 +64,24 @@ function isPublicIssue(issue) {
   return !/^test(?:\b|-)/i.test(text(issue?.trainerName || issue?.slug || issue?.title, 200));
 }
 function html(v) { return String(v || "").replace(/[&<>\"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
+function markdownInline(v) {
+  return html(v)
+    .replace(/\[([^\]]+)\]\((https:\/\/[^\s)]+)\)/g, '<a href="$2" style="color:#087bb5;font-weight:bold">$1</a>')
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/__([^_]+)__/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>")
+    .replace(/(^|[^_])_([^_]+)_/g, "$1<em>$2</em>");
+}
+function markdownEmail(v) {
+  const source = text(v, 10000).replace(/\r\n?/g, "\n");
+  if (!source) return "";
+  return source.split(/\n{2,}/).map(block => block.trim()).filter(Boolean).map(block => {
+    const lines = block.split("\n");
+    if (lines.every(line => /^[-*]\s+/.test(line))) return `<ul style="margin:0 0 16px;padding-left:22px">${lines.map(line => `<li style="margin:5px 0">${markdownInline(line.replace(/^[-*]\s+/, ""))}</li>`).join("")}</ul>`;
+    if (lines.every(line => /^\d+\.\s+/.test(line))) return `<ol style="margin:0 0 16px;padding-left:22px">${lines.map(line => `<li style="margin:5px 0">${markdownInline(line.replace(/^\d+\.\s+/, ""))}</li>`).join("")}</ol>`;
+    return `<p style="margin:0 0 16px">${lines.map(markdownInline).join("<br>")}</p>`;
+  }).join("");
+}
 function sameOrigin(req) {
   const origin = req.headers.origin;
   if (!origin) return true;
@@ -223,10 +241,11 @@ function buildEmail(issue) {
   const productGroup = (title, items) => items.length ? `<h3 style="margin:20px 0 8px;color:#101828;font-size:17px">${title}</h3>${items.map(product => `<p style="margin:10px 0;color:#475467;font-size:15px;line-height:1.5"><strong style="color:#101828">${html(product.name)}</strong>${product.note ? ` — ${html(product.note)}` : ""}${product.url ? ` <a href="${html(product.url)}" style="color:#087bb5;font-weight:bold">View</a>` : ""}</p>`).join("")}` : "";
   const gear = products.length ? `<div style="margin:30px 0 0;padding:24px;background:#f3f6fa;border:1px solid #e3e8ef;border-radius:16px"><h2 style="margin:0;color:#101828;font-size:22px">Collector’s corner</h2>${productGroup("Cards mentioned", products.filter(product => product.category === "card"))}${productGroup("Gear used", products.filter(product => product.category !== "card"))}</div>` : "";
   const interview = (issue.interviewAnswers || []).length ? `<div style="margin-top:34px"><p style="margin:0 0 8px;color:#168fc8;font-size:12px;font-weight:bold;letter-spacing:1.5px;text-transform:uppercase">Five questions</p>${issue.interviewAnswers.map(answer => `<h3 style="margin:22px 0 7px;color:#101828;font-size:18px;line-height:1.35">${html(answer.question)}</h3><p style="margin:0;color:#475467;font-size:16px;line-height:1.7">${html(answer.answer)}</p>`).join("")}</div>` : "";
-  const issueNumber = Number.isInteger(Number(issue.issueNumber)) && Number(issue.issueNumber) > 0 ? `#${Number(issue.issueNumber)}` : "Preview";
+  const issueNumber = Number.isInteger(Number(issue.issueNumber)) && Number(issue.issueNumber) > 0 ? `#${String(Number(issue.issueNumber)).padStart(3, "0")}` : "Preview";
   const displayDate = issueDisplayDate(issue);
   const masthead = `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#eef2f6"><tr><td align="center" style="padding:24px 8px 0"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:720px"><tr><td align="right" style="padding:0 4px 12px;color:#475467;font-family:Arial,sans-serif;font-size:14px">${html(displayDate)}</td></tr><tr><td style="padding:22px 28px;background:#07111f;color:#ffffff;font-family:Arial,sans-serif"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr><td style="font-size:24px;font-weight:bold">Route 25</td><td align="right" style="color:#aab4c3;font-family:Courier New,monospace;font-size:12px;letter-spacing:1.5px;text-transform:uppercase">Issue ${html(issueNumber)} · ${html(issue.trainerName || "Collector Stories")}</td></tr></table></td></tr></table></td></tr></table>`;
-  const editorNote = issue.emailNoteHtml ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#eef2f6"><tr><td align="center" style="padding:18px 8px 0"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:720px;background:#ffffff;border:1px solid #dde3ea"><tr><td class="r25-pad" style="padding:28px 32px;color:#344054;font-family:Arial,sans-serif;font-size:17px;line-height:1.7"><p style="margin:0 0 14px;color:#168fc8;font-family:Courier New,monospace;font-size:13px;font-weight:bold;letter-spacing:1px;text-transform:uppercase">// Route 25 ${html(issueNumber)}</p>${issue.emailNoteHtml}</td></tr></table></td></tr></table>` : "";
+  const noteContent = issue.emailNoteMarkdown ? markdownEmail(issue.emailNoteMarkdown) : issue.emailNoteHtml;
+  const editorNote = noteContent ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#eef2f6"><tr><td align="center" style="padding:18px 8px 0"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:720px;background:#ffffff;border:1px solid #dde3ea"><tr><td class="r25-pad" style="padding:28px 32px;color:#344054;font-family:Arial,sans-serif;font-size:17px;line-height:1.7"><p style="margin:0 0 14px;color:#168fc8;font-family:Courier New,monospace;font-size:13px;font-weight:bold;letter-spacing:1px;text-transform:uppercase">// Route 25 ${html(issueNumber)}</p>${noteContent}</td></tr></table></td></tr></table>` : "";
   const content = `<style>@media screen and (max-width:600px){.r25-shell{padding:8px 0!important}.r25-card{border-left:0!important;border-right:0!important;border-radius:0!important}.r25-pad{padding-left:20px!important;padding-right:20px!important}.r25-image-pad{padding-left:12px!important;padding-right:12px!important}.r25-title{font-size:34px!important}}</style><div style="display:none;max-height:0;overflow:hidden">${html(issue.dek || issue.summary).slice(0, 180)}</div>${masthead}${editorNote}<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#eef2f6"><tr><td class="r25-shell" align="center" style="padding:18px 8px"><table class="r25-card" role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:720px;background:#ffffff;border:1px solid #dde3ea;border-radius:20px;overflow:hidden"><tr><td class="r25-pad" style="padding:30px 36px 18px"><p style="margin:0 0 8px;color:#168fc8;font-family:Arial,sans-serif;font-size:12px;font-weight:bold;letter-spacing:1.6px;text-transform:uppercase">Route 25 · Issue ${html(issueNumber)}</p><h1 class="r25-title" style="margin:0;color:#101828;font-family:Arial,sans-serif;font-size:40px;line-height:1.08;letter-spacing:-1.2px">${html(issue.title)}</h1><p style="margin:18px 0 0;color:#475467;font-family:Arial,sans-serif;font-size:18px;line-height:1.65">${html(issue.summary)}</p></td></tr>${hero ? `<tr><td class="r25-image-pad" style="padding:10px 20px 24px"><img src="${html(hero.emailUrl || hero.url)}" width="680" alt="${html(hero.alt || issue.title)}" style="display:block;width:100%;max-width:680px;height:auto;border-radius:16px"></td></tr>` : ""}<tr><td class="r25-pad" style="padding:4px 36px 34px;color:#344054;font-family:Arial,sans-serif;font-size:16px;line-height:1.7"><div style="color:#344054">${issue.bodyHtml || `<p>${html(issue.summary)}</p>`}</div>${storyImage ? `<img src="${html(storyImage.emailUrl || storyImage.url)}" width="648" alt="${html(storyImage.alt || `${issue.trainerName} collection`)}" style="display:block;width:100%;max-width:648px;height:auto;border-radius:14px;margin:30px 0">` : ""}${interview}${gear}<div style="margin:34px 0 10px;padding:24px;text-align:center;background:#07111f;border-radius:16px"><p style="margin:0 0 16px;color:#d7e1eb;font-size:15px;line-height:1.55">${remainingPhotos ? `${remainingPhotos} more collection photo${remainingPhotos === 1 ? "" : "s"}, captions, and the complete tour are waiting on Route 25.` : "See the complete, shareable collector story on Route 25."}</p><a href="${html(canonicalUrl)}" style="display:inline-block;background:#28a9ea;color:#ffffff;text-decoration:none;font-weight:bold;padding:13px 20px;border-radius:999px">See the full collection tour</a></div><p style="margin:28px 0 0;color:#667085;font-size:12px;line-height:1.55;text-align:center">Some links may be affiliate links. Purchases support Route 25 at no additional cost to you.</p><p style="margin:10px 0 0;text-align:center;font-size:11px"><a href="{{unsubscribe_link}}" style="color:#667085">{{unsubscribe_text}}</a></p></td></tr></table></td></tr></table>`;
   return { subject: issue.title, preheader: issue.dek || String(issue.summary || "").slice(0, 140), content, canonicalUrl };
 }
@@ -370,13 +389,13 @@ module.exports = async (req, res) => {
     }
     if (action === "issues" && req.method === "GET") {
       const snap = await db.collection("newsletterIssues").where("status", "==", "published").limit(100).get();
-      const issues = snap.docs.map(docData).filter(isPublicIssue).sort((a, b) => String(b.publishedAt || "").localeCompare(String(a.publishedAt || ""))).slice(0, 50).map(({ emailHtml, emailNoteHtml, previewToken, ...x }) => x);
+      const issues = snap.docs.map(docData).filter(isPublicIssue).sort((a, b) => String(b.publishedAt || "").localeCompare(String(a.publishedAt || ""))).slice(0, 50).map(({ emailHtml, emailNoteHtml, emailNoteMarkdown, previewToken, ...x }) => x);
       return json(res, 200, { issues });
     }
     if (action === "issue" && req.method === "GET") {
       const slug = safeSlug(req.query.slug); const snap = await db.collection("newsletterIssues").where("slug", "==", slug).limit(1).get();
       if (snap.empty || snap.docs[0].data().status !== "published" || !isPublicIssue(snap.docs[0].data())) return json(res, 404, { error: "Issue not found" });
-      const { emailNoteHtml, ...issue } = docData(snap.docs[0]);
+      const { emailNoteHtml, emailNoteMarkdown, ...issue } = docData(snap.docs[0]);
       return json(res, 200, { issue });
     }
     if (action === "issue-preview" && req.method === "GET") {
@@ -448,9 +467,13 @@ module.exports = async (req, res) => {
       const status = b.isTest === true ? "draft" : requestedStatus;
       const parsedPublishAt = b.publishAt ? new Date(b.publishAt) : null;
       if (status === "scheduled" && (!parsedPublishAt || !Number.isFinite(parsedPublishAt.getTime()) || parsedPublishAt.getTime() <= Date.now() || !isExactPublicationSlot(parsedPublishAt))) return json(res, 400, { error: "Choose a future Saturday publication date; issues publish at 7:00 AM Mountain." });
-      const issueNumber = Number(b.issueNumber);
-      const issue = { slug, title:text(b.title,200), issueNumber:Number.isInteger(issueNumber)&&issueNumber>0?issueNumber:null, emailNoteHtml:text(b.emailNoteHtml,10000), dek:text(b.dek,500), summary:text(b.summary,2000), bodyHtml:text(b.bodyHtml,50000), trainerName:text(b.trainerName,120), submissionId:text(b.submissionId,100), images:await normalizeIssueImages(b.images, status === "published"), interviewAnswers:normalizeAnswers(b.interviewAnswers), products:normalizeProducts(b.products), pokemonTags:list(b.pokemonTags,30), cardTags:list(b.cardTags,30), setTags:list(b.setTags,30), collectionTags:list(b.collectionTags,30), status, isTest:b.isTest === true, publicVisibility:b.isTest !== true, publishAt: status === "scheduled" ? admin.firestore.Timestamp.fromDate(parsedPublishAt) : null, subscribeUrl:/^https:\/\//.test(text(b.subscribeUrl,2000))?text(b.subscribeUrl,2000):"", updatedAt:admin.firestore.FieldValue.serverTimestamp() };
       const existing = await db.collection("newsletterIssues").where("slug","==",slug).limit(1).get();
+      let issueNumber = Number(b.issueNumber);
+      if (b.isTest !== true && (!Number.isInteger(issueNumber) || issueNumber < 1)) {
+        const numberedIssues = await db.collection("newsletterIssues").limit(1000).get();
+        issueNumber = Math.max(0, ...numberedIssues.docs.filter(doc => doc.id !== existing.docs[0]?.id && isPublicIssue(doc.data())).map(doc => Number(doc.data().issueNumber) || 0)) + 1;
+      }
+      const issue = { slug, title:text(b.title,200), issueNumber:Number.isInteger(issueNumber)&&issueNumber>0?issueNumber:null, emailNoteMarkdown:text(b.emailNoteMarkdown,10000), dek:text(b.dek,500), summary:text(b.summary,2000), bodyHtml:text(b.bodyHtml,50000), trainerName:text(b.trainerName,120), submissionId:text(b.submissionId,100), images:await normalizeIssueImages(b.images, status === "published"), interviewAnswers:normalizeAnswers(b.interviewAnswers), products:normalizeProducts(b.products), pokemonTags:list(b.pokemonTags,30), cardTags:list(b.cardTags,30), setTags:list(b.setTags,30), collectionTags:list(b.collectionTags,30), status, isTest:b.isTest === true, publicVisibility:b.isTest !== true, publishAt: status === "scheduled" ? admin.firestore.Timestamp.fromDate(parsedPublishAt) : null, subscribeUrl:/^https:\/\//.test(text(b.subscribeUrl,2000))?text(b.subscribeUrl,2000):"", updatedAt:admin.firestore.FieldValue.serverTimestamp() };
       if (status === "scheduled") {
         const scheduled = await db.collection("newsletterIssues").where("status", "==", "scheduled").limit(100).get();
         const conflict = scheduled.docs.find(doc => doc.id !== existing.docs[0]?.id && doc.data().publishAt?.toMillis?.() === parsedPublishAt.getTime());
@@ -465,7 +488,7 @@ module.exports = async (req, res) => {
       const previous = existing.empty ? {} : existing.docs[0].data(), resetUnsentCampaign = previous.senderCampaignId && previous.emailStatus !== "sent" && status !== "published";
       await ref.set({ ...issue, previewToken, ...(resetUnsentCampaign ? { senderCampaignId: admin.firestore.FieldValue.delete(), senderGroup: admin.firestore.FieldValue.delete(), emailStatus: "not-sent", emailError: admin.firestore.FieldValue.delete() } : {}), createdAt: existing.empty ? admin.firestore.FieldValue.serverTimestamp() : previous.createdAt }, { merge:true });
       if (issue.submissionId) await db.collection("newsletterSubmissions").doc(issue.submissionId).set({ status: issue.status, scheduledIssue: ref.id, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-      return json(res,200,{id:ref.id,slug});
+      return json(res,200,{id:ref.id,slug,issueNumber:issue.issueNumber});
     }
     if (action === "admin-issue-action" && req.method === "POST") {
       const operation = text(req.body?.operation, 50), id = text(req.body?.id, 100);

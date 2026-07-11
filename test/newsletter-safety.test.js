@@ -35,6 +35,8 @@ test("test issues can never pass scheduling preflight", () => {
   const result = publicationPreflight(issue, { senderConfigured: true, liveGroupConfigured: true, liveSendEnabled: true });
   assert.equal(result.readyToSchedule, false);
   assert.equal(result.readyToPublish, false);
+  assert.equal(result.checks.find(check => check.key === "test-hidden").ok, true);
+  assert.equal(result.checks.some(check => check.key === "not-test"), false);
 });
 
 test("real issues require a positive issue number", () => {
