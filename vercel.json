@@ -199,7 +199,7 @@
   "crons": [
     {
       "path": "/api/newsletter-cron.js",
-      "schedule": "0 16 * * *"
+      "schedule": "0 13,14 * * 6"
     }
   ],
   "builds": [

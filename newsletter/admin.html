@@ -13,7 +13,7 @@
     <label>Deck / email preview</label><textarea name="dek"></textarea><label>Summary</label><textarea name="summary" required></textarea><label>Article HTML</label><textarea name="bodyHtml" style="min-height:260px"></textarea>
     <label>Selected photos</label><div id="selectedImages" class="grid"></div><label>Interview answers</label><div id="answersEditor"></div>
     <label>Affiliate products</label><div id="productsEditor"></div><p><button type="button" id="addProduct">Add product</button></p>
-    <div class="two"><div><label>Status</label><select name="status"><option>draft</option><option>scheduled</option><option>published</option></select></div><div><label>Publication time</label><input name="publishAt" type="datetime-local"><small>Required for scheduled issues. The low-cost daily scheduler publishes due issues during its next run.</small></div></div>
+    <div class="two"><div><label>Status</label><select name="status"><option>draft</option><option>scheduled</option><option>published</option></select></div><div><label>Ready by</label><input name="publishAt" type="datetime-local"><small>Scheduled issues publish in the next Saturday 7:00 AM Mountain weekly slot after this time.</small></div></div>
     <label>Subscribe URL</label><input name="subscribeUrl" type="url" placeholder="https://route25.app/newsletter/subscribe"><p><button class="red">Save issue</button></p>
   </form><div id="editorResult"></div></section>
   <section id="previewPanel" class="section" hidden><div class="admin-heading"><h2>Private preview</h2><button id="closePreview">Close</button></div><div id="previewContent"></div></section>

@@ -29,7 +29,7 @@ Firestore is schemaless, so the idempotent question seed is the only migration. 
 - Upload URLs expire in 10 minutes. Uploads allow 1–15 JPEG/PNG/WebP/HEIC files, 10 MB each. Server-side metadata is verified and invalid files are deleted.
 - Public APIs return only published issues. Affiliate links use `rel="sponsored nofollow"`; every issue includes a disclosure.
 - Consent is explicit and timestamped. Add self-service deletion and a retention policy before scaling submissions.
-- Scheduled issues are checked once daily by the low-cost Vercel cron. A due issue may publish later than its selected time; use manual publishing when an exact minute matters.
+- Scheduled issues publish once weekly on Saturday at 7:00 AM America/Denver. Two UTC cron checks plus a timezone guard preserve the local hour across daylight-saving changes.
 
 ## Practical phases
 

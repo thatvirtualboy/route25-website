@@ -90,6 +90,10 @@ async function normalizeIssueImages(v, publish) {
   }));
 }
 function docData(doc) { const d = doc.data(); return { id: doc.id, ...d, createdAt: d.createdAt?.toDate?.()?.toISOString?.() || d.createdAt, updatedAt: d.updatedAt?.toDate?.()?.toISOString?.() || d.updatedAt, publishedAt: d.publishedAt?.toDate?.()?.toISOString?.() || d.publishedAt, publishAt: d.publishAt?.toDate?.()?.toISOString?.() || d.publishAt }; }
+function isWeeklyPublicationSlot(date = new Date()) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/Denver", weekday: "short", hour: "2-digit", hourCycle: "h23" }).formatToParts(date).filter(p => p.type !== "literal").map(p => [p.type, p.value]));
+  return parts.weekday === "Sat" && Number(parts.hour) === 7;
+}
 async function notifyNewSubmission(submission) {
   const webhook = text(process.env.NEWSLETTER_SLACK_WEBHOOK_URL, 2000);
   if (!/^https:\/\/hooks\.slack\.com\//.test(webhook)) return false;
@@ -179,6 +183,7 @@ module.exports = async (req, res) => {
       const expected = text(process.env.CRON_SECRET, 500);
       const supplied = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
       if (!expected || !crypto.timingSafeEqual(Buffer.from(supplied.padEnd(expected.length).slice(0, expected.length)), Buffer.from(expected))) return json(res, 401, { error: "Unauthorized" });
+      if (!isWeeklyPublicationSlot()) return json(res, 200, { published: 0, skipped: "Outside Saturday 7:00 AM America/Denver publication window" });
       const snap = await db.collection("newsletterIssues").where("status", "==", "scheduled").limit(100).get();
       const now = Date.now(), due = snap.docs.filter(doc => doc.data().publishAt?.toMillis?.() <= now);
       for (const doc of due) { const data = doc.data(); await doc.ref.update({ status: "published", images: await normalizeIssueImages(data.images, true), publishedAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp() }); }
