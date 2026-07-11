@@ -7,7 +7,7 @@ The newsletter stays inside the existing static Vercel site. `api/newsletter.js`
 ## Local setup
 
 1. Run `npm install`.
-2. Set `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_STORAGE_BUCKET`, `FIRESTORE_DATABASE_ID=ptdb`, and at least one of `NEWSLETTER_ADMIN_UIDS` or `NEWSLETTER_ADMIN_EMAILS` (comma-separated). Set `PUBLIC_SITE_URL=http://localhost:3000` locally.
+2. Set `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_STORAGE_BUCKET`, `FIRESTORE_DATABASE_ID=ptdb`, `CRON_SECRET`, and at least one of `NEWSLETTER_ADMIN_UIDS` or `NEWSLETTER_ADMIN_EMAILS` (comma-separated). Set `PUBLIC_SITE_URL=http://localhost:3000` locally. Optionally set `NEWSLETTER_SLACK_WEBHOOK_URL` for new-submission alerts.
 3. Run `node scripts/seed-newsletter-questions.js` once per Firebase project.
 4. Start with `npx vercel dev`.
 
@@ -29,6 +29,7 @@ Firestore is schemaless, so the idempotent question seed is the only migration. 
 - Upload URLs expire in 10 minutes. Uploads allow 1–15 JPEG/PNG/WebP/HEIC files, 10 MB each. Server-side metadata is verified and invalid files are deleted.
 - Public APIs return only published issues. Affiliate links use `rel="sponsored nofollow"`; every issue includes a disclosure.
 - Consent is explicit and timestamped. Add self-service deletion and a retention policy before scaling submissions.
+- Scheduled issues are checked once daily by the low-cost Vercel cron. A due issue may publish later than its selected time; use manual publishing when an exact minute matters.
 
 ## Practical phases
 

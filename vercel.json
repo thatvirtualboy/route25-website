@@ -196,6 +196,12 @@
       "destination": "https://palettetown-backend.vercel.app/folders/"
     }
   ],
+  "crons": [
+    {
+      "path": "/api/newsletter-cron.js",
+      "schedule": "0 16 * * *"
+    }
+  ],
   "builds": [
     {
       "src": "api/**/*.js",

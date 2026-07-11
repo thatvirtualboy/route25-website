@@ -89,7 +89,16 @@ async function normalizeIssueImages(v, publish) {
     return { ...image, url };
   }));
 }
-function docData(doc) { const d = doc.data(); return { id: doc.id, ...d, createdAt: d.createdAt?.toDate?.()?.toISOString?.() || d.createdAt, updatedAt: d.updatedAt?.toDate?.()?.toISOString?.() || d.updatedAt, publishedAt: d.publishedAt?.toDate?.()?.toISOString?.() || d.publishedAt }; }
+function docData(doc) { const d = doc.data(); return { id: doc.id, ...d, createdAt: d.createdAt?.toDate?.()?.toISOString?.() || d.createdAt, updatedAt: d.updatedAt?.toDate?.()?.toISOString?.() || d.updatedAt, publishedAt: d.publishedAt?.toDate?.()?.toISOString?.() || d.publishedAt, publishAt: d.publishAt?.toDate?.()?.toISOString?.() || d.publishAt }; }
+async function notifyNewSubmission(submission) {
+  const webhook = text(process.env.NEWSLETTER_SLACK_WEBHOOK_URL, 2000);
+  if (!/^https:\/\/hooks\.slack\.com\//.test(webhook)) return false;
+  const adminUrl = `${process.env.PUBLIC_SITE_URL || "https://route25.app"}/newsletter/admin`;
+  const lines = [`*New Collector Stories submission*`, `*${submission.name}* — ${submission.collectionFocus}`, `${submission.images.length} photo${submission.images.length === 1 ? "" : "s"}`, submission.currentChase ? `Current chase: ${submission.currentChase}` : "", `<${adminUrl}|Review submission>`].filter(Boolean);
+  const response = await fetch(webhook, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: lines.join("\n") }) });
+  if (!response.ok) throw new Error(`Slack notification failed (${response.status})`);
+  return true;
+}
 async function ensureUploadCors() {
   if (uploadCorsReady) return uploadCorsReady;
   uploadCorsReady = (async () => {
@@ -144,9 +153,9 @@ module.exports = async (req, res) => {
         checked.push({ objectPath, contentType: meta.contentType, size: Number(meta.size), caption: text(image.caption, 500), alt: text(image.alt, 300) });
       }
       const now = admin.firestore.FieldValue.serverTimestamp();
-      const ref = await db.collection("newsletterSubmissions").add({
-        status: "submitted", name: text(b.name,120), email: text(b.email,254).toLowerCase(), location: text(b.location,200), socials: list(b.socials,5), bio: text(b.bio,3000), collectionFocus: text(b.collectionFocus,1000), favorite: text(b.favorite,1000), currentChase: text(b.currentChase,1000), grail: text(b.grail,1000), gear: list(b.gear,20), interviewAnswers: normalizeAnswers(b.interviewAnswers), images: checked, consent: { publish: true, original: true, terms: true, attributionName: text(b.attributionName,120) || text(b.name,120), submittedAt: now }, createdAt: now, updatedAt: now
-      });
+      const submission = { status: "submitted", name: text(b.name,120), email: text(b.email,254).toLowerCase(), location: text(b.location,200), socials: list(b.socials,5), bio: text(b.bio,3000), collectionFocus: text(b.collectionFocus,1000), favorite: text(b.favorite,1000), currentChase: text(b.currentChase,1000), grail: text(b.grail,1000), gear: list(b.gear,20), interviewAnswers: normalizeAnswers(b.interviewAnswers), images: checked, consent: { publish: true, original: true, terms: true, attributionName: text(b.attributionName,120) || text(b.name,120), submittedAt: now }, createdAt: now, updatedAt: now };
+      const ref = await db.collection("newsletterSubmissions").add(submission);
+      try { if (await notifyNewSubmission(submission)) await ref.update({ slackNotifiedAt: admin.firestore.FieldValue.serverTimestamp() }); } catch (error) { console.error(error); }
       return json(res, 201, { id: ref.id, status: "submitted" });
     }
     if (action === "subscribe" && req.method === "POST") {
@@ -166,6 +175,15 @@ module.exports = async (req, res) => {
       if (snap.empty || snap.docs[0].data().status !== "published") return json(res, 404, { error: "Issue not found" });
       return json(res, 200, { issue: docData(snap.docs[0]) });
     }
+    if (action === "publish-due" && req.method === "POST") {
+      const expected = text(process.env.CRON_SECRET, 500);
+      const supplied = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+      if (!expected || !crypto.timingSafeEqual(Buffer.from(supplied.padEnd(expected.length).slice(0, expected.length)), Buffer.from(expected))) return json(res, 401, { error: "Unauthorized" });
+      const snap = await db.collection("newsletterIssues").where("status", "==", "scheduled").limit(100).get();
+      const now = Date.now(), due = snap.docs.filter(doc => doc.data().publishAt?.toMillis?.() <= now);
+      for (const doc of due) { const data = doc.data(); await doc.ref.update({ status: "published", images: await normalizeIssueImages(data.images, true), publishedAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp() }); }
+      return json(res, 200, { published: due.length });
+    }
 
     await requireAdmin(req);
     if (action === "admin-list" && req.method === "GET") {
@@ -178,6 +196,11 @@ module.exports = async (req, res) => {
       }));
       return json(res, 200, { submissions });
     }
+    if (action === "admin-issues" && req.method === "GET") {
+      const snap = await db.collection("newsletterIssues").limit(100).get();
+      const issues = snap.docs.map(docData).sort((a,b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+      return json(res, 200, { issues });
+    }
     if (action === "admin-update" && req.method === "PATCH") {
       const id = text(req.query.id,100), b = req.body || {}; if (!id || !STATUSES.has(b.status)) return json(res,400,{error:"Valid id and status required"});
       await db.collection("newsletterSubmissions").doc(id).update({ status: b.status, reviewNotes: text(b.reviewNotes,5000), scheduledIssue: text(b.scheduledIssue,100), updatedAt: admin.firestore.FieldValue.serverTimestamp() });
@@ -186,7 +209,9 @@ module.exports = async (req, res) => {
     if (action === "admin-save-issue" && req.method === "POST") {
       const b = req.body || {}, slug = safeSlug(b.slug || b.title); if (!slug || !text(b.title,200) || !text(b.summary,2000)) return json(res,400,{error:"Title, slug, and summary required"});
       const status = ["draft", "scheduled", "published"].includes(b.status) ? b.status : "draft";
-      const issue = { slug, title:text(b.title,200), dek:text(b.dek,500), summary:text(b.summary,2000), bodyHtml:text(b.bodyHtml,50000), trainerName:text(b.trainerName,120), submissionId:text(b.submissionId,100), images:await normalizeIssueImages(b.images, status === "published"), interviewAnswers:normalizeAnswers(b.interviewAnswers), products:normalizeProducts(b.products), status, subscribeUrl:/^https:\/\//.test(text(b.subscribeUrl,2000))?text(b.subscribeUrl,2000):"", updatedAt:admin.firestore.FieldValue.serverTimestamp() };
+      const parsedPublishAt = b.publishAt ? new Date(b.publishAt) : null;
+      if (status === "scheduled" && (!parsedPublishAt || !Number.isFinite(parsedPublishAt.getTime()) || parsedPublishAt.getTime() <= Date.now())) return json(res, 400, { error: "Scheduled issues require a future publication date." });
+      const issue = { slug, title:text(b.title,200), dek:text(b.dek,500), summary:text(b.summary,2000), bodyHtml:text(b.bodyHtml,50000), trainerName:text(b.trainerName,120), submissionId:text(b.submissionId,100), images:await normalizeIssueImages(b.images, status === "published"), interviewAnswers:normalizeAnswers(b.interviewAnswers), products:normalizeProducts(b.products), status, publishAt: status === "scheduled" ? admin.firestore.Timestamp.fromDate(parsedPublishAt) : null, subscribeUrl:/^https:\/\//.test(text(b.subscribeUrl,2000))?text(b.subscribeUrl,2000):"", updatedAt:admin.firestore.FieldValue.serverTimestamp() };
       if (issue.status === "published") issue.publishedAt = admin.firestore.FieldValue.serverTimestamp();
       const existing = await db.collection("newsletterIssues").where("slug","==",slug).limit(1).get();
       const ref = existing.empty ? db.collection("newsletterIssues").doc() : existing.docs[0].ref;
