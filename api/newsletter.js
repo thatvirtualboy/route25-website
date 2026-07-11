@@ -427,7 +427,8 @@ module.exports = async (req, res) => {
       const config = deliveryConfig(), now = Date.now();
       const issues = snap.docs.map(doc => {
         const item = docData(doc), publishTime = item.publishAt ? new Date(item.publishAt).getTime() : 0;
-        return { ...item, preflight: publicationPreflight(item, config), missedPublication: item.status === "scheduled" && publishTime > 0 && publishTime < now - 90 * 60 * 1000 };
+        const normalized = { ...item, isTest: item.isTest === true || !isPublicIssue(item) };
+        return { ...normalized, preflight: publicationPreflight(normalized, config), missedPublication: item.status === "scheduled" && publishTime > 0 && publishTime < now - 90 * 60 * 1000 };
       }).sort((a,b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
       const nextIssueNumber = Math.max(0, ...issues.filter(issue => !issue.isTest).map(issue => Number(issue.issueNumber) || 0)) + 1;
       return json(res, 200, { issues, nextIssueNumber });
@@ -467,7 +468,17 @@ module.exports = async (req, res) => {
       return json(res,200,{id:ref.id,slug});
     }
     if (action === "admin-issue-action" && req.method === "POST") {
-      const slug = safeSlug(req.body?.slug), operation = text(req.body?.operation, 50);
+      const operation = text(req.body?.operation, 50), id = text(req.body?.id, 100);
+      if (operation === "delete-test") {
+        if (!id) return json(res, 400, { error: "Issue id required" });
+        const deleteRef = db.collection("newsletterIssues").doc(id), deleteSnap = await deleteRef.get();
+        if (!deleteSnap.exists) return json(res, 404, { error: "Issue not found" });
+        const candidate = deleteSnap.data(), recognizedTest = candidate.isTest === true || candidate.publicVisibility === false || /^test(?:\b|-)/i.test(text(candidate.trainerName || candidate.slug || candidate.title, 200));
+        if (!recognizedTest) return json(res, 403, { error: "Only test/hidden issues can be deleted from this control." });
+        await deleteRef.delete();
+        return json(res, 200, { ok: true, deleted: id });
+      }
+      const slug = safeSlug(req.body?.slug);
       const snap = await db.collection("newsletterIssues").where("slug", "==", slug).limit(1).get();
       if (snap.empty) return json(res, 404, { error: "Issue not found" });
       const ref = snap.docs[0].ref, issue = snap.docs[0].data();
