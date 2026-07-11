@@ -67,6 +67,27 @@ function normalizeProducts(v) {
 function normalizeAnswers(v) {
   return Array.isArray(v) ? v.slice(0, 10).map(a => ({ questionId: text(a?.questionId, 100), question: text(a?.question, 500), answer: text(a?.answer, 5000) })).filter(a => a.question && a.answer) : [];
 }
+async function normalizeIssueImages(v, publish) {
+  if (!Array.isArray(v)) return [];
+  const images = v.slice(0, MAX_IMAGES).map(image => ({
+    objectPath: text(image?.objectPath, 500),
+    url: /^https:\/\//.test(text(image?.url, 2000)) ? text(image.url, 2000) : "",
+    alt: text(image?.alt, 300),
+    caption: text(image?.caption, 500)
+  })).filter(image => image.objectPath || image.url);
+  if (!publish) return images;
+  return Promise.all(images.map(async image => {
+    if (!image.objectPath) return image;
+    if (!/^newsletter\/submissions\/[0-9-]+\/[a-f0-9-]+\.(jpg|png|webp|heic)$/.test(image.objectPath)) throw Object.assign(new Error("Invalid published image reference"), { status: 400 });
+    const file = bucket.file(image.objectPath);
+    const [metadata] = await file.getMetadata();
+    const custom = metadata.metadata || {};
+    const token = custom.firebaseStorageDownloadTokens || crypto.randomUUID();
+    if (!custom.firebaseStorageDownloadTokens) await file.setMetadata({ metadata: { ...custom, firebaseStorageDownloadTokens: token } });
+    const url = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(image.objectPath)}?alt=media&token=${encodeURIComponent(token)}`;
+    return { ...image, url };
+  }));
+}
 function docData(doc) { const d = doc.data(); return { id: doc.id, ...d, createdAt: d.createdAt?.toDate?.()?.toISOString?.() || d.createdAt, updatedAt: d.updatedAt?.toDate?.()?.toISOString?.() || d.updatedAt, publishedAt: d.publishedAt?.toDate?.()?.toISOString?.() || d.publishedAt }; }
 
 module.exports = async (req, res) => {
@@ -151,7 +172,8 @@ module.exports = async (req, res) => {
     }
     if (action === "admin-save-issue" && req.method === "POST") {
       const b = req.body || {}, slug = safeSlug(b.slug || b.title); if (!slug || !text(b.title,200) || !text(b.summary,2000)) return json(res,400,{error:"Title, slug, and summary required"});
-      const issue = { slug, title:text(b.title,200), dek:text(b.dek,500), summary:text(b.summary,2000), bodyHtml:text(b.bodyHtml,50000), trainerName:text(b.trainerName,120), submissionId:text(b.submissionId,100), images:Array.isArray(b.images)?b.images.slice(0,MAX_IMAGES):[], interviewAnswers:normalizeAnswers(b.interviewAnswers), products:normalizeProducts(b.products), status:STATUSES.has(b.status)?b.status:"draft", subscribeUrl:/^https:\/\//.test(text(b.subscribeUrl,2000))?text(b.subscribeUrl,2000):"", updatedAt:admin.firestore.FieldValue.serverTimestamp() };
+      const status = ["draft", "scheduled", "published"].includes(b.status) ? b.status : "draft";
+      const issue = { slug, title:text(b.title,200), dek:text(b.dek,500), summary:text(b.summary,2000), bodyHtml:text(b.bodyHtml,50000), trainerName:text(b.trainerName,120), submissionId:text(b.submissionId,100), images:await normalizeIssueImages(b.images, status === "published"), interviewAnswers:normalizeAnswers(b.interviewAnswers), products:normalizeProducts(b.products), status, subscribeUrl:/^https:\/\//.test(text(b.subscribeUrl,2000))?text(b.subscribeUrl,2000):"", updatedAt:admin.firestore.FieldValue.serverTimestamp() };
       if (issue.status === "published") issue.publishedAt = admin.firestore.FieldValue.serverTimestamp();
       const existing = await db.collection("newsletterIssues").where("slug","==",slug).limit(1).get();
       const ref = existing.empty ? db.collection("newsletterIssues").doc() : existing.docs[0].ref;
