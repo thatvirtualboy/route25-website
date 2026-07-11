@@ -57,6 +57,11 @@ function json(res, status, body) {
 function text(v, max = 5000) { return typeof v === "string" ? v.trim().slice(0, max) : ""; }
 function list(v, max = 20) { return Array.isArray(v) ? v.slice(0, max).map(x => text(x, 500)).filter(Boolean) : []; }
 function safeSlug(v) { return text(v, 100).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); }
+function isPublicIssue(issue) {
+  if (issue?.isTest === true || issue?.publicVisibility === false) return false;
+  if (issue?.publicVisibility === true) return true;
+  return !/^test(?:\b|-)/i.test(text(issue?.trainerName || issue?.slug || issue?.title, 200));
+}
 function html(v) { return String(v || "").replace(/[&<>\"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
 function sameOrigin(req) {
   const origin = req.headers.origin;
@@ -317,12 +322,12 @@ module.exports = async (req, res) => {
     }
     if (action === "issues" && req.method === "GET") {
       const snap = await db.collection("newsletterIssues").where("status", "==", "published").limit(100).get();
-      const issues = snap.docs.map(docData).sort((a, b) => String(b.publishedAt || "").localeCompare(String(a.publishedAt || ""))).slice(0, 50).map(({ emailHtml, ...x }) => x);
+      const issues = snap.docs.map(docData).filter(isPublicIssue).sort((a, b) => String(b.publishedAt || "").localeCompare(String(a.publishedAt || ""))).slice(0, 50).map(({ emailHtml, previewToken, ...x }) => x);
       return json(res, 200, { issues });
     }
     if (action === "issue" && req.method === "GET") {
       const slug = safeSlug(req.query.slug); const snap = await db.collection("newsletterIssues").where("slug", "==", slug).limit(1).get();
-      if (snap.empty || snap.docs[0].data().status !== "published") return json(res, 404, { error: "Issue not found" });
+      if (snap.empty || snap.docs[0].data().status !== "published" || !isPublicIssue(snap.docs[0].data())) return json(res, 404, { error: "Issue not found" });
       return json(res, 200, { issue: docData(snap.docs[0]) });
     }
     if (action === "issue-preview" && req.method === "GET") {
@@ -412,9 +417,10 @@ module.exports = async (req, res) => {
     if (action === "admin-save-issue" && req.method === "POST") {
       const b = req.body || {}, slug = safeSlug(b.slug || b.title); if (!slug || !text(b.title,200) || !text(b.summary,2000)) return json(res,400,{error:"Title, slug, and summary required"});
       const status = ["draft", "scheduled", "published"].includes(b.status) ? b.status : "draft";
+      if (status === "scheduled" && b.isTest === true) return json(res, 400, { error: "Test issues cannot be scheduled for live publication. Keep the issue as draft or published/hidden and use Send test." });
       const parsedPublishAt = b.publishAt ? new Date(b.publishAt) : null;
       if (status === "scheduled" && (!parsedPublishAt || !Number.isFinite(parsedPublishAt.getTime()) || parsedPublishAt.getTime() <= Date.now() || !isExactPublicationSlot(parsedPublishAt))) return json(res, 400, { error: "Choose a future Saturday publication date; issues publish at 7:00 AM Mountain." });
-      const issue = { slug, title:text(b.title,200), dek:text(b.dek,500), summary:text(b.summary,2000), bodyHtml:text(b.bodyHtml,50000), trainerName:text(b.trainerName,120), submissionId:text(b.submissionId,100), images:await normalizeIssueImages(b.images, status === "published"), interviewAnswers:normalizeAnswers(b.interviewAnswers), products:normalizeProducts(b.products), status, publishAt: status === "scheduled" ? admin.firestore.Timestamp.fromDate(parsedPublishAt) : null, subscribeUrl:/^https:\/\//.test(text(b.subscribeUrl,2000))?text(b.subscribeUrl,2000):"", updatedAt:admin.firestore.FieldValue.serverTimestamp() };
+      const issue = { slug, title:text(b.title,200), dek:text(b.dek,500), summary:text(b.summary,2000), bodyHtml:text(b.bodyHtml,50000), trainerName:text(b.trainerName,120), submissionId:text(b.submissionId,100), images:await normalizeIssueImages(b.images, status === "published"), interviewAnswers:normalizeAnswers(b.interviewAnswers), products:normalizeProducts(b.products), status, isTest:b.isTest === true, publicVisibility:b.isTest !== true, publishAt: status === "scheduled" ? admin.firestore.Timestamp.fromDate(parsedPublishAt) : null, subscribeUrl:/^https:\/\//.test(text(b.subscribeUrl,2000))?text(b.subscribeUrl,2000):"", updatedAt:admin.firestore.FieldValue.serverTimestamp() };
       if (issue.status === "published") issue.publishedAt = admin.firestore.FieldValue.serverTimestamp();
       const existing = await db.collection("newsletterIssues").where("slug","==",slug).limit(1).get();
       if (status === "scheduled") {
