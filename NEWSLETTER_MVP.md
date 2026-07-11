@@ -17,7 +17,7 @@ Never put the service account in browser code or commit it. The MVP admin screen
 
 - `newsletterQuestions`: question text, category, active flag, timestamp.
 - `newsletterSubmissions`: contact/bio, structured collection fields, interview answers, validated images, consent snapshot, editorial status/notes, timestamps.
-- `newsletterIssues`: title/slug/dek/summary/body HTML, trainer/submission references, images, answers, typed affiliate products, status, subscription URL, publish timestamps.
+- `newsletterIssues`: title/slug/dek/summary/body HTML, trainer/submission references, ordered images, answers, typed affiliate products, editorial tags, preflight/delivery state, status, subscription URL, publish timestamps.
 - `newsletterSubscribers`: SHA-256 email document ID, email, status, source, consent timestamp.
 
 Firestore is schemaless, so the idempotent question seed is the only migration. Existing collections are untouched.
@@ -30,7 +30,18 @@ Firestore is schemaless, so the idempotent question seed is the only migration. 
 - Public APIs return only published issues. Affiliate links use `rel="sponsored nofollow"`; every issue includes a disclosure.
 - Consent is explicit and timestamped. Add self-service deletion and a retention policy before scaling submissions.
 - Scheduled issues publish once weekly on Saturday at 7:00 AM America/Denver. Two UTC cron checks plus a timezone guard preserve the local hour across daylight-saving changes.
-- Set `NEWSLETTER_LIVE_SEND_ENABLED=false` while testing. Admin test sends can only use `SENDER_TEST_GROUP_ID`; the weekly job can only use `SENDER_GROUP_ID` when this switch is exactly `true`.
+- Set `NEWSLETTER_LIVE_SEND_ENABLED=false` while testing. Admin test sends can only use `SENDER_TEST_GROUP_ID`; the weekly job can only use `SENDER_GROUP_ID` when this switch is exactly `true`. Test sends remain available after live sending is enabled because group identity, name, and size are independently verified.
+- If live delivery is disabled or Sender fails, the story remains scheduled and private. It is never published without its email. Missed dates do not silently roll into a later Saturday; use Retry/Publish now or reschedule explicitly.
+
+## Editorial workflow
+
+1. Build an issue from an application and save it as a draft.
+2. Order the photos (the first selected photo is the hero), add captions/alt text, affiliate products, and editorial tags.
+3. Send at least one test email. The target is always the separately configured Sender test group.
+4. Choose a future Saturday and save as scheduled. The server requires the complete preflight checklist and prevents duplicate weekly slots.
+5. At 7:00 AM Mountain, the job claims only that Saturday's issue, sends the Sender campaign, and then makes the story public. Use Unschedule before delivery, or Publish now/Retry for an intentional recovery.
+
+Run `npm test` to verify daylight-saving slots, missed-date behavior, test-issue isolation, and preflight rules.
 
 ## Practical phases
 

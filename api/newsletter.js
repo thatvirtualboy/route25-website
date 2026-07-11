@@ -2,6 +2,7 @@ const admin = require("firebase-admin");
 const { getFirestore } = require("firebase-admin/firestore");
 const crypto = require("node:crypto");
 const sharp = require("sharp");
+const { isWeeklyPublicationSlot, isExactPublicationSlot, isCurrentPublicationWindow, publicationPreflight } = require("../lib/newsletter-safety");
 
 if (!admin.apps.length) {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
@@ -134,14 +135,6 @@ function docData(doc) {
   const d = doc.data(), iso = value => value?.toDate?.()?.toISOString?.() || value;
   return { id: doc.id, ...d, createdAt: iso(d.createdAt), updatedAt: iso(d.updatedAt), publishedAt: iso(d.publishedAt), publishAt: iso(d.publishAt), lastTestEmailAt: iso(d.lastTestEmailAt), emailSentAt: iso(d.emailSentAt), emailFailedAt: iso(d.emailFailedAt), emailSkippedAt: iso(d.emailSkippedAt) };
 }
-function isWeeklyPublicationSlot(date = new Date()) {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/Denver", weekday: "short", hour: "2-digit", hourCycle: "h23" }).formatToParts(date).filter(p => p.type !== "literal").map(p => [p.type, p.value]));
-  return parts.weekday === "Sat" && Number(parts.hour) === 7;
-}
-function isExactPublicationSlot(date) {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/Denver", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(date).filter(p => p.type !== "literal").map(p => [p.type, p.value]));
-  return parts.weekday === "Sat" && Number(parts.hour) === 7 && Number(parts.minute) === 0;
-}
 function languageFlags(values) {
   const source = values.join(" ").toLowerCase();
   const checks = [
@@ -169,6 +162,13 @@ async function notifyEditorial(textLines) {
 }
 function senderConfigured() {
   return Boolean(text(process.env.SENDER_API_TOKEN, 2000) && text(process.env.SENDER_FROM_NAME, 200) && /^\S+@\S+\.\S+$/.test(text(process.env.SENDER_FROM_EMAIL, 254)));
+}
+function deliveryConfig() {
+  return {
+    senderConfigured: senderConfigured(),
+    liveGroupConfigured: Boolean(text(process.env.SENDER_GROUP_ID, 200)),
+    liveSendEnabled: /^true$/i.test(text(process.env.NEWSLETTER_LIVE_SEND_ENABLED, 10))
+  };
 }
 async function senderRequest(path, options = {}) {
   const token = text(process.env.SENDER_API_TOKEN, 2000);
@@ -236,6 +236,45 @@ async function createSenderCampaign(issue, groupId, label) {
 }
 async function sendSenderCampaign(campaignId) {
   return senderRequest(`/campaigns/${encodeURIComponent(campaignId)}/send`, { method: "POST" });
+}
+async function deliverAndPublishIssue(ref, source) {
+  const config = deliveryConfig();
+  const images = await normalizeIssueImages(source.images, true);
+  const issue = { ...source, images, status: "scheduled" };
+  const preflight = publicationPreflight(issue, config);
+  if (!preflight.readyToPublish) {
+    const missing = preflight.checks.filter(check => !check.ok).map(check => check.label);
+    await ref.set({ emailStatus: config.liveSendEnabled ? "preflight-blocked" : "live-disabled", preflightMissing: missing, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+    throw Object.assign(new Error(`Publication blocked: ${missing.join(", ")}`), { status: 409, preflight });
+  }
+  const attemptId = crypto.randomUUID();
+  const claimed = await db.runTransaction(async transaction => {
+    const current = await transaction.get(ref);
+    if (!current.exists || current.data().status !== "scheduled" || ["preparing", "sending"].includes(current.data().emailStatus)) return false;
+    transaction.update(ref, { emailStatus: "preparing", publicationAttemptId: attemptId, publicationAttemptAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+    return true;
+  });
+  if (!claimed) throw Object.assign(new Error("This issue is already being delivered or is no longer scheduled."), { status: 409 });
+  try {
+    let campaignId = text(source.senderCampaignId, 200);
+    if (!campaignId) {
+      const campaign = await createSenderCampaign(issue, text(process.env.SENDER_GROUP_ID, 200), "Route 25 Collector Stories");
+      campaignId = campaign.campaignId;
+      await ref.update({ senderCampaignId: campaignId, senderGroup: "live", emailStatus: "sending", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+    } else {
+      await ref.update({ emailStatus: "sending", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+    }
+    await sendSenderCampaign(campaignId);
+    await ref.update({ status: "published", publicVisibility: true, images, emailStatus: "sent", emailSentAt: admin.firestore.FieldValue.serverTimestamp(), publishedAt: admin.firestore.FieldValue.serverTimestamp(), preflightMissing: [], updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+    if (source.submissionId) await db.collection("newsletterSubmissions").doc(source.submissionId).set({ status: "published", updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+    try { await notifyEditorial(["*Collector Stories issue published and emailed*", `*${source.title}*`, `Sender campaign: ${campaignId}`, `<${process.env.PUBLIC_SITE_URL || "https://route25.app"}/newsletter/${source.slug}|View issue>`]); } catch (notifyError) { console.error(notifyError); }
+    return { published: true, email: "sent", campaignId };
+  } catch (error) {
+    console.error("Sender live campaign failed", error);
+    await ref.set({ status: "scheduled", publicVisibility: false, emailStatus: "failed", emailError: text(error.message, 500), emailFailedAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+    try { await notifyEditorial(["*:warning: Collector Stories publication blocked*", `*${source.title}* remains scheduled and hidden because Sender delivery failed.`, text(error.message, 500)]); } catch (notifyError) { console.error(notifyError); }
+    throw error;
+  }
 }
 async function ensureUploadCors() {
   if (uploadCorsReady) return uploadCorsReady;
@@ -349,41 +388,14 @@ module.exports = async (req, res) => {
       if (!expected || !crypto.timingSafeEqual(Buffer.from(supplied.padEnd(expected.length).slice(0, expected.length)), Buffer.from(expected))) return json(res, 401, { error: "Unauthorized" });
       if (!isWeeklyPublicationSlot()) return json(res, 200, { published: 0, skipped: "Outside Saturday 7:00 AM America/Denver publication window" });
       const snap = await db.collection("newsletterIssues").where("status", "==", "scheduled").limit(100).get();
-      const now = Date.now(), due = snap.docs.filter(doc => doc.data().publishAt?.toMillis?.() <= now).sort((a,b) => a.data().publishAt.toMillis() - b.data().publishAt.toMillis()).slice(0, 1);
+      const now = new Date(), due = snap.docs.filter(doc => isCurrentPublicationWindow(doc.data().publishAt?.toDate?.(), now)).sort((a,b) => a.data().publishAt.toMillis() - b.data().publishAt.toMillis()).slice(0, 1);
       const results = [];
       for (const doc of due) {
         const data = doc.data();
-        const images = await normalizeIssueImages(data.images, true);
-        const published = { ...data, images, status: "published" };
-        const liveEnabled = /^true$/i.test(text(process.env.NEWSLETTER_LIVE_SEND_ENABLED, 10));
-        const baseUpdate = { status: "published", images, publishedAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp() };
-        if (!liveEnabled) {
-          await doc.ref.update({ ...baseUpdate, emailStatus: "live-disabled", emailSkippedAt: admin.firestore.FieldValue.serverTimestamp() });
-          if (data.submissionId) await db.collection("newsletterSubmissions").doc(data.submissionId).set({ status: "published", updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-          results.push({ id: doc.id, published: true, email: "live-disabled" });
-          continue;
-        }
-        const groupId = text(process.env.SENDER_GROUP_ID, 200);
-        const claimed = await db.runTransaction(async transaction => {
-          const current = await transaction.get(doc.ref);
-          if (!current.exists || current.data().status !== "scheduled") return false;
-          transaction.update(doc.ref, { ...baseUpdate, emailStatus: "preparing" });
-          return true;
-        });
-        if (!claimed) { results.push({ id: doc.id, published: false, email: "already-claimed" }); continue; }
-        if (data.submissionId) await db.collection("newsletterSubmissions").doc(data.submissionId).set({ status: "published", updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
         try {
-          const campaign = await createSenderCampaign(published, groupId, "Route 25 Collector Stories");
-          await doc.ref.update({ emailStatus: "sending", senderCampaignId: campaign.campaignId, senderGroup: "live", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
-          await sendSenderCampaign(campaign.campaignId);
-          await doc.ref.update({ emailStatus: "sent", emailSentAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp() });
-          try { await notifyEditorial(["*Collector Stories issue published and emailed*", `*${data.title}*`, `Sender campaign: ${campaign.campaignId}`, `<${process.env.PUBLIC_SITE_URL || "https://route25.app"}/newsletter/${data.slug}|View issue>`]); } catch (notifyError) { console.error(notifyError); }
-          results.push({ id: doc.id, published: true, email: "sent", campaignId: campaign.campaignId });
+          results.push({ id: doc.id, ...(await deliverAndPublishIssue(doc.ref, data)) });
         } catch (error) {
-          console.error("Sender live campaign failed", error);
-          await doc.ref.set({ emailStatus: "failed", emailError: text(error.message, 500), emailFailedAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-          try { await notifyEditorial(["*:warning: Collector Stories email failed*", `*${data.title}* published on the website, but Sender delivery failed.`, text(error.message, 500)]); } catch (notifyError) { console.error(notifyError); }
-          results.push({ id: doc.id, published: true, email: "failed" });
+          results.push({ id: doc.id, published: false, email: "blocked", error: text(error.message, 500) });
         }
       }
       return json(res, 200, { published: due.length, results });
@@ -402,7 +414,11 @@ module.exports = async (req, res) => {
     }
     if (action === "admin-issues" && req.method === "GET") {
       const snap = await db.collection("newsletterIssues").limit(100).get();
-      const issues = snap.docs.map(docData).sort((a,b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+      const config = deliveryConfig(), now = Date.now();
+      const issues = snap.docs.map(doc => {
+        const item = docData(doc), publishTime = item.publishAt ? new Date(item.publishAt).getTime() : 0;
+        return { ...item, preflight: publicationPreflight(item, config), missedPublication: item.status === "scheduled" && publishTime > 0 && publishTime < now - 90 * 60 * 1000 };
+      }).sort((a,b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
       return json(res, 200, { issues });
     }
     if (action === "admin-email-config" && req.method === "GET") {
@@ -418,21 +434,42 @@ module.exports = async (req, res) => {
       const b = req.body || {}, slug = safeSlug(b.slug || b.title); if (!slug || !text(b.title,200) || !text(b.summary,2000)) return json(res,400,{error:"Title, slug, and summary required"});
       const status = ["draft", "scheduled", "published"].includes(b.status) ? b.status : "draft";
       if (status === "scheduled" && b.isTest === true) return json(res, 400, { error: "Test issues cannot be scheduled for live publication. Keep the issue as draft or published/hidden and use Send test." });
+      if (status === "published" && b.isTest !== true) return json(res, 400, { error: "Live issues must be scheduled or sent with Publish now so the website and email are released together." });
       const parsedPublishAt = b.publishAt ? new Date(b.publishAt) : null;
       if (status === "scheduled" && (!parsedPublishAt || !Number.isFinite(parsedPublishAt.getTime()) || parsedPublishAt.getTime() <= Date.now() || !isExactPublicationSlot(parsedPublishAt))) return json(res, 400, { error: "Choose a future Saturday publication date; issues publish at 7:00 AM Mountain." });
-      const issue = { slug, title:text(b.title,200), dek:text(b.dek,500), summary:text(b.summary,2000), bodyHtml:text(b.bodyHtml,50000), trainerName:text(b.trainerName,120), submissionId:text(b.submissionId,100), images:await normalizeIssueImages(b.images, status === "published"), interviewAnswers:normalizeAnswers(b.interviewAnswers), products:normalizeProducts(b.products), status, isTest:b.isTest === true, publicVisibility:b.isTest !== true, publishAt: status === "scheduled" ? admin.firestore.Timestamp.fromDate(parsedPublishAt) : null, subscribeUrl:/^https:\/\//.test(text(b.subscribeUrl,2000))?text(b.subscribeUrl,2000):"", updatedAt:admin.firestore.FieldValue.serverTimestamp() };
+      const issue = { slug, title:text(b.title,200), dek:text(b.dek,500), summary:text(b.summary,2000), bodyHtml:text(b.bodyHtml,50000), trainerName:text(b.trainerName,120), submissionId:text(b.submissionId,100), images:await normalizeIssueImages(b.images, status === "published"), interviewAnswers:normalizeAnswers(b.interviewAnswers), products:normalizeProducts(b.products), pokemonTags:list(b.pokemonTags,30), cardTags:list(b.cardTags,30), setTags:list(b.setTags,30), collectionTags:list(b.collectionTags,30), status, isTest:b.isTest === true, publicVisibility:b.isTest !== true, publishAt: status === "scheduled" ? admin.firestore.Timestamp.fromDate(parsedPublishAt) : null, subscribeUrl:/^https:\/\//.test(text(b.subscribeUrl,2000))?text(b.subscribeUrl,2000):"", updatedAt:admin.firestore.FieldValue.serverTimestamp() };
       if (issue.status === "published") issue.publishedAt = admin.firestore.FieldValue.serverTimestamp();
       const existing = await db.collection("newsletterIssues").where("slug","==",slug).limit(1).get();
       if (status === "scheduled") {
         const scheduled = await db.collection("newsletterIssues").where("status", "==", "scheduled").limit(100).get();
         const conflict = scheduled.docs.find(doc => doc.id !== existing.docs[0]?.id && doc.data().publishAt?.toMillis?.() === parsedPublishAt.getTime());
         if (conflict) return json(res, 409, { error: `That Saturday is already assigned to “${text(conflict.data().title, 200)}”. Choose another week.` });
+        const preflight = publicationPreflight({ ...issue, lastTestEmailAt: existing.docs[0]?.data()?.lastTestEmailAt }, deliveryConfig());
+        if (!preflight.readyToSchedule) return json(res, 409, { error: `Scheduling blocked: ${preflight.checks.filter(check => check.blocking && !check.ok).map(check => check.label).join(", ")}. Save a draft, complete these items, and try again.`, preflight });
       }
       const ref = existing.empty ? db.collection("newsletterIssues").doc() : existing.docs[0].ref;
       const previewToken = existing.empty ? crypto.randomBytes(32).toString("hex") : (existing.docs[0].data().previewToken || crypto.randomBytes(32).toString("hex"));
-      await ref.set({ ...issue, previewToken, createdAt: existing.empty ? admin.firestore.FieldValue.serverTimestamp() : existing.docs[0].data().createdAt }, { merge:true });
+      const previous = existing.empty ? {} : existing.docs[0].data(), resetUnsentCampaign = previous.senderCampaignId && previous.emailStatus !== "sent" && status !== "published";
+      await ref.set({ ...issue, previewToken, ...(resetUnsentCampaign ? { senderCampaignId: admin.firestore.FieldValue.delete(), senderGroup: admin.firestore.FieldValue.delete(), emailStatus: "not-sent", emailError: admin.firestore.FieldValue.delete() } : {}), createdAt: existing.empty ? admin.firestore.FieldValue.serverTimestamp() : previous.createdAt }, { merge:true });
       if (issue.submissionId) await db.collection("newsletterSubmissions").doc(issue.submissionId).set({ status: issue.status, scheduledIssue: ref.id, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
       return json(res,200,{id:ref.id,slug});
+    }
+    if (action === "admin-issue-action" && req.method === "POST") {
+      const slug = safeSlug(req.body?.slug), operation = text(req.body?.operation, 50);
+      const snap = await db.collection("newsletterIssues").where("slug", "==", slug).limit(1).get();
+      if (snap.empty) return json(res, 404, { error: "Issue not found" });
+      const ref = snap.docs[0].ref, issue = snap.docs[0].data();
+      if (operation === "unschedule") {
+        if (issue.status !== "scheduled") return json(res, 409, { error: "Only scheduled issues can be unscheduled." });
+        await ref.update({ status: "draft", publishAt: null, emailStatus: issue.senderCampaignId ? "draft-campaign-exists" : "not-sent", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+        if (issue.submissionId) await db.collection("newsletterSubmissions").doc(issue.submissionId).set({ status: "draft", updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+        return json(res, 200, { ok: true, status: "draft" });
+      }
+      if (["publish-now", "retry"].includes(operation)) {
+        if (issue.status !== "scheduled") return json(res, 409, { error: "Only scheduled issues can be delivered." });
+        return json(res, 200, { ok: true, ...(await deliverAndPublishIssue(ref, issue)) });
+      }
+      return json(res, 400, { error: "Unknown issue action" });
     }
     if (action === "email-export" && req.method === "GET") {
       const slug=safeSlug(req.query.slug), snap=await db.collection("newsletterIssues").where("slug","==",slug).limit(1).get(); if(snap.empty)return json(res,404,{error:"Issue not found"});
@@ -446,7 +483,6 @@ module.exports = async (req, res) => {
       const groupId = text(process.env.SENDER_TEST_GROUP_ID, 200), liveGroupId = text(process.env.SENDER_GROUP_ID, 200);
       if (!groupId || !liveGroupId) return json(res, 503, { error: "Both Sender test and live groups must be configured" });
       if (groupId === liveGroupId) return json(res, 409, { error: "Test send blocked: the Sender test and live group IDs must be different" });
-      if (/^true$/i.test(text(process.env.NEWSLETTER_LIVE_SEND_ENABLED, 10))) return json(res, 409, { error: "Test send blocked while live sending is enabled" });
       const group = (await senderRequest(`/groups/${encodeURIComponent(groupId)}`))?.data || {};
       const activeSubscribers = Number(group.active_subscribers);
       if (!/test/i.test(text(group.title, 200)) || !Number.isFinite(activeSubscribers) || activeSubscribers > 5) return json(res, 409, { error: "Test send blocked: Sender target must be a test-named group with no more than 5 active subscribers" });
