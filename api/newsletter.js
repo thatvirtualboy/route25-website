@@ -317,7 +317,8 @@ module.exports = async (req, res) => {
       return json(res, 200, { issues });
     }
     if (action === "admin-email-config" && req.method === "GET") {
-      return json(res, 200, { configured: senderConfigured(), testGroupConfigured: Boolean(text(process.env.SENDER_TEST_GROUP_ID, 200)), liveGroupConfigured: Boolean(text(process.env.SENDER_GROUP_ID, 200)), liveSendEnabled: /^true$/i.test(text(process.env.NEWSLETTER_LIVE_SEND_ENABLED, 10)), fromName: text(process.env.SENDER_FROM_NAME, 200), fromEmail: text(process.env.SENDER_FROM_EMAIL, 254) });
+      const testGroupId = text(process.env.SENDER_TEST_GROUP_ID, 200), liveGroupId = text(process.env.SENDER_GROUP_ID, 200);
+      return json(res, 200, { configured: senderConfigured(), testGroupConfigured: Boolean(testGroupId), liveGroupConfigured: Boolean(liveGroupId), groupsDistinct: Boolean(testGroupId && liveGroupId && testGroupId !== liveGroupId), liveSendEnabled: /^true$/i.test(text(process.env.NEWSLETTER_LIVE_SEND_ENABLED, 10)), fromName: text(process.env.SENDER_FROM_NAME, 200), fromEmail: text(process.env.SENDER_FROM_EMAIL, 254) });
     }
     if (action === "admin-update" && req.method === "PATCH") {
       const id = text(req.query.id,100), b = req.body || {}; if (!id || !STATUSES.has(b.status)) return json(res,400,{error:"Valid id and status required"});
@@ -345,8 +346,10 @@ module.exports = async (req, res) => {
       const slug = safeSlug(req.body?.slug), snap = await db.collection("newsletterIssues").where("slug", "==", slug).limit(1).get();
       if (snap.empty) return json(res, 404, { error: "Issue not found" });
       const issue = docData(snap.docs[0]);
-      const groupId = text(process.env.SENDER_TEST_GROUP_ID, 200);
-      if (!groupId) return json(res, 503, { error: "SENDER_TEST_GROUP_ID is not configured" });
+      const groupId = text(process.env.SENDER_TEST_GROUP_ID, 200), liveGroupId = text(process.env.SENDER_GROUP_ID, 200);
+      if (!groupId || !liveGroupId) return json(res, 503, { error: "Both Sender test and live groups must be configured" });
+      if (groupId === liveGroupId) return json(res, 409, { error: "Test send blocked: the Sender test and live group IDs must be different" });
+      if (/^true$/i.test(text(process.env.NEWSLETTER_LIVE_SEND_ENABLED, 10))) return json(res, 409, { error: "Test send blocked while live sending is enabled" });
       const campaign = await createSenderCampaign(issue, groupId, "TEST");
       await sendSenderCampaign(campaign.campaignId);
       await snap.docs[0].ref.set({ lastTestEmailAt: admin.firestore.FieldValue.serverTimestamp(), lastTestCampaignId: campaign.campaignId, testEmailCount: admin.firestore.FieldValue.increment(1), updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
