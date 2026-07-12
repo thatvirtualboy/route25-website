@@ -28,6 +28,10 @@
       "destination": "/newsletter/subscribe.html"
     },
     {
+      "source": "/newsletter/privacy",
+      "destination": "/newsletter/privacy.html"
+    },
+    {
       "source": "/newsletter/preview/:token",
       "destination": "/newsletter/issue.html?preview=:token"
     },
@@ -204,6 +208,10 @@
     {
       "path": "/api/newsletter-cron.js",
       "schedule": "0 13,14 * * 6"
+    },
+    {
+      "path": "/api/newsletter-maintenance.js",
+      "schedule": "30 9 * * *"
     }
   ],
   "builds": [

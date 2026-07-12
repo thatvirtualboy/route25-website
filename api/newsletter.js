@@ -21,6 +21,7 @@ const STATUSES = new Set(["submitted", "reviewing", "selected", "draft", "schedu
 const AFFILIATES = new Set(["amazon", "ebay", "tcgplayer", "direct"]);
 const PRODUCT_CATEGORIES = new Set(["gear", "card"]);
 const SENDER_API_BASE = "https://api.sender.net/v2";
+const TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 let uploadCorsReady = null;
 const DEFAULT_QUESTIONS = [
   ["origin", "What brought you into Pokémon collecting?", "story"],
@@ -87,6 +88,50 @@ function sameOrigin(req) {
   const origin = req.headers.origin;
   if (!origin) return true;
   try { return new URL(origin).host === (req.headers["x-forwarded-host"] || req.headers.host); } catch { return false; }
+}
+function requestIp(req) {
+  return text(String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown").split(",")[0], 100);
+}
+function turnstileConfigured() {
+  return Boolean(text(process.env.TURNSTILE_SITE_KEY, 500) && text(process.env.TURNSTILE_SECRET_KEY, 500));
+}
+async function checkRateLimit(req, scope, limit, windowMs) {
+  const ipHash = crypto.createHash("sha256").update(requestIp(req)).digest("hex").slice(0, 32);
+  const ref = db.collection("newsletterRateLimits").doc(`${scope}-${ipHash}`), now = Date.now();
+  const allowed = await db.runTransaction(async transaction => {
+    const snap = await transaction.get(ref), data = snap.exists ? snap.data() : {}, resetAt = Number(data.resetAt || 0);
+    const count = resetAt > now ? Number(data.count || 0) : 0;
+    if (count >= limit) return false;
+    transaction.set(ref, { scope, ipHash, count: count + 1, resetAt: resetAt > now ? resetAt : now + windowMs, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+    return true;
+  });
+  if (!allowed) throw Object.assign(new Error("Too many attempts. Please wait and try again."), { status: 429 });
+  return ipHash;
+}
+async function verifyTurnstile(req, token, action) {
+  if (!turnstileConfigured()) return { success: true, bypassed: true };
+  const response = await fetch(TURNSTILE_VERIFY_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ secret: text(process.env.TURNSTILE_SECRET_KEY, 500), response: text(token, 2048), remoteip: requestIp(req), idempotency_key: crypto.randomUUID() }) });
+  const result = await response.json();
+  if (!response.ok || !result.success || (result.action && result.action !== action)) throw Object.assign(new Error("Human verification failed or expired. Please try again."), { status: 403 });
+  return result;
+}
+function submissionSession(ipHash) {
+  if (!turnstileConfigured()) return "turnstile-not-configured";
+  const payload = Buffer.from(JSON.stringify({ ipHash, exp: Date.now() + 30 * 60 * 1000 })).toString("base64url");
+  const signature = crypto.createHmac("sha256", text(process.env.TURNSTILE_SECRET_KEY, 500)).update(payload).digest("base64url");
+  return `${payload}.${signature}`;
+}
+function verifySubmissionSession(req, token) {
+  if (!turnstileConfigured()) return true;
+  const [payload, signature] = text(token, 4000).split(".");
+  if (!payload || !signature) return false;
+  const expected = crypto.createHmac("sha256", text(process.env.TURNSTILE_SECRET_KEY, 500)).update(payload).digest("base64url");
+  if (signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return false;
+  try {
+    const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    const ipHash = crypto.createHash("sha256").update(requestIp(req)).digest("hex").slice(0, 32);
+    return data.ipHash === ipHash && Number(data.exp) > Date.now();
+  } catch { return false; }
 }
 async function requireAdmin(req) {
   const token = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
@@ -333,12 +378,58 @@ async function ensureUploadCors() {
   })().catch(error => { uploadCorsReady = null; throw error; });
   return uploadCorsReady;
 }
+function cronAuthorized(req) {
+  const expected = text(process.env.CRON_SECRET, 500), supplied = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  return Boolean(expected && supplied.length === expected.length && crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(expected)));
+}
+async function retryFailedSubscribers(limit = 100) {
+  const snap = await db.collection("newsletterSubscribers").where("senderStatus", "==", "failed").limit(limit).get();
+  let synced = 0, failed = 0;
+  for (const doc of snap.docs) {
+    const email = text(doc.data().email, 254);
+    try {
+      const result = await syncSubscriberToSender(email);
+      await doc.ref.set({ senderStatus: "synced", senderSubscriberId: result.subscriberId, senderGroupId: result.groupId, senderSyncedAt: admin.firestore.FieldValue.serverTimestamp(), senderSyncError: admin.firestore.FieldValue.delete(), updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+      synced += 1;
+    } catch (error) {
+      await doc.ref.set({ senderStatus: "failed", senderSyncError: text(error.message, 500), senderSyncFailedAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+      failed += 1;
+    }
+  }
+  return { attempted: snap.size, synced, failed };
+}
+async function cleanupOrphanUploads() {
+  const [submissionSnap, issueSnap, filesResult] = await Promise.all([
+    db.collection("newsletterSubmissions").limit(1000).get(),
+    db.collection("newsletterIssues").limit(1000).get(),
+    bucket.getFiles({ prefix: "newsletter/submissions/" })
+  ]);
+  const referenced = new Set();
+  for (const doc of submissionSnap.docs) for (const image of doc.data().images || []) if (image.objectPath) referenced.add(image.objectPath);
+  for (const doc of issueSnap.docs) for (const image of doc.data().images || []) if (image.objectPath) referenced.add(image.objectPath);
+  const cutoff = Date.now() - 48 * 60 * 60 * 1000, files = filesResult[0];
+  let deleted = 0;
+  for (const file of files) {
+    if (referenced.has(file.name)) continue;
+    const [metadata] = await file.getMetadata(), created = new Date(metadata.timeCreated || 0).getTime();
+    if (created && created < cutoff) { await file.delete({ ignoreNotFound: true }); deleted += 1; }
+  }
+  return { scanned: files.length, referenced: referenced.size, deleted };
+}
 
 module.exports = async (req, res) => {
   try {
     const action = text(req.query.action, 50);
     if (req.method !== "GET" && !sameOrigin(req)) return json(res, 403, { error: "Invalid origin" });
 
+    if (action === "public-config" && req.method === "GET") {
+      return json(res, 200, { turnstile: { enabled: turnstileConfigured(), siteKey: text(process.env.TURNSTILE_SITE_KEY, 500) } });
+    }
+    if (action === "start-submission" && req.method === "POST") {
+      const ipHash = await checkRateLimit(req, "submission", 5, 60 * 60 * 1000);
+      await verifyTurnstile(req, req.body?.turnstileToken, "newsletter_submission");
+      return json(res, 200, { submissionToken: submissionSession(ipHash), expiresIn: 1800 });
+    }
     if (action === "questions" && req.method === "GET") {
       let snap = await db.collection("newsletterQuestions").get();
       const existingIds = new Set(snap.docs.map(doc => doc.id));
@@ -357,6 +448,7 @@ module.exports = async (req, res) => {
     }
     if (action === "upload-url" && req.method === "POST") {
       const { contentType, size, filename } = req.body || {};
+      if (!verifySubmissionSession(req, req.body?.submissionToken)) return json(res, 403, { error: "Your upload session expired. Please verify again." });
       if (!IMAGE_TYPES.has(contentType) || !Number.isInteger(size) || size < 1 || size > MAX_IMAGE_BYTES) return json(res, 400, { error: "Images must be JPEG, PNG, WebP, or HEIC and 10 MB or less." });
       const ext = ({"image/jpeg":"jpg", "image/png":"png", "image/webp":"webp", "image/heic":"heic"})[contentType];
       await ensureUploadCors();
@@ -367,6 +459,7 @@ module.exports = async (req, res) => {
     }
     if (action === "submit" && req.method === "POST") {
       const b = req.body || {};
+      if (!verifySubmissionSession(req, b.submissionToken)) return json(res, 403, { error: "Your submission session expired. Please verify again." });
       const images = Array.isArray(b.images) ? b.images.slice(0, MAX_IMAGES) : [];
       if (!text(b.name, 120) || !/^\S+@\S+\.\S+$/.test(text(b.email, 254)) || !text(b.bio, 3000) || !text(b.collectionFocus, 1000)) return json(res, 400, { error: "Name, valid email, bio, and collection focus are required." });
       const consentRights = b.consentRights === true || (b.consentPublish && b.consentOriginal && b.consentTerms);
@@ -389,6 +482,8 @@ module.exports = async (req, res) => {
       return json(res, 201, { id: ref.id, status: "submitted" });
     }
     if (action === "subscribe" && req.method === "POST") {
+      await checkRateLimit(req, "subscribe", 10, 60 * 60 * 1000);
+      await verifyTurnstile(req, req.body?.turnstileToken, "newsletter_subscribe");
       const email = text(req.body?.email, 254).toLowerCase();
       if (!/^\S+@\S+\.\S+$/.test(email) || req.body?.consent !== true) return json(res, 400, { error: "A valid email and consent are required." });
       const id = crypto.createHash("sha256").update(email).digest("hex");
@@ -430,9 +525,7 @@ module.exports = async (req, res) => {
       return json(res, 200, { issue });
     }
     if (action === "publish-due" && (req.method === "GET" || req.method === "POST")) {
-      const expected = text(process.env.CRON_SECRET, 500);
-      const supplied = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
-      if (!expected || !crypto.timingSafeEqual(Buffer.from(supplied.padEnd(expected.length).slice(0, expected.length)), Buffer.from(expected))) return json(res, 401, { error: "Unauthorized" });
+      if (!cronAuthorized(req)) return json(res, 401, { error: "Unauthorized" });
       if (!isWeeklyPublicationSlot()) return json(res, 200, { published: 0, skipped: "Outside Saturday 7:00 AM America/Denver publication window" });
       const snap = await db.collection("newsletterIssues").where("status", "==", "scheduled").limit(100).get();
       const now = new Date(), due = snap.docs.filter(doc => isCurrentPublicationWindow(doc.data().publishAt?.toDate?.(), now)).sort((a,b) => a.data().publishAt.toMillis() - b.data().publishAt.toMillis()).slice(0, 1);
@@ -446,6 +539,11 @@ module.exports = async (req, res) => {
         }
       }
       return json(res, 200, { published: due.length, results });
+    }
+    if (action === "maintenance" && (req.method === "GET" || req.method === "POST")) {
+      if (!cronAuthorized(req)) return json(res, 401, { error: "Unauthorized" });
+      const [uploads, subscribers] = await Promise.all([cleanupOrphanUploads(), retryFailedSubscribers(100)]);
+      return json(res, 200, { ok: true, uploads, subscribers });
     }
 
     await requireAdmin(req);
@@ -472,12 +570,27 @@ module.exports = async (req, res) => {
     }
     if (action === "admin-email-config" && req.method === "GET") {
       const testGroupId = text(process.env.SENDER_TEST_GROUP_ID, 200), liveGroupId = text(process.env.SENDER_GROUP_ID, 200);
-      return json(res, 200, { configured: senderConfigured(), testGroupConfigured: Boolean(testGroupId), liveGroupConfigured: Boolean(liveGroupId), groupsDistinct: Boolean(testGroupId && liveGroupId && testGroupId !== liveGroupId), liveSendEnabled: /^true$/i.test(text(process.env.NEWSLETTER_LIVE_SEND_ENABLED, 10)), fromName: text(process.env.SENDER_FROM_NAME, 200), fromEmail: text(process.env.SENDER_FROM_EMAIL, 254) });
+      const failedSubscribers = await db.collection("newsletterSubscribers").where("senderStatus", "==", "failed").limit(100).get();
+      return json(res, 200, { configured: senderConfigured(), testGroupConfigured: Boolean(testGroupId), liveGroupConfigured: Boolean(liveGroupId), groupsDistinct: Boolean(testGroupId && liveGroupId && testGroupId !== liveGroupId), liveSendEnabled: /^true$/i.test(text(process.env.NEWSLETTER_LIVE_SEND_ENABLED, 10)), fromName: text(process.env.SENDER_FROM_NAME, 200), fromEmail: text(process.env.SENDER_FROM_EMAIL, 254), failedSubscriberSyncs: failedSubscribers.size, turnstileConfigured: turnstileConfigured() });
+    }
+    if (action === "admin-retry-subscribers" && req.method === "POST") {
+      return json(res, 200, await retryFailedSubscribers(100));
     }
     if (action === "admin-update" && req.method === "PATCH") {
       const id = text(req.query.id,100), b = req.body || {}; if (!id || !STATUSES.has(b.status)) return json(res,400,{error:"Valid id and status required"});
       await db.collection("newsletterSubmissions").doc(id).update({ status: b.status, reviewNotes: text(b.reviewNotes,5000), scheduledIssue: text(b.scheduledIssue,100), updatedAt: admin.firestore.FieldValue.serverTimestamp() });
       return json(res,200,{ok:true});
+    }
+    if (action === "admin-delete-submission" && req.method === "DELETE") {
+      const id = text(req.query.id, 100), ref = db.collection("newsletterSubmissions").doc(id), snap = await ref.get();
+      if (!snap.exists) return json(res, 404, { error: "Application not found" });
+      if (snap.data().status !== "declined") return json(res, 409, { error: "Mark the application declined before deleting it." });
+      const linkedIssues = await db.collection("newsletterIssues").where("submissionId", "==", id).limit(10).get();
+      if (!linkedIssues.empty) return json(res, 409, { error: "This application is linked to an editorial issue. Delete the test issue or preserve the application." });
+      const allIssues = await db.collection("newsletterIssues").limit(1000).get(), issueImages = new Set(allIssues.docs.flatMap(doc => (doc.data().images || []).map(image => image.objectPath).filter(Boolean)));
+      for (const image of snap.data().images || []) if (image.objectPath && !issueImages.has(image.objectPath)) await bucket.file(image.objectPath).delete({ ignoreNotFound: true });
+      await ref.delete();
+      return json(res, 200, { ok: true, deleted: id });
     }
     if (action === "admin-save-issue" && req.method === "POST") {
       const b = req.body || {}, slug = safeSlug(b.slug || b.title); if (!slug || !text(b.title,200) || !text(b.summary,2000)) return json(res,400,{error:"Title, slug, and summary required"});
