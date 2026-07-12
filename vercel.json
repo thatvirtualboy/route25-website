@@ -1,6 +1,23 @@
 {
   "headers": [
     {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" },
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://*.googleapis.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://firebasestorage.googleapis.com https://*.googleusercontent.com; connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.googleapis.com https://*.firebaseapp.com https://firebasestorage.googleapis.com https://challenges.cloudflare.com; frame-src https://accounts.google.com https://*.firebaseapp.com https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" }
+      ]
+    },
+    {
+      "source": "/newsletter/admin",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+    },
+    {
+      "source": "/newsletter/preview/(.*)",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }]
+    },
+    {
       "source": "/assets/(.*)\\.zip",
       "headers": [
         {
@@ -37,7 +54,11 @@
     },
     {
       "source": "/newsletter/:slug",
-      "destination": "/newsletter/issue.html?slug=:slug"
+      "destination": "/api/newsletter-page.js?slug=:slug"
+    },
+    {
+      "source": "/sitemap-newsletter.xml",
+      "destination": "/api/sitemap-newsletter.js"
     },
     {
       "source": "/apple-review/route25-screenshots-iphone.zip",

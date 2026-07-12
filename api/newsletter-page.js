@@ -1,0 +1,42 @@
+const admin = require("firebase-admin");
+const { getFirestore } = require("firebase-admin/firestore");
+
+if (!admin.apps.length) {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  admin.initializeApp({ credential: raw ? admin.credential.cert(JSON.parse(raw)) : admin.credential.applicationDefault(), storageBucket: process.env.FIREBASE_STORAGE_BUCKET });
+}
+const db = process.env.FIRESTORE_DATABASE_ID ? getFirestore(admin.app(), process.env.FIRESTORE_DATABASE_ID) : getFirestore(admin.app());
+const SITE = (process.env.PUBLIC_SITE_URL || "https://route25.app").replace(/\/$/, "");
+
+function esc(value) { return String(value || "").replace(/[&<>"']/g, char => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[char]); }
+function slug(value) { return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 100); }
+function date(value) { const raw = value?.toDate?.() || value; return raw ? new Intl.DateTimeFormat("en-US", { timeZone:"America/Denver", month:"long", day:"numeric", year:"numeric" }).format(new Date(raw)) : ""; }
+function socialLabel(url) { try { const host = new URL(url).hostname.replace(/^www\./, ""); if (["x.com","twitter.com"].includes(host)) return "X"; if (host.includes("instagram.com")) return "Instagram"; if (host.includes("youtube.com") || host === "youtu.be") return "YouTube"; if (host.includes("tiktok.com")) return "TikTok"; if (host.includes("threads.net")) return "Threads"; return host; } catch { return "Social"; } }
+function imageFigure(image, className = "") { return image?.url ? `<figure class="${className}"><a href="${esc(image.url)}" target="_blank" rel="noopener"><img src="${esc(image.url)}" alt="${esc(image.alt)}"></a>${image.caption ? `<figcaption>${esc(image.caption)}</figcaption>` : ""}</figure>` : ""; }
+function products(title, items) { return items.length ? `<h3>${esc(title)}</h3>${items.map(item => `<div class="product"><div><strong>${esc(item.name)}</strong>${item.note ? `<br><small>${esc(item.note)}</small>` : ""}</div>${item.url ? `<a rel="sponsored nofollow" href="${esc(item.url)}">View</a>` : ""}</div>`).join("")}` : ""; }
+function pageShell({ title, description, canonical, image, robots = "index,follow", body, schema }) {
+  const jsonLd = JSON.stringify(schema || {}).replace(/</g, "\\u003c");
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><meta name="description" content="${esc(description)}"><meta name="robots" content="${esc(robots)}"><link rel="canonical" href="${esc(canonical)}"><meta property="og:type" content="article"><meta property="og:site_name" content="Route 25"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(description)}"><meta property="og:url" content="${esc(canonical)}">${image ? `<meta property="og:image" content="${esc(image)}"><meta name="twitter:card" content="summary_large_image">` : `<meta name="twitter:card" content="summary">`}<link rel="stylesheet" href="/newsletter/newsletter.css"><script type="application/ld+json">${jsonLd}</script></head><body><header><a class="brand" href="/">Route <span>25</span></a><nav><a href="/search">Search</a><a href="/newsletter">All stories</a><a href="/newsletter/submit">Share yours</a></nav></header>${body}<footer>Some links may be affiliate links. Purchases support Route 25 at no additional cost to you.</footer></body></html>`;
+}
+
+module.exports = async (req, res) => {
+  const requestedSlug = slug(req.query.slug);
+  const snap = requestedSlug ? await db.collection("newsletterIssues").where("slug", "==", requestedSlug).limit(1).get() : null;
+  const issue = snap && !snap.empty ? snap.docs[0].data() : null;
+  if (!issue || issue.status !== "published" || issue.publicVisibility !== true || issue.isTest === true) {
+    res.statusCode = 404;
+    res.setHeader("content-type", "text/html; charset=utf-8");
+    res.setHeader("cache-control", "no-store");
+    return res.end(pageShell({ title:"Story not found — Route 25", description:"This collector story could not be found.", canonical:`${SITE}/newsletter`, robots:"noindex,nofollow", body:'<main id="issue"><h1>Story not found</h1><p class="lede">This collector story is unavailable.</p><a class="button" href="/newsletter">Browse collector stories</a></main>' }));
+  }
+  const canonical = `${SITE}/newsletter/${issue.slug}`, hero = issue.images?.[0], published = issue.publishedAt || issue.publishAt;
+  const relatedSnap = await db.collection("newsletterIssues").where("status", "==", "published").limit(10).get();
+  const related = relatedSnap.docs.map(doc => doc.data()).filter(item => item.slug !== issue.slug && item.publicVisibility === true && item.isTest !== true).slice(0, 3);
+  const relatedHtml = related.length ? `<h2>More collector stories</h2><div class="related-grid">${related.map(item => `<a class="related-card" href="/newsletter/${esc(item.slug)}">${item.images?.[0]?.url ? `<img src="${esc(item.images[0].url)}" alt="">` : ""}<strong>${esc(item.title)}</strong><span>${esc(item.dek || item.summary || "Read the story")}</span></a>`).join("")}</div>` : "<h2>Keep exploring</h2>";
+  const body = `<main id="issue"><p class="issue-meta">${issue.issueNumber ? `Issue #${String(Number(issue.issueNumber)).padStart(3,"0")}` : "Collector Story"}${published ? ` · ${esc(date(published))}` : ""}</p><p class="eyebrow">${esc(issue.trainerName || "Collector Story")}</p><h1>${esc(issue.title)}</h1><p class="lede">${esc(issue.dek || issue.summary)}</p>${issue.socialUrl ? `<p class="issue-social"><a href="${esc(issue.socialUrl)}" rel="me nofollow">${esc(socialLabel(issue.socialUrl))}</a></p>` : ""}${imageFigure(hero, "issue-hero")}<article class="prose">${issue.bodyHtml || `<p>${esc(issue.summary)}</p>`}</article>${issue.interviewAnswers?.length ? `<section class="interview"><h2>Five questions</h2>${issue.interviewAnswers.map(answer => `<article class="answer"><h3>${esc(answer.question)}</h3><p>${esc(answer.answer)}</p></article>`).join("")}</section>` : ""}${issue.images?.length > 1 ? `<section><h2>Inside the collection</h2><div class="story-gallery">${issue.images.slice(1).map(image => imageFigure(image)).join("")}</div></section>` : ""}${issue.products?.length ? `<section><h2>Collector’s corner</h2>${products("Cards mentioned", issue.products.filter(item => item.category === "card"))}${products("Gear used", issue.products.filter(item => item.category !== "card"))}</section>` : ""}<section class="related-stories">${relatedHtml}<a class="button" href="/newsletter">Browse all collector stories</a></section><section class="section"><h2>Get the next collector story</h2><a class="button red" href="${esc(issue.subscribeUrl || "/newsletter/subscribe")}">Subscribe</a></section></main>`;
+  const schema = { "@context":"https://schema.org", "@type":"Article", headline:issue.title, description:issue.dek || issue.summary, image:hero?.url ? [hero.url] : undefined, datePublished:published?.toDate?.()?.toISOString?.() || published, author:{ "@type":"Person", name:issue.trainerName || "Route 25 Collector" }, publisher:{ "@type":"Organization", name:"Route 25", url:SITE }, mainEntityOfPage:canonical };
+  res.statusCode = 200;
+  res.setHeader("content-type", "text/html; charset=utf-8");
+  res.setHeader("cache-control", "s-maxage=300, stale-while-revalidate=3600");
+  res.end(pageShell({ title:`${issue.title} — Route 25`, description:issue.dek || issue.summary, canonical, image:hero?.url, body, schema }));
+};

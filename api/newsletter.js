@@ -3,6 +3,8 @@ const { getFirestore } = require("firebase-admin/firestore");
 const crypto = require("node:crypto");
 const sharp = require("sharp");
 const { isWeeklyPublicationSlot, isExactPublicationSlot, isCurrentPublicationWindow, publicationPreflight } = require("../lib/newsletter-safety");
+const { MAX_UPLOADS, sessionId, sessionExpiry, sessionIsUsable } = require("../lib/newsletter-submission-session");
+const { senderRetryAction } = require("../lib/newsletter-sender-state");
 
 if (!admin.apps.length) {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
@@ -92,11 +94,15 @@ function sameOrigin(req) {
 function requestIp(req) {
   return text(String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown").split(",")[0], 100);
 }
+function requestIpHash(req) {
+  const secret = text(process.env.NEWSLETTER_SESSION_SECRET || process.env.TURNSTILE_SECRET_KEY, 500);
+  return crypto.createHmac("sha256", secret || "route25-newsletter-local").update(requestIp(req)).digest("hex").slice(0, 32);
+}
 function turnstileConfigured() {
   return Boolean(text(process.env.TURNSTILE_SITE_KEY, 500) && text(process.env.TURNSTILE_SECRET_KEY, 500));
 }
 async function checkRateLimit(req, scope, limit, windowMs) {
-  const ipHash = crypto.createHash("sha256").update(requestIp(req)).digest("hex").slice(0, 32);
+  const ipHash = requestIpHash(req);
   const ref = db.collection("newsletterRateLimits").doc(`${scope}-${ipHash}`), now = Date.now();
   const allowed = await db.runTransaction(async transaction => {
     const snap = await transaction.get(ref), data = snap.exists ? snap.data() : {}, resetAt = Number(data.resetAt || 0);
@@ -112,26 +118,43 @@ async function verifyTurnstile(req, token, action) {
   if (!turnstileConfigured()) return { success: true, bypassed: true };
   const response = await fetch(TURNSTILE_VERIFY_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ secret: text(process.env.TURNSTILE_SECRET_KEY, 500), response: text(token, 2048), remoteip: requestIp(req), idempotency_key: crypto.randomUUID() }) });
   const result = await response.json();
-  if (!response.ok || !result.success || (result.action && result.action !== action)) throw Object.assign(new Error("Human verification failed or expired. Please try again."), { status: 403 });
+  const expectedHost = text(process.env.TURNSTILE_EXPECTED_HOSTNAME || "route25.app", 255).toLowerCase();
+  const hostnameMismatch = result.hostname && expectedHost && result.hostname.toLowerCase() !== expectedHost && !["localhost", "127.0.0.1"].includes(result.hostname.toLowerCase());
+  if (!response.ok || !result.success || (result.action && result.action !== action) || hostnameMismatch) throw Object.assign(new Error("Human verification failed or expired. Please try again."), { status: 403 });
   return result;
 }
-function submissionSession(ipHash) {
-  if (!turnstileConfigured()) return "turnstile-not-configured";
-  const payload = Buffer.from(JSON.stringify({ ipHash, exp: Date.now() + 30 * 60 * 1000 })).toString("base64url");
-  const signature = crypto.createHmac("sha256", text(process.env.TURNSTILE_SECRET_KEY, 500)).update(payload).digest("base64url");
-  return `${payload}.${signature}`;
+function sessionRef(token) {
+  const value = text(token, 200);
+  if (!/^[a-f0-9-]{36}$/i.test(value)) return null;
+  return db.collection("newsletterSubmissionSessions").doc(crypto.createHash("sha256").update(value).digest("hex"));
 }
-function verifySubmissionSession(req, token) {
+async function createSubmissionSession(req, ipHash) {
+  if (!turnstileConfigured()) return "turnstile-not-configured";
+  const token = sessionId(), ref = sessionRef(token);
+  await ref.create({ ipHash, uploadCount: 0, consumed: false, expiresAt: admin.firestore.Timestamp.fromDate(sessionExpiry()), createdAt: admin.firestore.FieldValue.serverTimestamp() });
+  return token;
+}
+async function authorizeSessionUpload(req, token) {
   if (!turnstileConfigured()) return true;
-  const [payload, signature] = text(token, 4000).split(".");
-  if (!payload || !signature) return false;
-  const expected = crypto.createHmac("sha256", text(process.env.TURNSTILE_SECRET_KEY, 500)).update(payload).digest("base64url");
-  if (signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return false;
-  try {
-    const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
-    const ipHash = crypto.createHash("sha256").update(requestIp(req)).digest("hex").slice(0, 32);
-    return data.ipHash === ipHash && Number(data.exp) > Date.now();
-  } catch { return false; }
+  const ref = sessionRef(token);
+  if (!ref) return false;
+  return db.runTransaction(async transaction => {
+    const snap = await transaction.get(ref), data = snap.exists ? snap.data() : null;
+    if (!sessionIsUsable(data, requestIpHash(req)) || Number(data.uploadCount || 0) >= MAX_UPLOADS) return false;
+    transaction.update(ref, { uploadCount: admin.firestore.FieldValue.increment(1), updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+    return true;
+  });
+}
+async function consumeSubmissionSession(req, token) {
+  if (!turnstileConfigured()) return true;
+  const ref = sessionRef(token);
+  if (!ref) return false;
+  return db.runTransaction(async transaction => {
+    const snap = await transaction.get(ref), data = snap.exists ? snap.data() : null;
+    if (!sessionIsUsable(data, requestIpHash(req))) return false;
+    transaction.update(ref, { consumed: true, consumedAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+    return true;
+  });
 }
 async function requireAdmin(req) {
   const token = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
@@ -328,6 +351,10 @@ async function createSenderCampaign(issue, groupId, label) {
 async function sendSenderCampaign(campaignId) {
   return senderRequest(`/campaigns/${encodeURIComponent(campaignId)}/send`, { method: "POST" });
 }
+async function senderCampaignStatus(campaignId) {
+  const result = await senderRequest(`/campaigns/${encodeURIComponent(campaignId)}`);
+  return text(result?.data?.status || result?.status, 50).toLowerCase();
+}
 async function deliverAndPublishIssue(ref, source) {
   const config = deliveryConfig();
   const images = await normalizeIssueImages(source.images, true);
@@ -355,7 +382,10 @@ async function deliverAndPublishIssue(ref, source) {
     } else {
       await ref.update({ emailStatus: "sending", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
     }
-    await sendSenderCampaign(campaignId);
+    const providerStatus = source.senderCampaignId ? await senderCampaignStatus(campaignId) : "draft";
+    const retryAction = senderRetryAction(providerStatus);
+    if (retryAction === "send") await sendSenderCampaign(campaignId);
+    else if (retryAction === "wait") throw Object.assign(new Error(`Sender campaign is already ${providerStatus}; wait for it to finish before retrying.`), { status: 409 });
     await ref.update({ status: "published", publicVisibility: true, images, emailStatus: "sent", emailSentAt: admin.firestore.FieldValue.serverTimestamp(), publishedAt: admin.firestore.FieldValue.serverTimestamp(), preflightMissing: [], updatedAt: admin.firestore.FieldValue.serverTimestamp() });
     if (source.submissionId) await db.collection("newsletterSubmissions").doc(source.submissionId).set({ status: "published", updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
     try { await notifyEditorial(["*Collector Stories issue published and emailed*", `*${source.title}*`, `Sender campaign: ${campaignId}`, `<${process.env.PUBLIC_SITE_URL || "https://route25.app"}/newsletter/${source.slug}|View issue>`]); } catch (notifyError) { console.error(notifyError); }
@@ -398,15 +428,27 @@ async function retryFailedSubscribers(limit = 100) {
   }
   return { attempted: snap.size, synced, failed };
 }
+async function allCollectionDocuments(collectionName, pageSize = 500) {
+  const documents = [];
+  let cursor = null;
+  do {
+    let query = db.collection(collectionName).orderBy(admin.firestore.FieldPath.documentId()).limit(pageSize);
+    if (cursor) query = query.startAfter(cursor);
+    const page = await query.get();
+    documents.push(...page.docs);
+    cursor = page.size === pageSize ? page.docs[page.docs.length - 1] : null;
+  } while (cursor);
+  return documents;
+}
 async function cleanupOrphanUploads() {
-  const [submissionSnap, issueSnap, filesResult] = await Promise.all([
-    db.collection("newsletterSubmissions").limit(1000).get(),
-    db.collection("newsletterIssues").limit(1000).get(),
+  const [submissionDocs, issueDocs, filesResult] = await Promise.all([
+    allCollectionDocuments("newsletterSubmissions"),
+    allCollectionDocuments("newsletterIssues"),
     bucket.getFiles({ prefix: "newsletter/submissions/" })
   ]);
   const referenced = new Set();
-  for (const doc of submissionSnap.docs) for (const image of doc.data().images || []) if (image.objectPath) referenced.add(image.objectPath);
-  for (const doc of issueSnap.docs) for (const image of doc.data().images || []) if (image.objectPath) referenced.add(image.objectPath);
+  for (const doc of submissionDocs) for (const image of doc.data().images || []) if (image.objectPath) referenced.add(image.objectPath);
+  for (const doc of issueDocs) for (const image of doc.data().images || []) if (image.objectPath) referenced.add(image.objectPath);
   const cutoff = Date.now() - 48 * 60 * 60 * 1000, files = filesResult[0];
   let deleted = 0;
   for (const file of files) {
@@ -415,6 +457,14 @@ async function cleanupOrphanUploads() {
     if (created && created < cutoff) { await file.delete({ ignoreNotFound: true }); deleted += 1; }
   }
   return { scanned: files.length, referenced: referenced.size, deleted };
+}
+async function cleanupExpiredSubmissionSessions() {
+  const snap = await db.collection("newsletterSubmissionSessions").where("expiresAt", "<", admin.firestore.Timestamp.now()).limit(500).get();
+  if (snap.empty) return { deleted: 0 };
+  const batch = db.batch();
+  for (const doc of snap.docs) batch.delete(doc.ref);
+  await batch.commit();
+  return { deleted: snap.size };
 }
 
 module.exports = async (req, res) => {
@@ -428,7 +478,7 @@ module.exports = async (req, res) => {
     if (action === "start-submission" && req.method === "POST") {
       const ipHash = await checkRateLimit(req, "submission", 5, 60 * 60 * 1000);
       await verifyTurnstile(req, req.body?.turnstileToken, "newsletter_submission");
-      return json(res, 200, { submissionToken: submissionSession(ipHash), expiresIn: 1800 });
+      return json(res, 200, { submissionToken: await createSubmissionSession(req, ipHash), expiresIn: 1800, maxUploads: MAX_UPLOADS });
     }
     if (action === "questions" && req.method === "GET") {
       let snap = await db.collection("newsletterQuestions").get();
@@ -448,7 +498,7 @@ module.exports = async (req, res) => {
     }
     if (action === "upload-url" && req.method === "POST") {
       const { contentType, size, filename } = req.body || {};
-      if (!verifySubmissionSession(req, req.body?.submissionToken)) return json(res, 403, { error: "Your upload session expired. Please verify again." });
+      if (!await authorizeSessionUpload(req, req.body?.submissionToken)) return json(res, 403, { error: "Your upload session expired or has reached its 15-image limit. Please verify again." });
       if (!IMAGE_TYPES.has(contentType) || !Number.isInteger(size) || size < 1 || size > MAX_IMAGE_BYTES) return json(res, 400, { error: "Images must be JPEG, PNG, WebP, or HEIC and 10 MB or less." });
       const ext = ({"image/jpeg":"jpg", "image/png":"png", "image/webp":"webp", "image/heic":"heic"})[contentType];
       await ensureUploadCors();
@@ -459,7 +509,6 @@ module.exports = async (req, res) => {
     }
     if (action === "submit" && req.method === "POST") {
       const b = req.body || {};
-      if (!verifySubmissionSession(req, b.submissionToken)) return json(res, 403, { error: "Your submission session expired. Please verify again." });
       const images = Array.isArray(b.images) ? b.images.slice(0, MAX_IMAGES) : [];
       if (!text(b.name, 120) || !/^\S+@\S+\.\S+$/.test(text(b.email, 254)) || !text(b.bio, 3000) || !text(b.collectionFocus, 1000)) return json(res, 400, { error: "Name, valid email, bio, and collection focus are required." });
       const consentRights = b.consentRights === true || (b.consentPublish && b.consentOriginal && b.consentTerms);
@@ -473,6 +522,7 @@ module.exports = async (req, res) => {
         if (Number(meta.size) > MAX_IMAGE_BYTES || !IMAGE_TYPES.has(meta.contentType)) { await bucket.file(objectPath).delete({ ignoreNotFound: true }); return json(res, 400, { error: "An uploaded image failed validation." }); }
         checked.push({ objectPath, contentType: meta.contentType, size: Number(meta.size), caption: text(image.caption, 500), alt: text(image.alt, 300) });
       }
+      if (!await consumeSubmissionSession(req, b.submissionToken)) return json(res, 409, { error: "This submission session has expired or was already used. Refresh the page to submit another application." });
       const now = admin.firestore.FieldValue.serverTimestamp();
       const interviewAnswers = normalizeAnswers(b.interviewAnswers);
       const flags = languageFlags([text(b.bio,3000), text(b.collectionFocus,1000), text(b.favorite,1000), text(b.currentChase,1000), text(b.grail,1000), ...interviewAnswers.map(answer => answer.answer)]);
@@ -542,8 +592,8 @@ module.exports = async (req, res) => {
     }
     if (action === "maintenance" && (req.method === "GET" || req.method === "POST")) {
       if (!cronAuthorized(req)) return json(res, 401, { error: "Unauthorized" });
-      const [uploads, subscribers] = await Promise.all([cleanupOrphanUploads(), retryFailedSubscribers(100)]);
-      return json(res, 200, { ok: true, uploads, subscribers });
+      const [uploads, subscribers, submissionSessions] = await Promise.all([cleanupOrphanUploads(), retryFailedSubscribers(100), cleanupExpiredSubmissionSessions()]);
+      return json(res, 200, { ok: true, uploads, subscribers, submissionSessions });
     }
 
     await requireAdmin(req);
@@ -587,7 +637,7 @@ module.exports = async (req, res) => {
       if (snap.data().status !== "declined") return json(res, 409, { error: "Mark the application declined before deleting it." });
       const linkedIssues = await db.collection("newsletterIssues").where("submissionId", "==", id).limit(10).get();
       if (!linkedIssues.empty) return json(res, 409, { error: "This application is linked to an editorial issue. Delete the test issue or preserve the application." });
-      const allIssues = await db.collection("newsletterIssues").limit(1000).get(), issueImages = new Set(allIssues.docs.flatMap(doc => (doc.data().images || []).map(image => image.objectPath).filter(Boolean)));
+      const allIssues = await allCollectionDocuments("newsletterIssues"), issueImages = new Set(allIssues.flatMap(doc => (doc.data().images || []).map(image => image.objectPath).filter(Boolean)));
       for (const image of snap.data().images || []) if (image.objectPath && !issueImages.has(image.objectPath)) await bucket.file(image.objectPath).delete({ ignoreNotFound: true });
       await ref.delete();
       return json(res, 200, { ok: true, deleted: id });

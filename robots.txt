@@ -4,3 +4,4 @@ Allow: /
 Sitemap: https://route25.app/sitemap.xml
 Sitemap: https://route25.app/sitemap-cards.xml
 Sitemap: https://route25.app/sitemap-sets.xml
+Sitemap: https://route25.app/sitemap-newsletter.xml
