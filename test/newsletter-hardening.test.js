@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { MAX_UPLOADS, SESSION_TTL_MS, sessionExpiry, sessionIsUsable } = require("../lib/newsletter-submission-session");
 const { senderRetryAction } = require("../lib/newsletter-sender-state");
+const { normalizeTrainerId, trainerProfileUrl } = require("../lib/newsletter-trainer");
 
 test("submission sessions expire after 30 minutes and allow at most 15 uploads", () => {
   const now = Date.now();
@@ -36,4 +37,11 @@ test("Vercel routes public issues through the server renderer and protects priva
 test("newsletter sitemap is advertised to crawlers", () => {
   const robots = fs.readFileSync(path.join(__dirname, "..", "robots.txt"), "utf8");
   assert.match(robots, /sitemap-newsletter\.xml/);
+});
+
+test("Route 25 Trainer IDs produce safe profile links", () => {
+  assert.equal(normalizeTrainerId(" 8dHIaVfOcdg96oKjImpjFYQB1C73 "), "8dHIaVfOcdg96oKjImpjFYQB1C73");
+  assert.equal(trainerProfileUrl("8dHIaVfOcdg96oKjImpjFYQB1C73"), "https://route25.app/trainer/8dHIaVfOcdg96oKjImpjFYQB1C73");
+  assert.equal(normalizeTrainerId("../../admin"), "");
+  assert.equal(trainerProfileUrl(""), "");
 });
