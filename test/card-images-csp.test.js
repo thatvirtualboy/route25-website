@@ -18,6 +18,7 @@ test("production CSP allows every card-image provider", () => {
     "https://tcgplayer-cdn.tcgplayer.com",
     "https://static.tcgcollector.com",
     "https://firebasestorage.googleapis.com",
+    "https://storage.googleapis.com",
     "https://*.googleusercontent.com",
   ];
 
