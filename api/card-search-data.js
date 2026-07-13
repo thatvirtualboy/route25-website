@@ -1,4 +1,5 @@
 const BACKEND_ORIGIN = "https://palettetown-backend.vercel.app";
+const { route25ImageUrl } = require("../lib/route25-image-url");
 const responseCache = new Map();
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const KNOWN_SET_TOTALS = {
@@ -136,7 +137,7 @@ function mepImageUrl(card, large = false) {
   const id = String(card?.id || "");
   const number = String(card?.number || "").padStart(3, "0");
   const imageKey = id.toLowerCase().startsWith("mep-") ? id.slice(4) : number;
-  return imageKey ? `${BACKEND_ORIGIN}/card-images/mep/mep-${imageKey}.webp` : "";
+  return imageKey ? route25ImageUrl(`${BACKEND_ORIGIN}/card-images/mep/mep-${imageKey}.webp`) : "";
 }
 
 function cardImages(card) {
@@ -147,7 +148,13 @@ function cardImages(card) {
     if (small || large) return { small, large };
   }
 
-  if (images.small || images.large) return images;
+  if (images.small || images.large) {
+    return {
+      ...images,
+      ...(images.small ? { small: route25ImageUrl(images.small) } : {}),
+      ...(images.large ? { large: route25ImageUrl(images.large) } : {})
+    };
+  }
 
   const small = mepImageUrl(card, false);
   const large = mepImageUrl(card, true) || small;
@@ -353,7 +360,7 @@ async function fetchAllCardsForSet(set, setInfo = null) {
 
   let payload = null;
   try {
-    payload = await fetchJsonWithTimeout(url.href, 1800);
+    payload = await fetchJsonWithTimeout(url.href, 6500);
   } catch {
     payload = null;
   }
@@ -379,7 +386,7 @@ async function fetchAllCardsForSet(set, setInfo = null) {
   searchUrl.searchParams.set("pageSize", "500");
   let searchPayload = null;
   try {
-    searchPayload = await fetchJsonWithTimeout(searchUrl.href, 1800);
+    searchPayload = await fetchJsonWithTimeout(searchUrl.href, 4500);
   } catch {
     searchPayload = null;
   }
@@ -436,7 +443,7 @@ async function fetchCardsBySet(set, page, pageSize, setInfo = null) {
   searchUrl.searchParams.set("page", String(page));
   searchUrl.searchParams.set("pageSize", String(pageSize));
 
-  const searchPromise = fetchJsonWithTimeout(searchUrl.href, 1800)
+  const searchPromise = fetchJsonWithTimeout(searchUrl.href, 4500)
     .then((searchPayload) => {
       const searchItems = payloadItems(searchPayload);
       return rejectWithoutItems({
@@ -562,6 +569,14 @@ async function handleSearch(req, res) {
     rawItems = remoteResult.rawItems;
   }
 
+  if (browseSetId && !rawItems.length) {
+    res.statusCode = 503;
+    res.setHeader("content-type", "application/json; charset=utf-8");
+    res.setHeader("cache-control", "no-store");
+    res.end(JSON.stringify({ ok: false, error: "Set temporarily unavailable" }));
+    return;
+  }
+
   const body = JSON.stringify({
     ok: true,
     data: rawItems.map(simplifyCard),
@@ -571,10 +586,13 @@ async function handleSearch(req, res) {
     totalCount: payload?.totalCount ?? rawItems.length,
     defaultSet
   });
-  setCachedJson(cacheKey, body);
+  if (rawItems.length) setCachedJson(cacheKey, body);
   res.statusCode = 200;
   res.setHeader("content-type", "application/json; charset=utf-8");
-  res.setHeader("cache-control", "s-maxage=300, stale-while-revalidate=1800");
+  res.setHeader(
+    "cache-control",
+    rawItems.length ? "s-maxage=300, stale-while-revalidate=1800" : "no-store"
+  );
   res.end(body);
 }
 

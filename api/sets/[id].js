@@ -4,6 +4,7 @@ const APP_STORE_ID = "6755665546";
 const DISCORD_URL = "https://discord.gg/WncmGEFuNw";
 const X_URL = "https://x.com/route25app";
 const INSTAGRAM_URL = "https://www.instagram.com/route25app/";
+const { route25ImageUrl } = require("../../lib/route25-image-url");
 const { tcgplayerProductOverride } = require("../tcgplayer-overrides");
 const KNOWN_SET_TOTALS = {
   me3: 124
@@ -167,7 +168,7 @@ function cardImageCandidates(card) {
   }
 
   const image = card?.images?.small || card?.images?.large;
-  if (image) candidates.push(absoluteUrl(image, BACKEND_ORIGIN));
+  if (image) candidates.push(route25ImageUrl(absoluteUrl(image, BACKEND_ORIGIN)));
   if (String(card?.set?.id || "").toLowerCase() !== "mep" && !String(card?.id || "").toLowerCase().startsWith("mep-")) {
     return candidates.filter((candidate, index) => candidate && candidates.indexOf(candidate) === index);
   }
@@ -175,7 +176,7 @@ function cardImageCandidates(card) {
   const id = String(card?.id || "");
   const number = String(card?.number || "").padStart(3, "0");
   const imageKey = id.toLowerCase().startsWith("mep-") ? id.slice(4) : number;
-  if (imageKey) candidates.push(`${BACKEND_ORIGIN}/card-images/mep/mep-${imageKey}.webp`);
+  if (imageKey) candidates.push(route25ImageUrl(`${BACKEND_ORIGIN}/card-images/mep/mep-${imageKey}.webp`));
   return candidates.filter((candidate, index) => candidate && candidates.indexOf(candidate) === index);
 }
 
@@ -196,7 +197,7 @@ function cardDetailUrl(card, set) {
 
   const url = new URL(`/cards/${encodeURIComponent(id)}`, "https://route25.app");
   const smallImages = cardImageCandidates(card);
-  const largeImage = absoluteUrl(card?.images?.large || card?.images?.small, BACKEND_ORIGIN);
+  const largeImage = route25ImageUrl(absoluteUrl(card?.images?.large || card?.images?.small, BACKEND_ORIGIN));
   const hints = {
     name: card?.name,
     number: card?.number,
@@ -221,11 +222,11 @@ function cardDetailUrl(card, set) {
 }
 
 function setLogo(set) {
-  return absoluteUrl(set?.images?.localLogo || set?.images?.logo || set?.images?.symbol, BACKEND_ORIGIN);
+  return route25ImageUrl(absoluteUrl(set?.images?.localLogo || set?.images?.logo || set?.images?.symbol, BACKEND_ORIGIN));
 }
 
 function setSymbol(set) {
-  return absoluteUrl(set?.images?.localSymbol || set?.images?.symbol || set?.images?.logo, BACKEND_ORIGIN);
+  return route25ImageUrl(absoluteUrl(set?.images?.localSymbol || set?.images?.symbol || set?.images?.logo, BACKEND_ORIGIN));
 }
 
 function setTotal(set, cards) {

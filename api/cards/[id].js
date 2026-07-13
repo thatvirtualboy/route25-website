@@ -8,6 +8,7 @@ const TCGPLAYER_PROMOTION_URL = "https://partner.tcgplayer.com/c/6678178/1780961
 const TCGPLAYER_SEARCH_API_URL = "https://mp-search-api.tcgplayer.com/v1/search/request";
 const APP_STORE_ID = "6755665546";
 const SOCIAL_PREVIEW_VERSION = "2";
+const { route25ImageUrl } = require("../../lib/route25-image-url");
 const tcgplayerResolveCache = new Map();
 const {
   tcgplayerProductOverride,
@@ -1242,16 +1243,18 @@ function socialToolbar() {
 
 function renderCardPage(card, req, options = {}) {
   const pageUrl = cardPageUrl(req, card.id);
-  const hintedFallbacks = Array.isArray(card?.images?.fallbacks) ? card.images.fallbacks : [];
-  const lowResCandidates = resolvedCardImages(card, false).concat(hintedFallbacks)
+  const hintedFallbacks = Array.isArray(card?.images?.fallbacks)
+    ? card.images.fallbacks.map((value) => route25ImageUrl(value))
+    : [];
+  const lowResCandidates = resolvedCardImages(card, false).map((value) => route25ImageUrl(value)).concat(hintedFallbacks)
     .filter((candidate, index, all) => candidate && all.indexOf(candidate) === index);
-  const highResCandidates = resolvedCardImages(card, true).concat(hintedFallbacks)
+  const highResCandidates = resolvedCardImages(card, true).map((value) => route25ImageUrl(value)).concat(hintedFallbacks)
     .filter((candidate, index, all) => candidate && all.indexOf(candidate) === index);
   const imageCandidates = lowResCandidates.concat(highResCandidates)
     .filter((candidate, index, all) => candidate && all.indexOf(candidate) === index);
   const image = (options.cleanUrl ? lowResCandidates[0] : highResCandidates[0]) || imageCandidates[0] || "";
   const socialImage = cardSocialImageUrl(req, card.id);
-  const setLogo = absoluteUrl(card?.set?.images?.localLogo || card?.set?.images?.logo, BACKEND_ORIGIN);
+  const setLogo = route25ImageUrl(absoluteUrl(card?.set?.images?.localLogo || card?.set?.images?.logo, BACKEND_ORIGIN));
   const setName = card?.set?.name || card?.set?.id || "Pokemon TCG";
   const browseSetId = card?.set?.id || cardSetId(card.id);
   const browseSetUrl = browseSetId ? `/sets/${encodeURIComponent(browseSetId)}` : "/search";

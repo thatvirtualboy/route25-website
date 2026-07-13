@@ -655,6 +655,7 @@ function renderSearchPage(req) {
       if (inFlightResults.has(key)) return inFlightResults.get(key);
       const request = fetch("/api/card-search?" + searchParamsFor(nextState).toString(), options)
         .then(function(response) {
+          if (!response.ok) throw new Error("Card search failed with status " + response.status);
           return response.json();
         })
         .then(function(payload) {
