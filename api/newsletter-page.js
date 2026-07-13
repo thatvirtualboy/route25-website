@@ -1,6 +1,7 @@
 const admin = require("firebase-admin");
 const { getFirestore } = require("firebase-admin/firestore");
 const { trainerProfileUrl } = require("../lib/newsletter-trainer");
+const { socialDetails } = require("../lib/newsletter-social");
 
 if (!admin.apps.length) {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
@@ -12,7 +13,6 @@ const SITE = (process.env.PUBLIC_SITE_URL || "https://route25.app").replace(/\/$
 function esc(value) { return String(value || "").replace(/[&<>"']/g, char => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[char]); }
 function slug(value) { return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 100); }
 function date(value) { const raw = value?.toDate?.() || value; return raw ? new Intl.DateTimeFormat("en-US", { timeZone:"America/Denver", month:"long", day:"numeric", year:"numeric" }).format(new Date(raw)) : ""; }
-function socialDetails(url) { try { const parsed = new URL(url), host = parsed.hostname.replace(/^www\./, "").toLowerCase(), path = decodeURIComponent(parsed.pathname).replace(/\/$/, ""); let label = host; if (["x.com","twitter.com"].includes(host)) label = "Twitter (X)"; else if (host.includes("instagram.com")) label = "Instagram"; else if (host.includes("youtube.com") || host === "youtu.be") label = "YouTube"; else if (host.includes("tiktok.com")) label = "TikTok"; else if (host.includes("threads.net")) label = "Threads"; return { label, displayUrl:`${host}${path}` }; } catch { return { label:"Social", displayUrl:"View profile" }; } }
 function imageFigure(image, className = "") { return image?.url ? `<figure class="${className}"><button type="button" class="story-image-button" data-story-image="${esc(image.url)}" data-story-alt="${esc(image.alt)}" data-story-caption="${esc(image.caption)}" aria-label="View ${esc(image.alt || "collection photo")} larger"><img src="${esc(image.url)}" alt="${esc(image.alt)}"><span>View larger</span></button>${image.caption ? `<figcaption>${esc(image.caption)}</figcaption>` : ""}</figure>` : ""; }
 function products(title, items, linkLabel) { return items.length ? `<div class="collector-group"><h3>${esc(title)}</h3><div class="collector-items">${items.map(item => `<article class="collector-item"><div><strong>${esc(item.name)}</strong>${item.note ? `<small>${esc(item.note)}</small>` : ""}</div>${item.url ? `<a rel="sponsored nofollow" href="${esc(item.url)}">${linkLabel} <span aria-hidden="true">→</span></a>` : ""}</article>`).join("")}</div></div>` : ""; }
 function collectionProfile(issue) { const details = [["Favorite",issue.favorite],["Current chase",issue.currentChase],["Ultimate grail",issue.grail]].filter(([,value]) => value); return issue.collectionFocus || details.length ? `<section class="collection-profile"><p class="eyebrow">Collection profile</p>${issue.collectionFocus ? `<p class="collection-focus">${esc(issue.collectionFocus)}</p>` : ""}${details.length ? `<div class="collection-highlights">${details.map(([label,value]) => `<article><small>${label}</small><p>${esc(value)}</p></article>`).join("")}</div>` : ""}</section>` : ""; }

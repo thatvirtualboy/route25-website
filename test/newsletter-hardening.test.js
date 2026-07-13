@@ -5,6 +5,7 @@ const path = require("node:path");
 const { MAX_UPLOADS, SESSION_TTL_MS, sessionExpiry, sessionIsUsable } = require("../lib/newsletter-submission-session");
 const { senderRetryAction } = require("../lib/newsletter-sender-state");
 const { normalizeTrainerId, trainerProfileUrl } = require("../lib/newsletter-trainer");
+const { socialDetails } = require("../lib/newsletter-social");
 
 test("submission sessions expire after 30 minutes and allow at most 15 uploads", () => {
   const now = Date.now();
@@ -46,6 +47,13 @@ test("Route 25 Trainer IDs produce safe profile links", () => {
   assert.equal(trainerProfileUrl(""), "");
 });
 
+test("social profiles have friendly labels with a generic fallback", () => {
+  assert.deepEqual(socialDetails("https://twitter.com/route25app?ref=email"), { label:"Twitter (X)", displayUrl:"x.com/route25app" });
+  assert.deepEqual(socialDetails("https://www.instagram.com/route25app/"), { label:"Instagram", displayUrl:"instagram.com/route25app" });
+  assert.deepEqual(socialDetails("https://bsky.app/profile/route25.app"), { label:"Bluesky", displayUrl:"bsky.app/profile/route25.app" });
+  assert.deepEqual(socialDetails("https://collectors.example/@route25?source=form"), { label:"Social profile", displayUrl:"collectors.example/@route25" });
+});
+
 test("collector story presentation uses fixed subscription and structured editorial fields", () => {
   const adminPage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "admin.html"), "utf8");
   const submissionPage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "submit.html"), "utf8");
@@ -56,7 +64,7 @@ test("collector story presentation uses fixed subscription and structured editor
   assert.doesNotMatch(adminPage, /name="subscribeUrl"/);
   assert.match(submissionPage, /What makes your collection interesting\?/);
   assert.match(newsletterApi, /collectionFocus:text\(b\.collectionFocus,1000\)/);
-  assert.match(newsletterApi, /Twitter \(X\)/);
+  assert.match(newsletterApi, /socialDetails\(socialUrl\)/);
   assert.match(newsletterApi, /Collection profile/);
   assert.match(newsletterApi, /Collector’s corner/);
   assert.match(publicRenderer, /href="\/newsletter\/subscribe"/);

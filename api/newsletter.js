@@ -6,6 +6,7 @@ const { isWeeklyPublicationSlot, isExactPublicationSlot, isCurrentPublicationWin
 const { MAX_UPLOADS, sessionId, sessionExpiry, sessionIsUsable } = require("../lib/newsletter-submission-session");
 const { senderRetryAction } = require("../lib/newsletter-sender-state");
 const { normalizeTrainerId, trainerProfileUrl } = require("../lib/newsletter-trainer");
+const { socialDetails } = require("../lib/newsletter-social");
 
 if (!admin.apps.length) {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
@@ -181,25 +182,6 @@ function normalizeSocialUrl(v) {
   const url = text(v, 2000);
   return /^https:\/\//i.test(url) ? url : "";
 }
-function socialLabel(url) {
-  try {
-    const host = new URL(url).hostname.replace(/^www\./, "").toLowerCase();
-    if (host === "x.com" || host === "twitter.com") return "Twitter (X)";
-    if (host.includes("instagram.com")) return "Instagram";
-    if (host.includes("youtube.com") || host === "youtu.be") return "YouTube";
-    if (host.includes("tiktok.com")) return "TikTok";
-    if (host.includes("threads.net")) return "Threads";
-    return host;
-  } catch { return "Social"; }
-}
-function socialDisplayUrl(url) {
-  try {
-    const parsed = new URL(url);
-    const host = parsed.hostname.replace(/^www\./, "");
-    const path = decodeURIComponent(parsed.pathname).replace(/\/$/, "");
-    return `${host}${path}`;
-  } catch { return "View profile"; }
-}
 async function normalizeIssueImages(v, publish) {
   if (!Array.isArray(v)) return [];
   const images = v.slice(0, MAX_IMAGES).map(image => ({
@@ -335,7 +317,8 @@ function buildEmail(issue) {
   const gear = products.length ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;margin:34px 0 0;background:#f1f7fb;border:1px solid #cfe1ec;border-radius:18px;overflow:hidden"><tr><td style="padding:22px 20px;background:#07111f"><p style="margin:0 0 5px;color:#58c7ff;font-size:11px;font-weight:bold;letter-spacing:1.5px;text-transform:uppercase">From the collection</p><h2 style="margin:0;color:#ffffff;font-size:23px">Collector’s corner</h2><p style="margin:8px 0 0;color:#b8c6d5;font-size:14px;line-height:1.5">The cards and tools that help shape this collection.</p></td></tr>${productGroup("Cards mentioned", products.filter(product => product.category === "card"), "View card")}${productGroup("Gear used", products.filter(product => product.category !== "card"), "View gear")}<tr><td style="height:10px"></td></tr></table>` : "";
   const interview = (issue.interviewAnswers || []).length ? `<div style="margin-top:34px"><p style="margin:0 0 8px;color:#168fc8;font-size:12px;font-weight:bold;letter-spacing:1.5px;text-transform:uppercase">Five questions</p>${issue.interviewAnswers.map(answer => `<h3 style="margin:22px 0 7px;color:#101828;font-size:18px;line-height:1.35">${html(answer.question)}</h3><p style="margin:0;color:#475467;font-size:16px;line-height:1.7">${html(answer.answer)}</p>`).join("")}</div>` : "";
   const socialUrl = normalizeSocialUrl(issue.socialUrl || issue.socialLinks?.[0]);
-  const socials = socialUrl ? `<p style="margin:16px 0 0;color:#475467;font-family:Arial,sans-serif;font-size:14px"><strong style="color:#101828">${html(socialLabel(socialUrl))}</strong> <span style="color:#98a2b3">→</span> <a href="${html(socialUrl)}" style="color:#087bb5;font-weight:bold;text-decoration:underline">${html(socialDisplayUrl(socialUrl))}</a></p>` : "";
+  const social = socialUrl ? socialDetails(socialUrl) : null;
+  const socials = social ? `<p style="margin:16px 0 0;color:#475467;font-family:Arial,sans-serif;font-size:14px"><strong style="color:#101828">${html(social.label)}</strong> <span style="color:#98a2b3">→</span> <a href="${html(socialUrl)}" style="color:#087bb5;font-weight:bold;text-decoration:underline">${html(social.displayUrl)}</a></p>` : "";
   const collectionDetails = [
     ["Favorite", issue.favorite],
     ["Current chase", issue.currentChase],
