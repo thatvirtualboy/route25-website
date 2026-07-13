@@ -272,6 +272,48 @@ h1 {
   height: 58px;
   width: auto;
 }
+.google-play-badge {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  width: 170px;
+  height: 60px;
+  padding: 8px 11px;
+  gap: 9px;
+  color: #fff;
+  background: #050505;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 14px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  cursor: default;
+}
+.google-play-logo {
+  display: block;
+  width: 29px;
+  height: 31px;
+  flex: 0 0 auto;
+  background-image: url('/assets/google-play-official-badge.png');
+  background-repeat: no-repeat;
+  background-size: 182px 70.43px;
+  background-position: -23px -20px;
+}
+.google-play-badge span {
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
+  white-space: nowrap;
+}
+.google-play-badge small {
+  margin-bottom: 3px;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+}
+.google-play-badge strong {
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+}
 .note {
   margin-top: 18px;
   font-size: 13px;
