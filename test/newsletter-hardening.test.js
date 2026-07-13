@@ -45,3 +45,23 @@ test("Route 25 Trainer IDs produce safe profile links", () => {
   assert.equal(normalizeTrainerId("../../admin"), "");
   assert.equal(trainerProfileUrl(""), "");
 });
+
+test("collector story presentation uses fixed subscription and structured editorial fields", () => {
+  const adminPage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "admin.html"), "utf8");
+  const submissionPage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "submit.html"), "utf8");
+  const previewPage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "issue.html"), "utf8");
+  const publicRenderer = fs.readFileSync(path.join(__dirname, "..", "api", "newsletter-page.js"), "utf8");
+  const newsletterApi = fs.readFileSync(path.join(__dirname, "..", "api", "newsletter.js"), "utf8");
+
+  assert.doesNotMatch(adminPage, /name="subscribeUrl"/);
+  assert.match(submissionPage, /What makes your collection interesting\?/);
+  assert.match(newsletterApi, /collectionFocus:text\(b\.collectionFocus,1000\)/);
+  assert.match(newsletterApi, /Twitter \(X\)/);
+  assert.match(newsletterApi, /Collection profile/);
+  assert.match(newsletterApi, /Collector’s corner/);
+  assert.match(publicRenderer, /href="\/newsletter\/subscribe"/);
+  assert.match(publicRenderer, /data-story-image/);
+  assert.match(publicRenderer, /storyLightbox/);
+  assert.match(previewPage, /data-story-image/);
+  assert.doesNotMatch(previewPage, /issue\.subscribeUrl/);
+});
