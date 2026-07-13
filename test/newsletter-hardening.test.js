@@ -6,7 +6,7 @@ const { MAX_UPLOADS, SESSION_TTL_MS, sessionExpiry, sessionIsUsable } = require(
 const { senderRetryAction } = require("../lib/newsletter-sender-state");
 const { normalizeTrainerId, trainerProfileUrl } = require("../lib/newsletter-trainer");
 const { socialDetails } = require("../lib/newsletter-social");
-const { storyBodyHtml } = require("../lib/newsletter-story");
+const { collectionStoryFields, storyBodyHtml } = require("../lib/newsletter-story");
 
 test("submission sessions expire after 30 minutes and allow at most 15 uploads", () => {
   const now = Date.now();
@@ -52,6 +52,15 @@ test("collector biographies are not repeated in generated story bodies", () => {
   assert.equal(storyBodyHtml({ summary:"About the collector", bodyHtml:"<p>About the collector</p>" }), "");
   assert.equal(storyBodyHtml({ summary:"About the collector", bodyHtml:"<p>About the collector</p><h2>More context</h2><p>A detail.</p>" }), "<h2>More context</h2><p>A detail.</p>");
   assert.equal(storyBodyHtml({ summary:"About the collector", bodyHtml:"<p>Different editorial introduction.</p>" }), "<p>Different editorial introduction.</p>");
+});
+
+test("legacy collection sections move into the structured profile without duplication", () => {
+  const issue = {
+    summary:"About the collector",
+    bodyHtml:"<p>About the collector</p><h2>The collection</h2><p>Kanto through modern.</p><h2>A favorite</h2><p>Pikachu</p><h2>The current chase</h2><p>Mega Gengar</p><h2>The grail</h2><p>Red Cheeks Pikachu</p>"
+  };
+  assert.deepEqual(collectionStoryFields(issue), { collectionFocus:"Kanto through modern.", favorite:"Pikachu", currentChase:"Mega Gengar", grail:"Red Cheeks Pikachu" });
+  assert.equal(storyBodyHtml(issue), "");
 });
 
 test("social profiles have friendly labels with a generic fallback", () => {

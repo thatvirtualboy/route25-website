@@ -7,7 +7,7 @@ const { MAX_UPLOADS, sessionId, sessionExpiry, sessionIsUsable } = require("../l
 const { senderRetryAction } = require("../lib/newsletter-sender-state");
 const { normalizeTrainerId, trainerProfileUrl } = require("../lib/newsletter-trainer");
 const { socialDetails } = require("../lib/newsletter-social");
-const { storyBodyHtml } = require("../lib/newsletter-story");
+const { collectionStoryFields, storyBodyHtml } = require("../lib/newsletter-story");
 
 if (!admin.apps.length) {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
@@ -320,12 +320,13 @@ function buildEmail(issue) {
   const socialUrl = normalizeSocialUrl(issue.socialUrl || issue.socialLinks?.[0]);
   const social = socialUrl ? socialDetails(socialUrl) : null;
   const socials = social ? `<p style="margin:16px 0 0;color:#475467;font-family:Arial,sans-serif;font-size:14px"><strong style="color:#101828">${html(social.label)}</strong> <span style="color:#98a2b3">→</span> <a href="${html(socialUrl)}" style="color:#087bb5;font-weight:bold;text-decoration:underline">${html(social.displayUrl)}</a></p>` : "";
+  const collection = collectionStoryFields(issue);
   const collectionDetails = [
-    ["Favorite", issue.favorite],
-    ["Current chase", issue.currentChase],
-    ["Ultimate grail", issue.grail]
+    ["Favorite", collection.favorite],
+    ["Current chase", collection.currentChase],
+    ["Ultimate grail", collection.grail]
   ].filter(([, value]) => text(value, 1000));
-  const collectionProfile = text(issue.collectionFocus, 1000) || collectionDetails.length ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;margin:30px 0;background:#f6f3ff;border:1px solid #ddd4ff;border-radius:18px;overflow:hidden"><tr><td style="padding:23px 24px"><p style="margin:0 0 8px;color:#7657d7;font-size:11px;font-weight:bold;letter-spacing:1.5px;text-transform:uppercase">Collection profile</p>${issue.collectionFocus ? `<p style="margin:0;color:#1d2939;font-size:18px;line-height:1.6;font-weight:bold">${html(issue.collectionFocus)}</p>` : ""}${collectionDetails.length ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;margin-top:18px"><tr>${collectionDetails.map(([label, value]) => `<td class="r25-highlight" width="33.33%" valign="top" style="padding:12px;background:#ffffff;border:1px solid #e5dfff"><p style="margin:0 0 5px;color:#7657d7;font-size:10px;font-weight:bold;letter-spacing:1px;text-transform:uppercase">${label}</p><p style="margin:0;color:#475467;font-size:14px;line-height:1.5">${html(value)}</p></td>`).join("")}</tr></table>` : ""}</td></tr></table>` : "";
+  const collectionProfile = collection.collectionFocus || collectionDetails.length ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;margin:30px 0;background:#f6f3ff;border:1px solid #ddd4ff;border-radius:18px;overflow:hidden"><tr><td style="padding:23px 24px"><p style="margin:0 0 8px;color:#7657d7;font-size:11px;font-weight:bold;letter-spacing:1.5px;text-transform:uppercase">Collection profile</p>${collection.collectionFocus ? `<p style="margin:0;color:#1d2939;font-size:18px;line-height:1.6;font-weight:bold">${html(collection.collectionFocus)}</p>` : ""}${collectionDetails.length ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;margin-top:18px"><tr>${collectionDetails.map(([label, value]) => `<td class="r25-highlight" width="33.33%" valign="top" style="padding:12px;background:#ffffff;border:1px solid #e5dfff"><p style="margin:0 0 5px;color:#7657d7;font-size:10px;font-weight:bold;letter-spacing:1px;text-transform:uppercase">${label}</p><p style="margin:0;color:#475467;font-size:14px;line-height:1.5">${html(value)}</p></td>`).join("")}</tr></table>` : ""}</td></tr></table>` : "";
   const trainerUrl = trainerProfileUrl(issue.trainerId, site);
   const trainerCta = trainerUrl ? `<p style="margin:18px 0 0"><a href="${html(trainerUrl)}" style="display:inline-block;background:#202737;color:#ffffff;text-decoration:none;font-family:Arial,sans-serif;font-size:14px;font-weight:bold;padding:11px 17px;border-radius:999px">View this trainer on Route 25</a></p>` : "";
   const storyBody = storyBodyHtml(issue);
