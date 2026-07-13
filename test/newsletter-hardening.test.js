@@ -86,7 +86,11 @@ test("collector story presentation uses fixed subscription and structured editor
   assert.match(publicRenderer, /href="\/newsletter\/subscribe"/);
   assert.match(publicRenderer, /data-story-image/);
   assert.match(publicRenderer, /storyLightbox/);
+  assert.match(publicRenderer, /lightbox-next/);
+  assert.match(publicRenderer, /ArrowRight/);
   assert.match(previewPage, /data-story-image/);
+  assert.match(previewPage, /lightbox-next/);
+  assert.match(previewPage, /ArrowRight/);
   assert.match(previewPage, /View this trainer on Route 25/);
   assert.match(previewPage, /trainerProfileUrl/);
   assert.match(previewPage, /storyBodyHtml/);
