@@ -1,0 +1,6 @@
+.env*
+.git
+.vercel
+node_modules
+output
+tmp
