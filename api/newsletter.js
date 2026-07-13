@@ -22,6 +22,8 @@ const bucket = admin.storage().bucket();
 const MAX_IMAGES = 15;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/heic"]);
+const IMAGE_EXTENSIONS = { "image/jpeg":"jpg", "image/png":"png", "image/webp":"webp", "image/heic":"heic" };
+const NEWSLETTER_IMAGE_PATH = /^newsletter\/submissions\/[0-9-]+\/[a-f0-9-]+\.(jpg|png|webp|heic)$/;
 const STATUSES = new Set(["submitted", "reviewing", "selected", "draft", "scheduled", "published", "declined"]);
 const AFFILIATES = new Set(["amazon", "ebay", "tcgplayer", "direct"]);
 const PRODUCT_CATEGORIES = new Set(["gear", "card"]);
@@ -183,6 +185,12 @@ function normalizeSocialUrl(v) {
   const url = text(v, 2000);
   return /^https:\/\//i.test(url) ? url : "";
 }
+async function permanentNewsletterImageUrl(file, metadata) {
+  const custom = metadata.metadata || {};
+  const token = custom.firebaseStorageDownloadTokens || crypto.randomUUID();
+  if (!custom.firebaseStorageDownloadTokens) await file.setMetadata({ metadata: { ...custom, firebaseStorageDownloadTokens: token } });
+  return `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(file.name)}?alt=media&token=${encodeURIComponent(token)}`;
+}
 async function normalizeIssueImages(v, publish) {
   if (!Array.isArray(v)) return [];
   const images = v.slice(0, MAX_IMAGES).map(image => ({
@@ -194,14 +202,10 @@ async function normalizeIssueImages(v, publish) {
   if (!publish) return images;
   return Promise.all(images.map(async image => {
     if (!image.objectPath) return image;
-    if (!/^newsletter\/submissions\/[0-9-]+\/[a-f0-9-]+\.(jpg|png|webp|heic)$/.test(image.objectPath)) throw Object.assign(new Error("Invalid published image reference"), { status: 400 });
+    if (!NEWSLETTER_IMAGE_PATH.test(image.objectPath)) throw Object.assign(new Error("Invalid published image reference"), { status: 400 });
     const file = bucket.file(image.objectPath);
     const [metadata] = await file.getMetadata();
-    const custom = metadata.metadata || {};
-    const token = custom.firebaseStorageDownloadTokens || crypto.randomUUID();
-    if (!custom.firebaseStorageDownloadTokens) await file.setMetadata({ metadata: { ...custom, firebaseStorageDownloadTokens: token } });
-    const url = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(image.objectPath)}?alt=media&token=${encodeURIComponent(token)}`;
-    return { ...image, url };
+    return { ...image, url: await permanentNewsletterImageUrl(file, metadata) };
   }));
 }
 async function emailImageVariant(image, role) {
@@ -503,7 +507,7 @@ module.exports = async (req, res) => {
       const { contentType, size, filename } = req.body || {};
       if (!await authorizeSessionUpload(req, req.body?.submissionToken)) return json(res, 403, { error: "Your upload session expired or has reached its 15-image limit. Please verify again." });
       if (!IMAGE_TYPES.has(contentType) || !Number.isInteger(size) || size < 1 || size > MAX_IMAGE_BYTES) return json(res, 400, { error: "Images must be JPEG, PNG, WebP, or HEIC and 10 MB or less." });
-      const ext = ({"image/jpeg":"jpg", "image/png":"png", "image/webp":"webp", "image/heic":"heic"})[contentType];
+      const ext = IMAGE_EXTENSIONS[contentType];
       await ensureUploadCors();
       const objectPath = `newsletter/submissions/${new Date().toISOString().slice(0,10)}/${crypto.randomUUID()}.${ext}`;
       const file = bucket.file(objectPath);
@@ -522,7 +526,7 @@ module.exports = async (req, res) => {
       const checked = [];
       for (const image of images) {
         const objectPath = text(image?.objectPath, 500);
-        if (!/^newsletter\/submissions\/[0-9-]+\/[a-f0-9-]+\.(jpg|png|webp|heic)$/.test(objectPath)) return json(res, 400, { error: "Invalid image reference." });
+        if (!NEWSLETTER_IMAGE_PATH.test(objectPath)) return json(res, 400, { error: "Invalid image reference." });
         const [meta] = await bucket.file(objectPath).getMetadata();
         if (Number(meta.size) > MAX_IMAGE_BYTES || !IMAGE_TYPES.has(meta.contentType)) { await bucket.file(objectPath).delete({ ignoreNotFound: true }); return json(res, 400, { error: "An uploaded image failed validation." }); }
         checked.push({ objectPath, contentType: meta.contentType, size: Number(meta.size), caption: text(image.caption, 500), alt: text(image.alt, 300) });
@@ -602,6 +606,25 @@ module.exports = async (req, res) => {
     }
 
     await requireAdmin(req);
+    if (action === "admin-upload-url" && req.method === "POST") {
+      const { contentType, size, filename } = req.body || {};
+      if (!IMAGE_TYPES.has(contentType) || !Number.isInteger(size) || size < 1 || size > MAX_IMAGE_BYTES) return json(res, 400, { error: "Images must be JPEG, PNG, WebP, or HEIC and 10 MB or less." });
+      await ensureUploadCors();
+      const objectPath = `newsletter/submissions/${new Date().toISOString().slice(0,10)}/${crypto.randomUUID()}.${IMAGE_EXTENSIONS[contentType]}`;
+      const [uploadUrl] = await bucket.file(objectPath).getSignedUrl({ version: "v4", action: "write", expires: Date.now() + 10 * 60 * 1000, contentType });
+      return json(res, 200, { uploadUrl, objectPath, originalName: text(filename, 200) });
+    }
+    if (action === "admin-complete-upload" && req.method === "POST") {
+      const objectPath = text(req.body?.objectPath, 500);
+      if (!NEWSLETTER_IMAGE_PATH.test(objectPath)) return json(res, 400, { error: "Invalid image reference." });
+      const file = bucket.file(objectPath);
+      const [metadata] = await file.getMetadata();
+      if (Number(metadata.size) < 1 || Number(metadata.size) > MAX_IMAGE_BYTES || !IMAGE_TYPES.has(metadata.contentType)) {
+        await file.delete({ ignoreNotFound: true });
+        return json(res, 400, { error: "The uploaded file must be a JPEG, PNG, WebP, or HEIC image no larger than 10 MB." });
+      }
+      return json(res, 200, { objectPath, url: await permanentNewsletterImageUrl(file, metadata), contentType: metadata.contentType, size: Number(metadata.size) });
+    }
     if (action === "admin-list" && req.method === "GET") {
       const snap = await db.collection("newsletterSubmissions").orderBy("createdAt", "desc").limit(100).get();
       const submissions = await Promise.all(snap.docs.map(async d => {

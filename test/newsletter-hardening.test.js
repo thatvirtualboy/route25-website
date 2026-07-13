@@ -96,3 +96,21 @@ test("collector story presentation uses fixed subscription and structured editor
   assert.match(previewPage, /storyBodyHtml/);
   assert.doesNotMatch(previewPage, /issue\.subscribeUrl/);
 });
+
+test("editorial photo uploads are admin-only and retain newsletter image safeguards", () => {
+  const adminPage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "admin.html"), "utf8");
+  const newsletterApi = fs.readFileSync(path.join(__dirname, "..", "api", "newsletter.js"), "utf8");
+  const adminBoundary = newsletterApi.indexOf("await requireAdmin(req);");
+
+  assert.match(adminPage, /id="editorPhotos"[^>]+multiple/);
+  assert.match(adminPage, /admin-upload-url/);
+  assert.match(adminPage, /admin-complete-upload/);
+  assert.match(adminPage, /EDITOR_MAX_IMAGES=15/);
+  assert.match(adminPage, /EDITOR_MAX_IMAGE_BYTES=10\*1024\*1024/);
+  assert.ok(adminBoundary > -1);
+  assert.ok(newsletterApi.indexOf('action === "admin-upload-url"') > adminBoundary);
+  assert.ok(newsletterApi.indexOf('action === "admin-complete-upload"') > adminBoundary);
+  assert.match(newsletterApi, /NEWSLETTER_IMAGE_PATH/);
+  assert.match(newsletterApi, /MAX_IMAGE_BYTES = 10 \* 1024 \* 1024/);
+  assert.match(newsletterApi, /IMAGE_TYPES = new Set\(\["image\/jpeg", "image\/png", "image\/webp", "image\/heic"\]\)/);
+});
