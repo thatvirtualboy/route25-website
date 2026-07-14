@@ -114,3 +114,12 @@ test("editorial photo uploads are admin-only and retain newsletter image safegua
   assert.match(newsletterApi, /MAX_IMAGE_BYTES = 10 \* 1024 \* 1024/);
   assert.match(newsletterApi, /IMAGE_TYPES = new Set\(\["image\/jpeg", "image\/png", "image\/webp", "image\/heic"\]\)/);
 });
+
+test("swapping one submission question preserves every unchanged answer", () => {
+  const submissionPage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "submit.html"), "utf8");
+
+  assert.match(submissionPage, /function currentQuestionAnswers\(\)/);
+  assert.match(submissionPage, /answers\.get\(questionKey\(q,i\)\)/);
+  assert.match(submissionPage, /const answers=currentQuestionAnswers\(\);questions\[index\]=data\.questions\[0\];renderQuestions\(answers\)/);
+  assert.match(submissionPage, /querySelectorAll\('\[data-swap-question\]'\)\.forEach\(control=>control\.disabled=true\)/);
+});
