@@ -123,3 +123,16 @@ test("swapping one submission question preserves every unchanged answer", () => 
   assert.match(submissionPage, /const answers=currentQuestionAnswers\(\);questions\[index\]=data\.questions\[0\];renderQuestions\(answers\)/);
   assert.match(submissionPage, /querySelectorAll\('\[data-swap-question\]'\)\.forEach\(control=>control\.disabled=true\)/);
 });
+
+test("editor workflow saves blocked schedules as drafts and explains test delivery", () => {
+  const adminPage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "admin.html"), "utf8");
+  const newsletterApi = fs.readFileSync(path.join(__dirname, "..", "api", "newsletter.js"), "utf8");
+
+  assert.match(adminPage, /Publishing a real issue/);
+  assert.match(adminPage, /<strong>Send test<\/strong>/);
+  assert.match(adminPage, /Do not select this to test-email a real issue/);
+  assert.doesNotMatch(adminPage, />Article HTML</);
+  assert.match(newsletterApi, /issue\.status = "draft"/);
+  assert.match(newsletterApi, /schedulingBlocked/);
+  assert.match(newsletterApi, /status:issue\.status/);
+});

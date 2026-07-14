@@ -2,7 +2,7 @@ const admin = require("firebase-admin");
 const { getFirestore } = require("firebase-admin/firestore");
 const crypto = require("node:crypto");
 const sharp = require("sharp");
-const { isWeeklyPublicationSlot, isExactPublicationSlot, isCurrentPublicationWindow, publicationPreflight } = require("../lib/newsletter-safety");
+const { isWeeklyPublicationSlot, isFuturePublicationSlot, isCurrentPublicationWindow, publicationPreflight } = require("../lib/newsletter-safety");
 const { MAX_UPLOADS, sessionId, sessionExpiry, sessionIsUsable } = require("../lib/newsletter-submission-session");
 const { senderRetryAction } = require("../lib/newsletter-sender-state");
 const { normalizeTrainerId, trainerProfileUrl } = require("../lib/newsletter-trainer");
@@ -677,29 +677,36 @@ module.exports = async (req, res) => {
       const requestedStatus = ["draft", "scheduled"].includes(b.status) ? b.status : "draft";
       const status = b.isTest === true ? "draft" : requestedStatus;
       const parsedPublishAt = b.publishAt ? new Date(b.publishAt) : null;
-      if (status === "scheduled" && (!parsedPublishAt || !Number.isFinite(parsedPublishAt.getTime()) || parsedPublishAt.getTime() <= Date.now() || !isExactPublicationSlot(parsedPublishAt))) return json(res, 400, { error: "Choose a future Saturday publication date; issues publish at 7:00 AM Mountain." });
+      const scheduleDateValid = status !== "scheduled" || isFuturePublicationSlot(parsedPublishAt);
       const existing = await db.collection("newsletterIssues").where("slug","==",slug).limit(1).get();
       let issueNumber = Number(b.issueNumber);
       if (b.isTest !== true && (!Number.isInteger(issueNumber) || issueNumber < 1)) {
         const numberedIssues = await db.collection("newsletterIssues").limit(1000).get();
         issueNumber = Math.max(0, ...numberedIssues.docs.filter(doc => doc.id !== existing.docs[0]?.id && isPublicIssue(doc.data())).map(doc => Number(doc.data().issueNumber) || 0)) + 1;
       }
-      const issue = { slug, title:text(b.title,200), issueNumber:Number.isInteger(issueNumber)&&issueNumber>0?issueNumber:null, emailNoteMarkdown:text(b.emailNoteMarkdown,10000), dek:text(b.dek,500), summary:text(b.summary,2000), bodyHtml:text(b.bodyHtml,50000), collectionFocus:text(b.collectionFocus,1000), favorite:text(b.favorite,1000), currentChase:text(b.currentChase,1000), grail:text(b.grail,1000), trainerName:text(b.trainerName,120), trainerId, socialUrl:normalizeSocialUrl(b.socialUrl), submissionId:text(b.submissionId,100), images:await normalizeIssueImages(b.images, status === "published"), interviewAnswers:normalizeAnswers(b.interviewAnswers), products:normalizeProducts(b.products), pokemonTags:list(b.pokemonTags,30), cardTags:list(b.cardTags,30), setTags:list(b.setTags,30), collectionTags:list(b.collectionTags,30), status, isTest:b.isTest === true, publicVisibility:b.isTest !== true, publishAt: status === "scheduled" ? admin.firestore.Timestamp.fromDate(parsedPublishAt) : null, updatedAt:admin.firestore.FieldValue.serverTimestamp() };
+      const issue = { slug, title:text(b.title,200), issueNumber:Number.isInteger(issueNumber)&&issueNumber>0?issueNumber:null, emailNoteMarkdown:text(b.emailNoteMarkdown,10000), dek:text(b.dek,500), summary:text(b.summary,2000), bodyHtml:text(b.bodyHtml,50000), collectionFocus:text(b.collectionFocus,1000), favorite:text(b.favorite,1000), currentChase:text(b.currentChase,1000), grail:text(b.grail,1000), trainerName:text(b.trainerName,120), trainerId, socialUrl:normalizeSocialUrl(b.socialUrl), submissionId:text(b.submissionId,100), images:await normalizeIssueImages(b.images, status === "published"), interviewAnswers:normalizeAnswers(b.interviewAnswers), products:normalizeProducts(b.products), pokemonTags:list(b.pokemonTags,30), cardTags:list(b.cardTags,30), setTags:list(b.setTags,30), collectionTags:list(b.collectionTags,30), status:status === "scheduled" && !scheduleDateValid ? "draft" : status, isTest:b.isTest === true, publicVisibility:b.isTest !== true, publishAt: status === "scheduled" && scheduleDateValid ? admin.firestore.Timestamp.fromDate(parsedPublishAt) : null, updatedAt:admin.firestore.FieldValue.serverTimestamp() };
+      let schedulingBlocked = [];
       if (status === "scheduled") {
-        const scheduled = await db.collection("newsletterIssues").where("status", "==", "scheduled").limit(100).get();
-        const conflict = scheduled.docs.find(doc => doc.id !== existing.docs[0]?.id && doc.data().publishAt?.toMillis?.() === parsedPublishAt.getTime());
-        if (conflict) return json(res, 409, { error: `That Saturday is already assigned to “${text(conflict.data().title, 200)}”. Choose another week.` });
+        if (scheduleDateValid) {
+          const scheduled = await db.collection("newsletterIssues").where("status", "==", "scheduled").limit(100).get();
+          const conflict = scheduled.docs.find(doc => doc.id !== existing.docs[0]?.id && doc.data().publishAt?.toMillis?.() === parsedPublishAt.getTime());
+          if (conflict) return json(res, 409, { error: `That Saturday is already assigned to “${text(conflict.data().title, 200)}”. Choose another week.` });
+        } else schedulingBlocked.push("Future Saturday publication date");
         const numbered = await db.collection("newsletterIssues").where("issueNumber", "==", issue.issueNumber).limit(5).get();
         if (numbered.docs.some(doc => doc.id !== existing.docs[0]?.id)) return json(res, 409, { error: `Issue #${issue.issueNumber} is already in use. Choose another number.` });
-        const preflight = publicationPreflight({ ...issue, lastTestEmailAt: existing.docs[0]?.data()?.lastTestEmailAt }, deliveryConfig());
-        if (!preflight.readyToSchedule) return json(res, 409, { error: `Scheduling blocked: ${preflight.checks.filter(check => check.blocking && !check.ok).map(check => check.label).join(", ")}. Save a draft, complete these items, and try again.`, preflight });
+        const preflight = publicationPreflight({ ...issue, status:"scheduled", lastTestEmailAt: existing.docs[0]?.data()?.lastTestEmailAt }, deliveryConfig());
+        schedulingBlocked.push(...preflight.checks.filter(check => check.blocking && !check.ok && (scheduleDateValid || check.key !== "slot")).map(check => check.label).filter(label => !schedulingBlocked.includes(label)));
+        if (schedulingBlocked.length) {
+          issue.status = "draft";
+          issue.publishAt = null;
+        }
       }
       const ref = existing.empty ? db.collection("newsletterIssues").doc() : existing.docs[0].ref;
       const previewToken = existing.empty ? crypto.randomBytes(32).toString("hex") : (existing.docs[0].data().previewToken || crypto.randomBytes(32).toString("hex"));
-      const previous = existing.empty ? {} : existing.docs[0].data(), resetUnsentCampaign = previous.senderCampaignId && previous.emailStatus !== "sent" && status !== "published";
+      const previous = existing.empty ? {} : existing.docs[0].data(), resetUnsentCampaign = previous.senderCampaignId && previous.emailStatus !== "sent" && issue.status !== "published";
       await ref.set({ ...issue, previewToken, ...(resetUnsentCampaign ? { senderCampaignId: admin.firestore.FieldValue.delete(), senderGroup: admin.firestore.FieldValue.delete(), emailStatus: "not-sent", emailError: admin.firestore.FieldValue.delete() } : {}), createdAt: existing.empty ? admin.firestore.FieldValue.serverTimestamp() : previous.createdAt }, { merge:true });
       if (issue.submissionId) await db.collection("newsletterSubmissions").doc(issue.submissionId).set({ status: issue.status, scheduledIssue: ref.id, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-      return json(res,200,{id:ref.id,slug,issueNumber:issue.issueNumber});
+      return json(res,200,{id:ref.id,slug,issueNumber:issue.issueNumber,status:issue.status,schedulingBlocked});
     }
     if (action === "admin-issue-action" && req.method === "POST") {
       const operation = text(req.body?.operation, 50), id = text(req.body?.id, 100);
