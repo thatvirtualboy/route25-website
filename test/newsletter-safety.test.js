@@ -32,10 +32,17 @@ test("preflight requires editorial content and a test send", () => {
 });
 
 test("a complete issue can be scheduled while live delivery remains disabled", () => {
-  const issue = { issueNumber: 1, title: "Story", trainerName: "Trainer", summary: "Summary", images: [{ objectPath: "newsletter/photo.jpg" }], interviewAnswers: [{ answer: "A" }], lastTestEmailAt: new Date().toISOString(), isTest: false };
+  const issue = { issueNumber: 1, title: "Story", trainerName: "Trainer", summary: "Summary", images: [{ objectPath: "newsletter/one.jpg" }, { objectPath: "newsletter/two.jpg" }, { objectPath: "newsletter/three.jpg" }], interviewAnswers: [{ answer: "A" }], lastTestEmailAt: new Date().toISOString(), isTest: false };
   const result = publicationPreflight(issue, { senderConfigured: true, liveGroupConfigured: true, liveSendEnabled: false });
   assert.equal(result.readyToSchedule, true);
   assert.equal(result.readyToPublish, false);
+});
+
+test("real issues require three included email images", () => {
+  const issue = { issueNumber: 1, title: "Story", trainerName: "Trainer", summary: "Summary", images: [{ objectPath: "newsletter/one.jpg" }, { objectPath: "newsletter/two.jpg" }], interviewAnswers: [{ answer: "A" }], lastTestEmailAt: new Date().toISOString(), isTest: false };
+  const result = publicationPreflight(issue, { senderConfigured: true, liveGroupConfigured: true, liveSendEnabled: true });
+  assert.equal(result.readyToSchedule, false);
+  assert.equal(result.checks.find(check => check.key === "email-images").ok, false);
 });
 
 test("test issues can never pass scheduling preflight", () => {

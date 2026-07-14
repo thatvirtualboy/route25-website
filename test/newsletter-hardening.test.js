@@ -153,3 +153,14 @@ test("structured story text preserves paragraphs across web, preview, and email"
   assert.match(newsletterApi, /emailParagraphs\(issue\.summary/);
   assert.match(newsletterApi, /emailParagraphs\(collection\.collectionFocus/);
 });
+
+test("newsletter emails use three distinct images in the editorial sequence", () => {
+  const adminPage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "admin.html"), "utf8");
+  const newsletterApi = fs.readFileSync(path.join(__dirname, "..", "api", "newsletter.js"), "utf8");
+
+  assert.match(adminPage, /first three included photos appear in the email/i);
+  assert.match(newsletterApi, /const \[hero, storyImage, thirdImage\] = emailImages/);
+  assert.match(newsletterApi, /\$\{interview\}\$\{thirdImage \?/);
+  assert.match(newsletterApi, /\$\{gear\}/);
+  assert.match(newsletterApi, /index < 3/);
+});
