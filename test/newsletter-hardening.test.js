@@ -201,8 +201,11 @@ test("published collector stories use branded same-origin social previews", () =
   assert.match(socialRenderer, /issue\.status !== "published"/);
   assert.match(socialRenderer, /issue\.publicVisibility !== true/);
   assert.match(socialRenderer, /approvedPhotoUrl/);
+  assert.match(socialRenderer, /brightness: 0\.62/);
   assert.match(socialCanvas, /width: "1200px", height: "630px", objectFit: "cover"/);
   assert.match(socialCanvas, /textShadow/);
+  assert.match(socialCanvas, /const logo = assets\.logo/);
+  assert.match(socialRenderer, /route25-logo-white\.png/);
   assert.doesNotMatch(socialCanvas, /issue\?\.dek|issue\?\.summary/);
   assert.ok(vercel.rewrites.some(rewrite => rewrite.source === "/api/newsletter/og" && rewrite.destination === "/api/newsletter-og.js"));
 });

@@ -45,7 +45,7 @@ async function socialPhoto(value) {
   if (Number.isFinite(declaredLength) && declaredLength > 15 * 1024 * 1024) throw new Error("Story image is too large for a social preview");
   const input = Buffer.from(await response.arrayBuffer());
   if (input.length > 15 * 1024 * 1024) throw new Error("Story image is too large for a social preview");
-  const output = await sharp(input).resize(2400, 1260, { fit: "cover", position: "attention" }).jpeg({ quality: 86 }).toBuffer();
+  const output = await sharp(input).resize(2400, 1260, { fit: "cover", position: "attention" }).modulate({ brightness: 0.62, saturation: 0.92 }).jpeg({ quality: 86 }).toBuffer();
   const result = dataUrl(output, "image/jpeg");
   imageCache.set(source, result);
   return result;
@@ -53,6 +53,10 @@ async function socialPhoto(value) {
 
 function iconDataUrl() {
   return dataUrl(readFileSync(path.join(process.cwd(), "assets", "Icon.png")), "image/png");
+}
+
+function logoDataUrl() {
+  return dataUrl(readFileSync(path.join(process.cwd(), "assets", "route25-logo-white.png")), "image/png");
 }
 
 function fonts() {
@@ -83,7 +87,7 @@ module.exports = async (req, res) => {
       return "";
     });
     const { ImageResponse } = await import("@vercel/og");
-    const image = new ImageResponse(renderNewsletterSocialCanvas(issue, { image: hero, icon: iconDataUrl() }), {
+    const image = new ImageResponse(renderNewsletterSocialCanvas(issue, { image: hero, icon: iconDataUrl(), logo: logoDataUrl() }), {
       width: 1200,
       height: 630,
       fonts: fonts()
