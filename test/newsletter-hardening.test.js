@@ -138,3 +138,18 @@ test("editor workflow saves blocked schedules as drafts and explains test delive
   assert.match(newsletterApi, /schedulingBlocked/);
   assert.match(newsletterApi, /status:issue\.status/);
 });
+
+test("structured story text preserves paragraphs across web, preview, and email", () => {
+  const adminPage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "admin.html"), "utf8");
+  const previewPage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "issue.html"), "utf8");
+  const publicRenderer = fs.readFileSync(path.join(__dirname, "..", "api", "newsletter-page.js"), "utf8");
+  const newsletterApi = fs.readFileSync(path.join(__dirname, "..", "api", "newsletter.js"), "utf8");
+
+  assert.match(adminPage, /story-summary/);
+  assert.match(adminPage, /textMarkup\(d\.collectionFocus\)/);
+  assert.match(previewPage, /textMarkup\(issue\.summary\)/);
+  assert.match(previewPage, /textMarkup\(collection\.collectionFocus\)/);
+  assert.match(publicRenderer, /textMarkup\(issue\.summary\)/);
+  assert.match(newsletterApi, /emailParagraphs\(issue\.summary/);
+  assert.match(newsletterApi, /emailParagraphs\(collection\.collectionFocus/);
+});
