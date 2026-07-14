@@ -190,6 +190,7 @@ test("newsletter email images link to the wider collection section", () => {
 test("published collector stories use branded same-origin social previews", () => {
   const publicRenderer = fs.readFileSync(path.join(__dirname, "..", "api", "newsletter-page.js"), "utf8");
   const socialRenderer = fs.readFileSync(path.join(__dirname, "..", "api", "newsletter-og.js"), "utf8");
+  const socialCanvas = fs.readFileSync(path.join(__dirname, "..", "lib", "newsletter-og-canvas.js"), "utf8");
   const vercel = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "vercel.json"), "utf8"));
 
   assert.match(publicRenderer, /\/api\/newsletter\/og\?slug=/);
@@ -200,6 +201,9 @@ test("published collector stories use branded same-origin social previews", () =
   assert.match(socialRenderer, /issue\.status !== "published"/);
   assert.match(socialRenderer, /issue\.publicVisibility !== true/);
   assert.match(socialRenderer, /approvedPhotoUrl/);
+  assert.match(socialCanvas, /width: "1200px", height: "630px", objectFit: "cover"/);
+  assert.match(socialCanvas, /textShadow/);
+  assert.doesNotMatch(socialCanvas, /issue\?\.dek|issue\?\.summary/);
   assert.ok(vercel.rewrites.some(rewrite => rewrite.source === "/api/newsletter/og" && rewrite.destination === "/api/newsletter-og.js"));
 });
 
