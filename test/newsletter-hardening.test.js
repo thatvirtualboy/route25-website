@@ -88,9 +88,17 @@ test("collector story presentation uses fixed subscription and structured editor
   assert.match(publicRenderer, /storyLightbox/);
   assert.match(publicRenderer, /lightbox-next/);
   assert.match(publicRenderer, /ArrowRight/);
+  assert.match(publicRenderer, /is-zoomed/);
+  assert.match(publicRenderer, /Zoom out image/);
+  assert.match(publicRenderer, /target="_blank" rel="noopener noreferrer sponsored nofollow"/);
+  assert.match(publicRenderer, /rel="noopener noreferrer me nofollow"/);
   assert.match(previewPage, /data-story-image/);
   assert.match(previewPage, /lightbox-next/);
   assert.match(previewPage, /ArrowRight/);
+  assert.match(previewPage, /is-zoomed/);
+  assert.match(previewPage, /Zoom out image/);
+  assert.match(previewPage, /target="_blank" rel="noopener noreferrer sponsored nofollow"/);
+  assert.match(previewPage, /rel="noopener noreferrer me nofollow"/);
   assert.match(previewPage, /View this trainer on Route 25/);
   assert.match(previewPage, /trainerProfileUrl/);
   assert.match(previewPage, /storyBodyHtml/);
