@@ -180,8 +180,9 @@ test("newsletter email images link to the wider collection section", () => {
 
   assert.match(newsletterApi, /const photoSectionUrl = `\$\{canonicalUrl\.split\("#"\)\[0\]\}#collection-photos`/);
   assert.match(newsletterApi, /href="\$\{html\(photoSectionUrl\)\}" target="_blank" rel="noopener noreferrer"/);
-  assert.match(newsletterApi, /padding:30px 24px 18px/);
-  assert.match(newsletterApi, /padding:4px 24px 34px/);
+  assert.match(newsletterApi, /\.r25-pad\{padding-left:10px!important;padding-right:10px!important\}/);
+  assert.match(newsletterApi, /\.r25-image-pad\{padding-left:0!important;padding-right:0!important\}/);
+  assert.match(newsletterApi, /\.r25-outer,\.r25-shell\{padding-left:0!important;padding-right:0!important\}/);
   assert.match(previewPage, /section id="collection-photos"/);
   assert.match(previewPage, /location\.hash==='\#collection-photos'/);
   assert.match(publicRenderer, /section id="collection-photos"/);
@@ -201,7 +202,8 @@ test("published collector stories use branded same-origin social previews", () =
   assert.match(socialRenderer, /issue\.status !== "published"/);
   assert.match(socialRenderer, /issue\.publicVisibility !== true/);
   assert.match(socialRenderer, /approvedPhotoUrl/);
-  assert.match(socialRenderer, /brightness: 0\.62/);
+  assert.match(socialRenderer, /brightness: 0\.55, saturation: 0\.45/);
+  assert.match(socialCanvas, /rgba\(0,0,0,0\.5\)/);
   assert.match(socialCanvas, /width: "1200px", height: "630px", objectFit: "cover"/);
   assert.match(socialCanvas, /textShadow/);
   assert.match(socialCanvas, /const logo = assets\.logo/);
