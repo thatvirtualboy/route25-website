@@ -83,6 +83,9 @@ test("collector spotlight presentation uses fixed subscription and structured ed
   assert.match(newsletterApi, /socialDetails\(socialUrl\)/);
   assert.match(newsletterApi, /Collection profile/);
   assert.match(newsletterApi, /Collector’s corner/);
+  assert.match(newsletterApi, /const masthead = `[^`]+background:#ffffff/);
+  assert.match(newsletterApi, /const editorNote = noteContent \? `[^`]+background:#ffffff/);
+  assert.match(newsletterApi, /max-width:720px;background:#ffffff;border:1px solid #dde3ea/);
   assert.match(newsletterApi, /route25Url: route25CardUrl/);
   assert.match(adminPage, /data-product-route25-url/);
   assert.match(adminPage, /Cards use the Route 25 card URL for “View card.”/);
