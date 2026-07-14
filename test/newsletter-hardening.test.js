@@ -164,3 +164,11 @@ test("newsletter emails use three distinct images in the editorial sequence", ()
   assert.match(newsletterApi, /\$\{gear\}/);
   assert.match(newsletterApi, /index < 3/);
 });
+
+test("story subscription prompts state the Saturday delivery cadence", () => {
+  const previewPage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "issue.html"), "utf8");
+  const publicRenderer = fs.readFileSync(path.join(__dirname, "..", "api", "newsletter-page.js"), "utf8");
+
+  assert.match(previewPage, /Delivered to your inbox every Saturday/);
+  assert.match(publicRenderer, /Delivered to your inbox every Saturday/);
+});
