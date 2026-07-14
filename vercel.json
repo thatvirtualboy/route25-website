@@ -33,6 +33,10 @@
       "destination": "/api/newsletter.js"
     },
     {
+      "source": "/api/newsletter/og",
+      "destination": "/api/newsletter-og.js"
+    },
+    {
       "source": "/newsletter/submit",
       "destination": "/newsletter/submit.html"
     },
