@@ -1,4 +1,4 @@
-# Route 25 Collector Stories MVP
+# Route 25 Collector Spotlights MVP
 
 ## Architecture
 

@@ -70,7 +70,7 @@ test("social profiles have friendly labels with a generic fallback", () => {
   assert.deepEqual(socialDetails("https://collectors.example/@route25?source=form"), { label:"Social profile", displayUrl:"collectors.example/@route25" });
 });
 
-test("collector story presentation uses fixed subscription and structured editorial fields", () => {
+test("collector spotlight presentation uses fixed subscription and structured editorial fields", () => {
   const adminPage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "admin.html"), "utf8");
   const submissionPage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "submit.html"), "utf8");
   const previewPage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "issue.html"), "utf8");
@@ -171,6 +171,9 @@ test("newsletter emails use three distinct images in the editorial sequence", ()
   assert.match(newsletterApi, /\$\{interview\}\$\{thirdImage \?/);
   assert.match(newsletterApi, /\$\{gear\}/);
   assert.match(newsletterApi, /index < 3/);
+  assert.match(newsletterApi, /See \$\{remainingPhotos\} more collection photo/);
+  assert.match(newsletterApi, /imageLinkEnd/);
+  assert.match(newsletterApi, /href="\$\{html\(photoSectionUrl\)\}" target="_blank"/);
 });
 
 test("newsletter email images link to the wider collection section", () => {
@@ -188,7 +191,7 @@ test("newsletter email images link to the wider collection section", () => {
   assert.match(publicRenderer, /section id="collection-photos"/);
 });
 
-test("published collector stories use branded same-origin social previews", () => {
+test("published collector spotlights use branded same-origin social previews", () => {
   const publicRenderer = fs.readFileSync(path.join(__dirname, "..", "api", "newsletter-page.js"), "utf8");
   const socialRenderer = fs.readFileSync(path.join(__dirname, "..", "api", "newsletter-og.js"), "utf8");
   const socialCanvas = fs.readFileSync(path.join(__dirname, "..", "lib", "newsletter-og-canvas.js"), "utf8");

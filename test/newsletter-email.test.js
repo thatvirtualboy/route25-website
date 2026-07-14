@@ -9,5 +9,5 @@ test("Sender preheaders never exceed the provider's 255-character limit", () => 
 });
 
 test("Sender preheaders fall back to the issue summary", () => {
-  assert.equal(senderPreheader({ dek:"", summary:"  Collector story preview  " }), "Collector story preview");
+  assert.equal(senderPreheader({ dek:"", summary:"  Collector spotlight preview  " }), "Collector spotlight preview");
 });

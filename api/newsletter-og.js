@@ -71,7 +71,7 @@ module.exports = async (req, res) => {
   if (!slug) {
     res.statusCode = 404;
     res.setHeader("content-type", "text/plain; charset=utf-8");
-    return res.end("Story not found");
+    return res.end("Spotlight not found");
   }
   try {
     const snap = await db.collection("newsletterIssues").where("slug", "==", slug).limit(1).get();
@@ -80,7 +80,7 @@ module.exports = async (req, res) => {
       res.statusCode = 404;
       res.setHeader("content-type", "text/plain; charset=utf-8");
       res.setHeader("cache-control", "no-store");
-      return res.end("Story not found");
+      return res.end("Spotlight not found");
     }
     const hero = await socialPhoto(issue.images?.[0]?.url).catch(error => {
       console.warn("Newsletter social image photo fallback", error.message);
