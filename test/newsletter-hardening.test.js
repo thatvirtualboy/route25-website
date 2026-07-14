@@ -132,6 +132,8 @@ test("editor workflow saves blocked schedules as drafts and explains test delive
   assert.match(adminPage, /<strong>Send test<\/strong>/);
   assert.match(adminPage, /Do not select this to test-email a real issue/);
   assert.doesNotMatch(adminPage, />Article HTML</);
+  assert.match(adminPage, /name="dek" maxlength="255"/);
+  assert.match(adminPage, /id="dekCount"/);
   assert.match(newsletterApi, /issue\.status = "draft"/);
   assert.match(newsletterApi, /schedulingBlocked/);
   assert.match(newsletterApi, /status:issue\.status/);
