@@ -173,6 +173,20 @@ test("newsletter emails use three distinct images in the editorial sequence", ()
   assert.match(newsletterApi, /index < 3/);
 });
 
+test("newsletter email images link to the wider collection section", () => {
+  const previewPage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "issue.html"), "utf8");
+  const publicRenderer = fs.readFileSync(path.join(__dirname, "..", "api", "newsletter-page.js"), "utf8");
+  const newsletterApi = fs.readFileSync(path.join(__dirname, "..", "api", "newsletter.js"), "utf8");
+
+  assert.match(newsletterApi, /const photoSectionUrl = `\$\{canonicalUrl\.split\("#"\)\[0\]\}#collection-photos`/);
+  assert.match(newsletterApi, /href="\$\{html\(photoSectionUrl\)\}" target="_blank" rel="noopener noreferrer"/);
+  assert.match(newsletterApi, /padding:30px 24px 18px/);
+  assert.match(newsletterApi, /padding:4px 24px 34px/);
+  assert.match(previewPage, /section id="collection-photos"/);
+  assert.match(previewPage, /location\.hash==='\#collection-photos'/);
+  assert.match(publicRenderer, /section id="collection-photos"/);
+});
+
 test("story subscription prompts state the Saturday delivery cadence", () => {
   const previewPage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "issue.html"), "utf8");
   const publicRenderer = fs.readFileSync(path.join(__dirname, "..", "api", "newsletter-page.js"), "utf8");
