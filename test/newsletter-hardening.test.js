@@ -186,6 +186,8 @@ test("newsletter emails use three distinct images in the editorial sequence", ()
   assert.match(newsletterApi, /\$\{interview\}\$\{thirdImage \?/);
   assert.match(newsletterApi, /\$\{gear\}/);
   assert.match(newsletterApi, /index < 3/);
+  assert.match(newsletterApi, /position: sharp\.gravity\.centre/);
+  assert.match(newsletterApi, /\$\{image\.objectPath\}:\$\{role\}:v2/);
   assert.match(newsletterApi, /See \$\{remainingPhotos\} more collection photo/);
   assert.match(newsletterApi, /imageLinkEnd/);
   assert.match(newsletterApi, /href="\$\{html\(photoSectionUrl\)\}" target="_blank"/);

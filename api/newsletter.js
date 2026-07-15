@@ -215,14 +215,14 @@ async function normalizeIssueImages(v, publish) {
 async function emailImageVariant(image, role) {
   if (!image?.objectPath) return image?.url || "";
   const dimensions = role === "hero" ? { width: 1200, height: 800 } : { width: 900, height: 675 };
-  const key = crypto.createHash("sha256").update(`${image.objectPath}:${role}:v1`).digest("hex").slice(0, 32);
+  const key = crypto.createHash("sha256").update(`${image.objectPath}:${role}:v2`).digest("hex").slice(0, 32);
   const outputPath = `newsletter/derived/${key}-${dimensions.width}x${dimensions.height}.jpg`;
   const output = bucket.file(outputPath);
   try {
     const [exists] = await output.exists();
     if (!exists) {
       const [source] = await bucket.file(image.objectPath).download();
-      const rendered = await sharp(source).rotate().resize(dimensions.width, dimensions.height, { fit: "cover", position: sharp.strategy.attention }).jpeg({ quality: 84, progressive: true }).toBuffer();
+      const rendered = await sharp(source).rotate().resize(dimensions.width, dimensions.height, { fit: "cover", position: sharp.gravity.centre }).jpeg({ quality: 84, progressive: true }).toBuffer();
       await output.save(rendered, { resumable: false, contentType: "image/jpeg", metadata: { cacheControl: "public,max-age=31536000,immutable", metadata: { firebaseStorageDownloadTokens: crypto.randomUUID(), sourceObject: image.objectPath, role } } });
     }
     const [metadata] = await output.getMetadata();
