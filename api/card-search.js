@@ -15,6 +15,13 @@ function appDeepLink(path) {
   return `route25://${cleanPath}`;
 }
 
+function featuredCardUrl(id, name, imageLarge) {
+  const url = new URL(`/cards/${encodeURIComponent(id)}`, "https://route25.app");
+  url.searchParams.set("name", name);
+  url.searchParams.set("imageLarge", imageLarge);
+  return url.pathname + url.search;
+}
+
 function socialToolbar() {
   return `<span class="social-toolbar" aria-label="Route 25 social links">
     <a href="${X_URL}" target="_blank" rel="noopener noreferrer" aria-label="Route 25 on X" class="social-link x-link">
@@ -32,16 +39,15 @@ function socialToolbar() {
   </span>`;
 }
 
-function renderSearchPage(req) {
-  const initialSet = String(req?.query?.set || "").trim();
-  const appArgument = initialSet ? appDeepLink(`sets/${initialSet}`) : appDeepLink("");
+function renderSearchPage() {
+  const appArgument = appDeepLink("");
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Card Search | Route 25</title>
-  <meta name="description" content="Search Pokemon TCG cards by name, card id, and set on Route 25." />
+  <meta name="description" content="Search Pokemon TCG cards by name, card number, or id on Route 25." />
   <meta name="theme-color" content="#05060a" />
   <meta name="apple-itunes-app" content="app-id=${APP_STORE_ID}, app-argument=${escapeHtml(appArgument)}" />
   <link rel="canonical" href="https://route25.app/search" />
@@ -50,7 +56,7 @@ function renderSearchPage(req) {
   <link rel="stylesheet" href="/assets/site.css" />
   <style>
     .search-shell {
-      padding: clamp(54px, 7vw, 82px) 0 68px;
+      padding: clamp(128px, 10vw, 142px) 0 68px;
     }
     .search-head {
       display: grid;
@@ -61,19 +67,29 @@ function renderSearchPage(req) {
     }
     .card-fan {
       position: relative;
-      width: min(390px, 88vw);
-      height: 150px;
-      margin: 0 auto 2px;
+      width: min(560px, 94vw);
+      height: 190px;
+      margin: 0 auto 8px;
     }
     .fan-card {
+      --fan-x: 0px;
+      --fan-y: 0px;
+      --fan-rotation: 0deg;
       position: absolute;
       left: 50%;
       bottom: 0;
-      width: 122px;
+      width: 142px;
       aspect-ratio: 367 / 512;
       border-radius: 8px;
-      filter: drop-shadow(0 24px 28px rgba(0, 0, 0, 0.48));
+      transform: translateX(var(--fan-x)) translateY(var(--fan-y)) rotate(var(--fan-rotation));
       transform-origin: 50% 88%;
+      transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    .fan-card:hover,
+    .fan-card:focus-visible {
+      z-index: 20;
+      outline: none;
+      transform: translateX(var(--fan-x)) translateY(calc(var(--fan-y) - 18px)) rotate(var(--fan-rotation)) scale(1.07);
     }
     .fan-card img {
       display: block;
@@ -81,25 +97,52 @@ function renderSearchPage(req) {
       height: 100%;
       object-fit: contain;
       border-radius: 8px;
+      backface-visibility: hidden;
+      image-rendering: auto;
+      box-shadow: 0 24px 28px rgba(0, 0, 0, 0.48);
+      transition: box-shadow 220ms ease;
+    }
+    .fan-card:hover img,
+    .fan-card:focus-visible img {
+      box-shadow: 0 30px 34px rgba(0, 0, 0, 0.58);
     }
     .fan-card:nth-child(1) {
-      transform: translateX(-146px) rotate(-18deg);
-      opacity: 0.78;
+      --fan-x: -246px;
+      --fan-rotation: -22deg;
+      width: 136px;
     }
     .fan-card:nth-child(2) {
-      width: 134px;
-      transform: translateX(-67px) translateY(-12px) rotate(-7deg);
-      opacity: 0.94;
+      --fan-x: -178px;
+      --fan-y: -7px;
+      --fan-rotation: -14deg;
+      width: 148px;
       z-index: 1;
     }
     .fan-card:nth-child(3) {
-      width: 146px;
-      transform: translateX(-17px) translateY(-19px) rotate(5deg);
+      --fan-x: -108px;
+      --fan-y: -18px;
+      --fan-rotation: -6deg;
+      width: 160px;
       z-index: 3;
     }
     .fan-card:nth-child(4) {
-      transform: translateX(70px) rotate(17deg);
-      opacity: 0.86;
+      --fan-x: -36px;
+      --fan-y: -26px;
+      --fan-rotation: 5deg;
+      width: 174px;
+      z-index: 5;
+    }
+    .fan-card:nth-child(5) {
+      --fan-x: 67px;
+      --fan-y: -12px;
+      --fan-rotation: 13deg;
+      width: 156px;
+      z-index: 4;
+    }
+    .fan-card:nth-child(6) {
+      --fan-x: 157px;
+      --fan-rotation: 22deg;
+      width: 138px;
       z-index: 2;
     }
     .search-head h1 {
@@ -122,15 +165,6 @@ function renderSearchPage(req) {
       gap: 10px;
       align-items: center;
     }
-    .set-app-link {
-      display: none;
-      margin-top: 12px;
-      min-height: 42px;
-      border-radius: 8px;
-    }
-    .set-app-link.is-visible {
-      display: inline-flex;
-    }
     .field {
       text-align: left;
     }
@@ -146,7 +180,7 @@ function renderSearchPage(req) {
       position: relative;
     }
     .search-field {
-      grid-column: 1 / -1;
+      min-width: 0;
     }
     .search-icon {
       position: absolute;
@@ -158,13 +192,9 @@ function renderSearchPage(req) {
       color: rgba(255, 255, 255, 0.58);
       pointer-events: none;
     }
-    .search-input,
-    .set-select {
+    .search-input {
       width: 100%;
-      height: 46px;
       border: 1px solid rgba(255, 255, 255, 0.14);
-      border-radius: 8px;
-      background: rgba(5, 6, 10, 0.78);
       color: var(--ink);
       font: inherit;
       outline: none;
@@ -177,26 +207,15 @@ function renderSearchPage(req) {
       font-size: clamp(1.08rem, 3vw, 1.34rem);
       box-shadow: 0 22px 70px rgba(0, 0, 0, 0.32);
     }
-    .set-select {
-      padding: 0 10px;
-    }
-    .search-input:focus,
-    .set-select:focus {
+    .search-input:focus {
       border-color: rgba(88, 199, 255, 0.72);
       box-shadow: 0 0 0 3px rgba(88, 199, 255, 0.14);
     }
     .search-form .button {
       width: 100%;
-      height: 46px;
-      border-radius: 8px;
+      height: clamp(62px, 8vw, 76px);
+      border-radius: 999px;
       cursor: pointer;
-    }
-    .search-tools {
-      display: grid;
-      grid-column: 1 / -1;
-      grid-template-columns: minmax(0, 1fr) 124px;
-      gap: 10px;
-      align-items: end;
     }
     .search-meta {
       display: flex;
@@ -228,30 +247,20 @@ function renderSearchPage(req) {
     }
     .results-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-      gap: 14px;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 18px;
     }
     .result-card {
-      display: grid;
-      gap: 10px;
-      align-content: start;
-      min-height: 100%;
-      padding: 12px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 8px;
-      background: rgba(255, 255, 255, 0.055);
-      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.24);
-      transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+      display: block;
+      min-width: 0;
+      padding: 5px;
+      border-radius: 12px;
+      transition: transform 180ms ease, background 180ms ease;
     }
     .result-card:hover {
-      transform: translateY(-2px);
+      transform: translateY(-5px) scale(1.015);
       text-decoration: none;
-      border-color: rgba(88, 199, 255, 0.44);
-      background: rgba(255, 255, 255, 0.078);
-    }
-    .result-card-media:hover,
-    .result-card-title:hover {
-      text-decoration: none;
+      background: rgba(255, 255, 255, 0.055);
     }
     .result-card img {
       width: 100%;
@@ -259,47 +268,6 @@ function renderSearchPage(req) {
       object-fit: contain;
       border-radius: 8px;
       filter: drop-shadow(0 16px 18px rgba(0, 0, 0, 0.42));
-    }
-    .result-card-title {
-      display: block;
-    }
-    .result-name {
-      display: block;
-      font-weight: 780;
-      line-height: 1.25;
-    }
-    .result-sub {
-      display: block;
-      margin-top: 5px;
-      color: rgba(255, 255, 255, 0.64);
-      font-size: 12px;
-      line-height: 1.35;
-    }
-    .result-tags {
-      display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
-      margin-top: 8px;
-    }
-    .result-tag {
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 999px;
-      padding: 4px 7px;
-      color: rgba(255, 255, 255, 0.7);
-      font-size: 11px;
-      background: rgba(255, 255, 255, 0.055);
-    }
-    .result-actions {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-      margin-top: 2px;
-    }
-    .result-actions .button {
-      min-width: 0;
-      border-radius: 8px;
-      padding: 8px 9px;
-      box-shadow: none;
     }
     .empty-state {
       display: none;
@@ -310,48 +278,111 @@ function renderSearchPage(req) {
       text-align: center;
       background: rgba(255, 255, 255, 0.04);
     }
-    .loading .results-grid {
-      opacity: 0.44;
+    @media (max-width: 1040px) {
+      .results-grid {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+      }
+    }
+    @media (max-width: 860px) {
+      .results-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
     }
     @media (max-width: 780px) {
-      .search-form,
-      .search-tools {
-        grid-template-columns: 1fr;
+      .search-shell {
+        padding-top: 72px;
       }
       .card-fan {
-        height: 142px;
+        width: min(370px, 96vw);
+        height: 158px;
       }
       .fan-card {
-        width: 98px;
-      }
-      .fan-card:nth-child(2) {
-        width: 108px;
-      }
-      .fan-card:nth-child(3) {
-        width: 118px;
+        width: 92px;
       }
       .fan-card:nth-child(1) {
-        transform: translateX(-118px) rotate(-18deg);
+        --fan-x: -165px;
+        width: 82px;
       }
       .fan-card:nth-child(2) {
-        transform: translateX(-56px) translateY(-10px) rotate(-7deg);
+        --fan-x: -120px;
+        --fan-y: -5px;
+        width: 91px;
       }
       .fan-card:nth-child(3) {
-        transform: translateX(-14px) translateY(-17px) rotate(5deg);
+        --fan-x: -75px;
+        --fan-y: -12px;
+        width: 101px;
       }
       .fan-card:nth-child(4) {
-        transform: translateX(56px) rotate(17deg);
+        --fan-x: -26px;
+        --fan-y: -17px;
+        width: 111px;
+      }
+      .fan-card:nth-child(5) {
+        --fan-x: 38px;
+        --fan-y: -8px;
+        width: 98px;
+      }
+      .fan-card:nth-child(6) {
+        --fan-x: 94px;
+        width: 84px;
+      }
+      .search-form {
+        grid-template-columns: minmax(0, 1fr) 108px;
       }
       .search-meta {
         align-items: flex-start;
         flex-direction: column;
       }
       .results-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(4, minmax(0, 1fr));
       }
       .topbar .nav > a:not(.button),
       .topbar .social-toolbar {
         display: none;
+      }
+    }
+    @media (max-width: 440px) {
+      .search-form {
+        grid-template-columns: 1fr;
+      }
+      .search-form .button {
+        height: 54px;
+      }
+      .results-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @media (max-width: 380px) {
+      .fan-card:nth-child(1) {
+        --fan-x: -145px;
+        width: 74px;
+      }
+      .fan-card:nth-child(2) {
+        --fan-x: -105px;
+        width: 84px;
+      }
+      .fan-card:nth-child(3) {
+        --fan-x: -67px;
+        width: 94px;
+      }
+      .fan-card:nth-child(4) {
+        --fan-x: -24px;
+        width: 104px;
+      }
+      .fan-card:nth-child(5) {
+        --fan-x: 32px;
+        width: 91px;
+      }
+      .fan-card:nth-child(6) {
+        --fan-x: 82px;
+        width: 76px;
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .fan-card,
+      .result-card {
+        transition: none;
       }
     }
   </style>
@@ -373,12 +404,14 @@ function renderSearchPage(req) {
   <main class="search-shell">
     <div class="container">
       <section class="search-head">
-        <div class="card-fan" aria-hidden="true">
-          <span class="fan-card"><img src="https://images.pokemontcg.io/swsh8/271.png" alt="" loading="eager" decoding="async" /></span>
-          <span class="fan-card"><img src="https://images.pokemontcg.io/swsh11/186.png" alt="" loading="eager" decoding="async" /></span>
-          <span class="fan-card"><img src="https://images.pokemontcg.io/me2/125.png" alt="" loading="eager" decoding="async" /></span>
-          <span class="fan-card"><img src="https://images.pokemontcg.io/swsh7/215.png" alt="" loading="eager" decoding="async" /></span>
-        </div>
+        <nav class="card-fan" aria-label="Featured cards">
+          <a class="fan-card" href="${escapeHtml(featuredCardUrl("swsh8-271", "Gengar VMAX", "https://images.pokemontcg.io/swsh8/271_hires.png"))}" aria-label="View Gengar VMAX"><img src="https://images.pokemontcg.io/swsh8/271_hires.png" alt="Gengar VMAX" width="734" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
+          <a class="fan-card" href="${escapeHtml(featuredCardUrl("swsh12pt5-160", "Pikachu", "https://images.pokemontcg.io/swsh12pt5/160_hires.png"))}" aria-label="View Pikachu"><img src="https://images.pokemontcg.io/swsh12pt5/160_hires.png" alt="Pikachu" width="734" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
+          <a class="fan-card" href="${escapeHtml(featuredCardUrl("swsh11-186", "Giratina V", "https://images.pokemontcg.io/swsh11/186_hires.png"))}" aria-label="View Giratina V"><img src="https://images.pokemontcg.io/swsh11/186_hires.png" alt="Giratina V" width="734" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
+          <a class="fan-card" href="${escapeHtml(featuredCardUrl("me2-125", "Mega Charizard X ex", "https://images.pokemontcg.io/me2/125_hires.png"))}" aria-label="View Mega Charizard X ex"><img src="https://images.pokemontcg.io/me2/125_hires.png" alt="Mega Charizard X ex" width="733" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
+          <a class="fan-card" href="${escapeHtml(featuredCardUrl("swsh7-215", "Umbreon VMAX", "https://images.pokemontcg.io/swsh7/215_hires.png"))}" aria-label="View Umbreon VMAX"><img src="https://images.pokemontcg.io/swsh7/215_hires.png" alt="Umbreon VMAX" width="734" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
+          <a class="fan-card" href="${escapeHtml(featuredCardUrl("sv3pt5-199", "Charizard ex", "https://images.pokemontcg.io/sv3pt5/199_hires.png"))}" aria-label="View Charizard ex"><img src="https://images.pokemontcg.io/sv3pt5/199_hires.png" alt="Charizard ex" width="733" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
+        </nav>
         <div>
           <p class="badge"><span class="pulse"></span> Card search</p>
           <h1>Find a card.</h1>
@@ -392,20 +425,11 @@ function renderSearchPage(req) {
                 <input class="search-input" id="cardQuery" name="q" type="search" placeholder="Search Pokemon cards" autocomplete="off" aria-label="Search Pokemon cards" />
               </div>
             </div>
-            <div class="search-tools">
-              <div class="field">
-                <label for="setSelect">Set</label>
-                <select class="set-select" id="setSelect" name="set">
-                  <option value="">All sets</option>
-                </select>
-              </div>
-              <button class="button primary" type="submit">Search</button>
-            </div>
+            <button class="button primary" type="submit">Search</button>
           </form>
-          <a class="button set-app-link" id="openSetInApp" href="${escapeHtml(appArgument)}">Open this set in Route 25</a>
         </div>
       </section>
-      <section aria-live="polite" aria-busy="false" id="resultsSection">
+      <section aria-live="polite" aria-busy="false" id="resultsSection" hidden>
         <div class="search-meta">
           <span id="resultSummary">Loading cards...</span>
           <span class="pager">
@@ -414,7 +438,7 @@ function renderSearchPage(req) {
             <button class="button" type="button" data-page-action="next" aria-label="Next page">Next</button>
           </span>
         </div>
-        <div class="empty-state" id="emptyState">No cards found. Try a broader name or remove the set filter.</div>
+        <div class="empty-state" id="emptyState">No cards found. Try a broader name, card number, or id.</div>
         <div class="results-grid" id="resultsGrid"></div>
         <div class="search-meta search-meta-bottom">
           <span class="pager">
@@ -429,15 +453,13 @@ function renderSearchPage(req) {
   <script>
     const state = {
       q: new URLSearchParams(window.location.search).get("q") || "",
-      set: new URLSearchParams(window.location.search).get("set") || "",
       page: Math.max(1, Number.parseInt(new URLSearchParams(window.location.search).get("page") || "1", 10) || 1),
-      pageSize: 24,
+      pageSize: 32,
       totalCount: 0,
       loading: false
     };
     const form = document.getElementById("searchForm");
     const queryInput = document.getElementById("cardQuery");
-    const setSelect = document.getElementById("setSelect");
     const resultsSection = document.getElementById("resultsSection");
     const resultsGrid = document.getElementById("resultsGrid");
     const resultSummary = document.getElementById("resultSummary");
@@ -445,8 +467,6 @@ function renderSearchPage(req) {
     const pageLabels = Array.from(document.querySelectorAll("[data-page-label]"));
     const prevPageButtons = Array.from(document.querySelectorAll("[data-page-action='prev']"));
     const nextPageButtons = Array.from(document.querySelectorAll("[data-page-action='next']"));
-    const openSetInApp = document.getElementById("openSetInApp");
-    let debounceTimer = null;
     let activeController = null;
     let activeRequestKey = "";
     const resultCache = new Map();
@@ -464,12 +484,6 @@ function renderSearchPage(req) {
       img.src = next;
     };
 
-    function formatCurrency(value) {
-      const amount = Number(value);
-      if (!Number.isFinite(amount) || amount <= 0) return "";
-      return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
-    }
-
     function escapeHtml(value) {
       return String(value || "").replace(/[&<>"']/g, function(char) {
         return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char];
@@ -479,7 +493,6 @@ function renderSearchPage(req) {
     function updateUrl() {
       const params = new URLSearchParams();
       if (state.q) params.set("q", state.q);
-      if (state.set) params.set("set", state.set);
       if (state.page > 1) params.set("page", String(state.page));
       const query = params.toString();
       history.replaceState(null, "", query ? "/search?" + query : "/search");
@@ -519,28 +532,9 @@ function renderSearchPage(req) {
       document.head.appendChild(link);
     }
 
-    function setDeepLink(setId) {
-      return "route25://sets/" + encodeURIComponent(setId || "");
-    }
-
-    function cardDeepLink(cardId) {
-      return "route25://cards/" + encodeURIComponent(cardId || "");
-    }
-
-    function updateSetDeepLink() {
-      if (!state.set) {
-        openSetInApp.classList.remove("is-visible");
-        openSetInApp.removeAttribute("href");
-        return;
-      }
-      openSetInApp.href = setDeepLink(state.set);
-      openSetInApp.classList.add("is-visible");
-    }
-
     function searchParamsFor(nextState) {
       return new URLSearchParams({
         q: nextState.q,
-        set: nextState.set,
         page: String(nextState.page),
         pageSize: String(nextState.pageSize)
       });
@@ -598,33 +592,21 @@ function renderSearchPage(req) {
         : "";
     }
 
-    function renderCard(card) {
+    function renderCard(card, index) {
       const imageCandidates = cardImageCandidates(card, false);
       const img = imageCandidates[0];
-      const setName = card.set && card.set.name ? card.set.name : "";
-      const market = formatCurrency(card.market);
-      const tags = [card.rarity, market].filter(Boolean).map(function(value) {
-        return '<span class="result-tag">' + escapeHtml(value) + '</span>';
-      }).join("");
       const url = cardUrl(card);
-      return '<article class="result-card">' +
-        (img ? '<a class="result-card-media" href="' + url + '"><img src="' + escapeHtml(img) + '" alt="' + escapeHtml(card.name) + ' card" loading="lazy"' + imageFallbackAttribute(imageCandidates) + ' /></a>' : "") +
-        '<a class="result-card-title" href="' + url + '"><span class="result-name">' + escapeHtml(card.name) + '</span>' +
-        '<span class="result-sub">' + escapeHtml([setName, card.number ? "#" + card.number : ""].filter(Boolean).join(" | ")) + '</span>' +
-        (tags ? '<span class="result-tags">' + tags + '</span>' : "") +
-        '</a><span class="result-actions"><a class="button" href="' + url + '">Details</a>' +
-        '<a class="button" href="' + cardDeepLink(card.id) + '">Open in app</a></span></article>';
+      if (!img) return "";
+      const loading = index < 6 ? ' loading="eager" fetchpriority="high"' : ' loading="lazy"';
+      return '<a class="result-card" href="' + url + '" aria-label="View ' + escapeHtml(card.name) + '">' +
+        '<img src="' + escapeHtml(img) + '" alt="' + escapeHtml(card.name) + ' card"' + loading + ' decoding="async"' + imageFallbackAttribute(imageCandidates) + ' /></a>';
     }
 
     function renderPayload(payload) {
       const cards = payload.ok && Array.isArray(payload.data) ? payload.data : [];
       state.totalCount = Number(payload.totalCount || cards.length);
-      if (!state.set && payload.defaultSet && payload.defaultSet.id && !state.q) {
-        state.set = payload.defaultSet.id;
-        setSelect.value = state.set;
-        updateUrl();
-      }
       resultsGrid.innerHTML = cards.map(renderCard).join("");
+      emptyState.textContent = "No cards found. Try a broader name, card number, or id.";
       emptyState.style.display = cards.length ? "none" : "block";
       const start = cards.length ? ((state.page - 1) * state.pageSize) + 1 : 0;
       const end = cards.length ? start + cards.length - 1 : 0;
@@ -653,11 +635,22 @@ function renderSearchPage(req) {
       const key = cacheKey(nextState);
       if (resultCache.has(key)) return resultCache.get(key);
       if (inFlightResults.has(key)) return inFlightResults.get(key);
-      const request = fetch("/api/card-search?" + searchParamsFor(nextState).toString(), options)
-        .then(function(response) {
-          if (!response.ok) throw new Error("Card search failed with status " + response.status);
-          return response.json();
-        })
+      const url = "/api/card-search?" + searchParamsFor(nextState).toString();
+      const request = (async function() {
+        let lastError = null;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          try {
+            const response = await fetch(url, options);
+            if (!response.ok) throw new Error("Card search failed with status " + response.status);
+            return await response.json();
+          } catch (error) {
+            if (error && error.name === "AbortError") throw error;
+            lastError = error;
+            if (attempt === 0) await new Promise(function(resolve) { setTimeout(resolve, 160); });
+          }
+        }
+        throw lastError || new Error("Card search failed");
+      })()
         .then(function(payload) {
           if (resultCache.size > 40) resultCache.delete(resultCache.keys().next().value);
           resultCache.set(key, payload);
@@ -670,89 +663,82 @@ function renderSearchPage(req) {
       return request;
     }
 
-    function prefetchNearby() {
-      const maxPage = Math.max(1, Math.ceil(state.totalCount / state.pageSize));
-      const candidates = [];
-      if (state.page < maxPage) candidates.push({ ...state, page: state.page + 1 });
-      if (state.page > 1) candidates.push({ ...state, page: state.page - 1 });
-      candidates.forEach(function(candidate) {
-        const key = cacheKey(candidate);
-        if (!resultCache.has(key) && !inFlightResults.has(key)) {
-          fetchCardsFor(candidate).catch(function() {});
-        }
-      });
-    }
-
-    async function loadSets() {
-      const response = await fetch("/api/card-search?sets=1");
-      const payload = await response.json();
-      if (!payload.ok) return;
-      setSelect.insertAdjacentHTML("beforeend", payload.data.map(function(set) {
-        const label = set.releaseDate ? set.name + " (" + set.releaseDate.slice(0, 4) + ")" : set.name;
-        return '<option value="' + escapeHtml(set.id) + '">' + escapeHtml(label) + '</option>';
-      }).join(""));
-      setSelect.value = state.set;
-    }
-
     async function loadCards() {
-      updateUrl();
-      const key = cacheKey(state);
-      activeRequestKey = key;
-
-      if (resultCache.has(key)) {
-        renderPayload(resultCache.get(key));
+      if (!state.q) {
+        if (activeController) activeController.abort();
+        activeRequestKey = "";
+        state.page = 1;
+        state.totalCount = 0;
+        resultsGrid.innerHTML = "";
+        emptyState.style.display = "none";
+        resultsSection.hidden = true;
         setLoading(false);
-        updateSetDeepLink();
-        prefetchNearby();
+        updateUrl();
         return;
       }
 
-      if (activeController) activeController.abort();
-      activeController = new AbortController();
+      updateUrl();
+      const key = cacheKey(state);
+      if (activeController && activeRequestKey && activeRequestKey !== key) activeController.abort();
+      activeRequestKey = key;
+
+      if (resultCache.has(key)) {
+        resultsSection.hidden = false;
+        renderPayload(resultCache.get(key));
+        setLoading(false);
+        return;
+      }
+
+      resultsGrid.innerHTML = "";
+      emptyState.style.display = "none";
+      resultSummary.textContent = "Searching cards...";
+      state.totalCount = 0;
+      resultsSection.hidden = false;
+      const shouldStartRequest = !inFlightResults.has(key);
+      const requestController = shouldStartRequest ? new AbortController() : null;
+      if (requestController) activeController = requestController;
       setLoading(true);
-      resultSummary.textContent = resultsGrid.children.length ? "Updating cards..." : "Loading cards...";
 
       try {
-        const payload = await fetchCardsFor(state, { signal: activeController.signal });
+        const payload = await fetchCardsFor(state, requestController ? { signal: requestController.signal } : undefined);
         if (activeRequestKey !== key) return;
         renderPayload(payload);
-        updateSetDeepLink();
-        prefetchNearby();
       } catch (error) {
         if (error.name === "AbortError") return;
         resultsGrid.innerHTML = "";
+        emptyState.textContent = "Search is temporarily unavailable. Please try again.";
         emptyState.style.display = "block";
         resultSummary.textContent = "Search is unavailable";
       } finally {
+        if (requestController && activeController === requestController) activeController = null;
         if (activeRequestKey === key) setLoading(false);
       }
     }
 
     queryInput.value = state.q;
-    setSelect.value = state.set;
-    updateSetDeepLink();
-    loadSets().catch(function() {});
     loadCards();
+    if (!state.q) {
+      fetch("/api/card-search?q=base1-1&pageSize=1", { headers: { accept: "application/json" } }).catch(function() {});
+    }
 
-    form.addEventListener("submit", function(event) {
+    form.addEventListener("submit", async function(event) {
       event.preventDefault();
       state.q = queryInput.value.trim();
-      state.set = setSelect.value;
       state.page = 1;
-      loadCards();
+      await loadCards();
+      if (state.q && !resultsSection.hidden) {
+        resultsSection.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
     });
     queryInput.addEventListener("input", function() {
-      window.clearTimeout(debounceTimer);
-      debounceTimer = window.setTimeout(function() {
-        state.q = queryInput.value.trim();
-        state.page = 1;
-        loadCards();
-      }, 360);
-    });
-    setSelect.addEventListener("change", function() {
-      state.set = setSelect.value;
-      state.page = 1;
-      loadCards();
+      if (queryInput.value.trim() === state.q) return;
+      if (activeController) activeController.abort();
+      activeRequestKey = "";
+      state.totalCount = 0;
+      resultsGrid.innerHTML = "";
+      emptyState.style.display = "none";
+      setLoading(false);
+      resultsSection.hidden = true;
     });
     document.querySelectorAll("[data-page-action]").forEach(function(button) {
       button.addEventListener("click", function() {
@@ -784,5 +770,5 @@ module.exports = async (req, res) => {
   res.statusCode = 200;
   res.setHeader("content-type", "text/html; charset=utf-8");
   res.setHeader("cache-control", "s-maxage=3600, stale-while-revalidate=86400");
-  res.end(renderSearchPage(req));
+  res.end(renderSearchPage());
 };

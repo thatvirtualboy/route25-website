@@ -8,7 +8,9 @@ const TCGPLAYER_PROMOTION_URL = "https://partner.tcgplayer.com/c/6678178/1780961
 const TCGPLAYER_SEARCH_API_URL = "https://mp-search-api.tcgplayer.com/v1/search/request";
 const APP_STORE_ID = "6755665546";
 const SOCIAL_PREVIEW_VERSION = "2";
+const TCGDEX_API_ORIGIN = "https://api.tcgdex.net/v2/en";
 const { route25ImageUrl } = require("../../lib/route25-image-url");
+const { canonicalCardId, canonicalCardSetId, tcgdexCardId } = require("../../lib/card-set-id");
 const tcgplayerResolveCache = new Map();
 const {
   tcgplayerProductOverride,
@@ -71,6 +73,7 @@ function resolvedCardImages(card, large = true) {
     : (card?.images?.small || card?.images?.large);
   if (image) candidates.push(absoluteUrl(image, BACKEND_ORIGIN));
   if (String(card?.set?.id || cardSetId(card?.id)).toLowerCase() !== "mep" && !String(card?.id || "").toLowerCase().startsWith("mep-")) {
+    if (id) candidates.push(`https://images.scrydex.com/pokemon/${encodeURIComponent(id)}/${large ? "large" : "small"}`);
     return candidates.filter((candidate, index) => candidate && candidates.indexOf(candidate) === index);
   }
 
@@ -132,7 +135,7 @@ function manualPromoCard(cardId) {
 }
 
 function route25CardId(cardId) {
-  const id = String(cardId || "").trim();
+  const id = canonicalCardId(cardId);
   const setId = cardSetId(id);
   if (setId.toLowerCase() === "sv35") {
     return id.replace(/^sv35-/i, "sv3pt5-");
@@ -445,6 +448,97 @@ async function fetchJsonWithTimeout(url, timeoutMs, fetchOptions = {}) {
   } finally {
     if (timeout) clearTimeout(timeout);
   }
+}
+
+function tcgdexCardImage(image, quality) {
+  const base = String(image || "").replace(/\/$/, "");
+  return base ? `${base}/${quality}.webp` : "";
+}
+
+function tcgdexSetImage(image) {
+  const base = String(image || "").replace(/\/$/, "");
+  return base ? `${base}.webp` : "";
+}
+
+function normalizeTcgdexCard(card) {
+  if (!card?.id || !card?.name) return null;
+  const retreat = Number.parseInt(card?.retreat, 10);
+  const legalities = card?.legal && typeof card.legal === "object"
+    ? Object.fromEntries(Object.entries(card.legal).map(([format, legal]) => [format, legal ? "Legal" : "Not Legal"]))
+    : undefined;
+  return {
+    id: canonicalCardId(card.id),
+    name: card.name,
+    number: card.localId || "",
+    hp: card.hp || "",
+    rarity: cleanText(card.rarity),
+    supertype: card.category || "Pokemon",
+    subtypes: card.stage ? [card.stage] : [],
+    types: Array.isArray(card.types) ? card.types : [],
+    artist: card.illustrator || "",
+    illustrator: card.illustrator || "",
+    flavorText: card.description || "",
+    attacks: Array.isArray(card.attacks) ? card.attacks : [],
+    abilities: Array.isArray(card.abilities) ? card.abilities : [],
+    weaknesses: Array.isArray(card.weaknesses) ? card.weaknesses : [],
+    resistances: Array.isArray(card.resistances) ? card.resistances : [],
+    retreatCost: Number.isFinite(retreat) && retreat > 0 ? Array.from({ length: retreat }, () => "Colorless") : [],
+    convertedRetreatCost: Number.isFinite(retreat) ? retreat : "",
+    legalities,
+    images: {
+      small: tcgdexCardImage(card.image, "low"),
+      large: tcgdexCardImage(card.image, "high")
+    },
+    set: {
+      id: canonicalCardSetId(card?.set?.id || cardSetId(card.id)),
+      name: card?.set?.name || card?.set?.id || cardSetId(card.id),
+      printedTotal: card?.set?.cardCount?.official || card?.set?.cardCount?.total || null,
+      total: card?.set?.cardCount?.total || null,
+      images: {
+        logo: tcgdexSetImage(card?.set?.logo),
+        symbol: tcgdexSetImage(card?.set?.symbol)
+      }
+    }
+  };
+}
+
+async function fetchTcgdexCard(cardId, timings = []) {
+  const startedAt = Date.now();
+  const lookupId = tcgdexCardId(cardId);
+  try {
+    const payload = await fetchJsonWithTimeout(`${TCGDEX_API_ORIGIN}/cards/${encodeURIComponent(lookupId)}`, 1000);
+    timings.push(`tcgdex;dur=${Date.now() - startedAt}`);
+    return normalizeTcgdexCard(payload);
+  } catch (error) {
+    timings.push(`tcgdex_${error.name === "AbortError" || error.name === "TimeoutError" ? "timeout" : "error"};dur=${Date.now() - startedAt}`);
+    return null;
+  }
+}
+
+function mergeCardWithHints(card, hintedCard) {
+  if (!card) return hintedCard;
+  if (!hintedCard) return card;
+  const fallbacks = [
+    ...(Array.isArray(hintedCard?.images?.fallbacks) ? hintedCard.images.fallbacks : []),
+    ...(Array.isArray(card?.images?.fallbacks) ? card.images.fallbacks : [])
+  ].filter((value, index, all) => value && all.indexOf(value) === index);
+  return {
+    ...hintedCard,
+    ...card,
+    images: {
+      ...(card.images || {}),
+      ...(hintedCard.images || {}),
+      fallbacks
+    },
+    set: {
+      ...(hintedCard.set || {}),
+      ...(card.set || {}),
+      images: {
+        ...(hintedCard?.set?.images || {}),
+        ...(card?.set?.images || {})
+      }
+    }
+  };
 }
 
 function fallbackCardFromRequest(cardId, req) {
@@ -1299,6 +1393,18 @@ function renderCardPage(card, req, options = {}) {
   <link rel="icon" href="/favicon.png" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="stylesheet" href="/assets/site.css" />
+  <script>
+    window.route25CardImageFallback = function(img) {
+      const fallbacks = String(img.dataset.fallbacks || "").split("|").filter(Boolean);
+      const next = fallbacks.shift();
+      if (!next) {
+        img.removeAttribute("onerror");
+        return;
+      }
+      img.dataset.fallbacks = fallbacks.join("|");
+      img.src = next;
+    };
+  </script>
   <script type="application/ld+json">${jsonScript(cardStructuredData(card, pageUrl, image, description, seoProfile))}</script>
   <style>
     .card-share-hero {
@@ -1635,7 +1741,7 @@ function renderCardPage(card, req, options = {}) {
       </div>
       <section class="card-copy">
         <div class="card-kicker">
-          ${setLogo ? `<img class="set-logo" src="${escapeHtml(setLogo)}" alt="" />` : ""}
+          ${setLogo ? `<img class="set-logo" src="${escapeHtml(setLogo)}" alt="" onerror="this.remove()" />` : ""}
           <span>${escapeHtml(card?.set?.name || card?.set?.id || "Pokemon TCG")}</span>
         </div>
         <h1>${escapeHtml(card.name)}</h1>
@@ -1661,16 +1767,6 @@ function renderCardPage(card, req, options = {}) {
     </section>
   </main>
   <script>
-    function route25CardImageFallback(img) {
-      const fallbacks = String(img.dataset.fallbacks || "").split("|").filter(Boolean);
-      const next = fallbacks.shift();
-      if (!next) {
-        img.removeAttribute("onerror");
-        return;
-      }
-      img.dataset.fallbacks = fallbacks.join("|");
-      img.src = next;
-    }
     ${options.cleanUrl ? `window.history.replaceState({}, "", ${JSON.stringify(cleanCardPath(card.id, req.query))});` : ""}
     (function upgradeCardImage() {
       const img = document.querySelector(".card-art[data-hires-candidates]");
@@ -1738,7 +1834,13 @@ const cardPageHandler = async (req, res) => {
     let usedFallback = false;
     const requestHasHints = hasRequestHints(req.query);
     const hintedCard = requestHasHints ? fallbackCardFromRequest(cardId, req) : null;
-    let card = await fetchCard(cardId, timings);
+    let card = requestHasHints
+      ? await fetchTcgdexCard(cardId, timings)
+      : await fetchCard(cardId, timings);
+    if (requestHasHints) {
+      card = mergeCardWithHints(card, hintedCard);
+      usedFallback = !card || card === hintedCard;
+    }
     if (card && hintedCard && !tcgplayerProductIds(card).length && tcgplayerProductIds(hintedCard).length) {
       card = {
         ...card,

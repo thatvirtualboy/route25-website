@@ -1,7 +1,10 @@
 const BACKEND_ORIGIN = "https://palettetown-backend.vercel.app";
+const OFFICIAL_API_ORIGIN = "https://api.pokemontcg.io/v2";
+const TCGDEX_API_ORIGIN = "https://api.tcgdex.net/v2/en";
 const { route25ImageUrl } = require("../lib/route25-image-url");
+const { canonicalCardId, tcgdexCardId } = require("../lib/card-set-id");
 const responseCache = new Map();
-const CACHE_TTL_MS = 5 * 60 * 1000;
+const CACHE_TTL_MS = 30 * 60 * 1000;
 const KNOWN_SET_TOTALS = {
   me3: 124
 };
@@ -105,18 +108,6 @@ async function fetchCardsBySetSearch(set, q, page, pageSize, setInfo = null) {
   };
 }
 
-function marketPrice(card) {
-  const priceGroups = card?.tcgplayer?.prices;
-  if (!priceGroups || typeof priceGroups !== "object") return null;
-
-  const values = Object.values(priceGroups)
-    .flatMap((group) => [group?.market, group?.mid, group?.low])
-    .map(Number)
-    .filter((value) => Number.isFinite(value) && value > 0);
-
-  return values.length ? Math.max(...values) : null;
-}
-
 function tcgplayerProductId(card) {
   const variants = Array.isArray(card?.cardVariants) ? card.cardVariants : [];
   for (const variant of variants) {
@@ -161,43 +152,34 @@ function cardImages(card) {
   return small || large ? { small, large } : images;
 }
 
-function simplifyCard(card) {
+function simplifySearchCard(card) {
   return {
     id: card?.id || "",
     name: card?.name || "",
-    number: card?.number || "",
-    rarity: card?.rarity || "",
-    types: Array.isArray(card?.types) ? card.types : [],
-    images: cardImages(card),
-    cardVariants: Array.isArray(card?.cardVariants) ? card.cardVariants : [],
-    set: {
-      id: card?.set?.id || "",
-      name: card?.set?.name || "",
-      releaseDate: card?.set?.releaseDate || "",
-      images: card?.set?.images || {}
-    },
-    market: marketPrice(card)
+    images: cardImages(card)
   };
 }
 
 async function fetchJson(url) {
-  const response = await fetch(url, { headers: { accept: "application/json" } });
+  const requestUrl = String(url).replace(/\*/g, "%2A");
+  const response = await fetch(requestUrl, { headers: { accept: "application/json" } });
   if (!response.ok) {
-    throw new Error(`Fetch failed ${response.status} for ${url}`);
+    throw new Error(`Fetch failed ${response.status} for ${requestUrl}`);
   }
   return response.json();
 }
 
 async function fetchJsonWithTimeout(url, timeoutMs) {
+  const requestUrl = String(url).replace(/\*/g, "%2A");
   const controller = new AbortController();
   let timeout = null;
   try {
     return await Promise.race([
-      fetch(url, {
+      fetch(requestUrl, {
         headers: { accept: "application/json" },
         signal: controller.signal
       }).then((response) => {
-        if (!response.ok) throw new Error(`Fetch failed ${response.status} for ${url}`);
+        if (!response.ok) throw new Error(`Fetch failed ${response.status} for ${requestUrl}`);
         return response.json();
       }),
       new Promise((_, reject) => {
@@ -305,12 +287,13 @@ function rejectWithoutItems(result) {
   throw new Error("No cards returned");
 }
 
-async function fetchRemoteSearchResults(queries, page, pageSize, timeoutMs = 2200) {
+async function fetchSearchProvider(origin, queries, page, pageSize, timeoutMs, selectFields = false) {
   if (queries.length === 1) {
-    const url = new URL(`${BACKEND_ORIGIN}/api/tcg/cards`);
+    const url = new URL(`${origin}/cards`);
     url.searchParams.set("q", queries[0]);
     url.searchParams.set("page", String(page));
     url.searchParams.set("pageSize", String(pageSize));
+    if (selectFields) url.searchParams.set("select", "id,name,images");
 
     const payload = await fetchJsonWithTimeout(url.href, timeoutMs);
     const rawItems = payloadItems(payload);
@@ -323,10 +306,11 @@ async function fetchRemoteSearchResults(queries, page, pageSize, timeoutMs = 220
   const merged = new Map();
   const fetchSize = Math.min(page * pageSize, 250);
   const payloads = await Promise.all(queries.map(async (query) => {
-    const url = new URL(`${BACKEND_ORIGIN}/api/tcg/cards`);
+    const url = new URL(`${origin}/cards`);
     url.searchParams.set("q", query);
     url.searchParams.set("page", "1");
     url.searchParams.set("pageSize", String(fetchSize));
+    if (selectFields) url.searchParams.set("select", "id,name,images");
     return fetchJsonWithTimeout(url.href, timeoutMs);
   }));
 
@@ -346,6 +330,117 @@ async function fetchRemoteSearchResults(queries, page, pageSize, timeoutMs = 220
       totalCount: allItems.length
     }
   };
+}
+
+function tcgdexFilter(query) {
+  const idMatch = String(query || "").match(/^id:([^\s]+)$/i);
+  if (idMatch) {
+    const value = tcgdexCardId(normalizeCardId(idMatch[1]));
+    return { field: "id", value, tokens: [] };
+  }
+  const nameParts = Array.from(String(query || "").matchAll(/name:\*([^*]+)\*/gi), (match) => match[1]);
+  return { field: "name", value: nameParts[0] || "", tokens: nameParts.map((part) => part.toLowerCase()) };
+}
+
+function normalizeTcgdexCards(items) {
+  return (Array.isArray(items) ? items : []).map((card) => {
+    const image = String(card?.image || "").replace(/\/$/, "");
+    return {
+      id: canonicalCardId(card?.id),
+      name: card?.name || "",
+      number: card?.localId || "",
+      images: image ? {
+        small: `${image}/low.webp`,
+        large: `${image}/high.webp`
+      } : {}
+    };
+  }).filter((card) => card.id && card.images.small);
+}
+
+function filterTcgdexCards(items, filter) {
+  const cards = normalizeTcgdexCards(items);
+  if (filter.field !== "name" || filter.tokens.length < 2) return cards;
+  return cards.filter((card) => {
+    const name = textTokens(card.name).join(" ");
+    return filter.tokens.every((token) => name.includes(token));
+  });
+}
+
+async function fetchTcgdexSearchResults(queries, page, pageSize, timeoutMs = 3500) {
+  if (queries.length === 1) {
+    const filter = tcgdexFilter(queries[0]);
+    if (!filter.value) throw new Error("Unsupported TCGdex search query");
+    const url = new URL(`${TCGDEX_API_ORIGIN}/cards`);
+    url.searchParams.set(filter.field, filter.value);
+    const allItems = filterTcgdexCards(await fetchJsonWithTimeout(url.href, timeoutMs), filter);
+    const start = (page - 1) * pageSize;
+    const rawItems = allItems.slice(start, start + pageSize);
+    return {
+      rawItems,
+      payload: {
+        page,
+        pageSize,
+        count: rawItems.length,
+        totalCount: allItems.length
+      }
+    };
+  }
+
+  const merged = new Map();
+  const fetchSize = Math.min(page * pageSize, 250);
+  const payloads = await Promise.all(queries.map(async (query) => {
+    const filter = tcgdexFilter(query);
+    if (!filter.value) return [];
+    const url = new URL(`${TCGDEX_API_ORIGIN}/cards`);
+    url.searchParams.set(filter.field, filter.value);
+    url.searchParams.set("pagination:page", "1");
+    url.searchParams.set("pagination:itemsPerPage", String(fetchSize));
+    return {
+      filter,
+      payload: await fetchJsonWithTimeout(url.href, timeoutMs)
+    };
+  }));
+  for (const { filter, payload } of payloads) {
+    for (const card of filterTcgdexCards(payload, filter)) {
+      if (!merged.has(card.id)) merged.set(card.id, card);
+    }
+  }
+  const allItems = [...merged.values()];
+  const rawItems = allItems.slice((page - 1) * pageSize, page * pageSize);
+  return {
+    rawItems,
+    payload: {
+      page,
+      pageSize,
+      count: rawItems.length,
+      totalCount: allItems.length
+    }
+  };
+}
+
+async function fetchRemoteSearchResults(queries, page, pageSize, timeoutMs = 2200) {
+  const fallbackProviders = [
+    fetchSearchProvider(`${BACKEND_ORIGIN}/api/tcg`, queries, page, pageSize, timeoutMs),
+    fetchSearchProvider(OFFICIAL_API_ORIGIN, queries, page, pageSize, Math.min(timeoutMs, 5000), true)
+  ];
+  fallbackProviders.forEach((provider) => provider.catch(() => {}));
+  const preferredProvider = fetchTcgdexSearchResults(queries, page, pageSize, Math.min(timeoutMs, 1200));
+
+  try {
+    return rejectWithoutItems(await preferredProvider);
+  } catch {
+    // Both fallback requests were started in parallel, so a slow preferred
+    // provider does not add another full network round-trip.
+  }
+
+  try {
+    return await Promise.any(fallbackProviders.map((provider) => provider.then(rejectWithoutItems)));
+  } catch (error) {
+    const settled = await Promise.allSettled([preferredProvider, ...fallbackProviders]);
+    const emptyResult = settled.find((result) => result.status === "fulfilled");
+    if (emptyResult) return emptyResult.value;
+    throw error;
+  }
 }
 
 async function fetchAllCardsForSet(set, setInfo = null) {
@@ -515,6 +610,14 @@ async function handleSearch(req, res) {
   const page = parsePositiveInt(req.query?.page, 1, 1000);
   const pageSize = parsePositiveInt(req.query?.pageSize, 24, 48);
 
+  if (!q && !set) {
+    res.statusCode = 200;
+    res.setHeader("content-type", "application/json; charset=utf-8");
+    res.setHeader("cache-control", "no-store");
+    res.end(JSON.stringify({ ok: true, data: [], page, pageSize, count: 0, totalCount: 0 }));
+    return;
+  }
+
   let queries = buildSearchQueries({ q, set });
   let defaultSet = null;
   if (!queries.length) {
@@ -560,11 +663,11 @@ async function handleSearch(req, res) {
     payload = searchResult.payload;
     rawItems = searchResult.rawItems;
   } else if (queries.length === 1) {
-    const remoteResult = await fetchRemoteSearchResults(queries, page, pageSize, 2600);
+    const remoteResult = await fetchRemoteSearchResults(queries, page, pageSize, 6500);
     payload = remoteResult.payload;
     rawItems = remoteResult.rawItems;
   } else {
-    const remoteResult = await fetchRemoteSearchResults(queries, page, pageSize, 2600);
+    const remoteResult = await fetchRemoteSearchResults(queries, page, pageSize, 6500);
     payload = remoteResult.payload;
     rawItems = remoteResult.rawItems;
   }
@@ -579,7 +682,7 @@ async function handleSearch(req, res) {
 
   const body = JSON.stringify({
     ok: true,
-    data: rawItems.map(simplifyCard),
+    data: rawItems.map(simplifySearchCard),
     page: payload?.page || page,
     pageSize: payload?.pageSize || pageSize,
     count: payload?.count ?? rawItems.length,
@@ -605,6 +708,10 @@ module.exports = async (req, res) => {
 
     await handleSearch(req, res);
   } catch (error) {
+    console.error(JSON.stringify({
+      route: "card-search",
+      error: String(error?.message || error || "Search unavailable").slice(0, 300)
+    }));
     res.statusCode = 500;
     res.setHeader("content-type", "application/json; charset=utf-8");
     res.end(JSON.stringify({ ok: false, error: "Search unavailable" }));

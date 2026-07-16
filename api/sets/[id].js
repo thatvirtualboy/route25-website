@@ -4,7 +4,9 @@ const APP_STORE_ID = "6755665546";
 const DISCORD_URL = "https://discord.gg/WncmGEFuNw";
 const X_URL = "https://x.com/route25app";
 const INSTAGRAM_URL = "https://www.instagram.com/route25app/";
+const TCGDEX_API_ORIGIN = "https://api.tcgdex.net/v2/en";
 const { route25ImageUrl } = require("../../lib/route25-image-url");
+const { canonicalCardId, canonicalCardSetId, tcgdexCardSetId } = require("../../lib/card-set-id");
 const { tcgplayerProductOverride } = require("../tcgplayer-overrides");
 const KNOWN_SET_TOTALS = {
   me3: 124
@@ -83,13 +85,72 @@ async function fetchJsonWithTimeout(url, timeoutMs) {
 }
 
 async function fetchSets() {
-  const payload = await fetchJson(`${BACKEND_ORIGIN}/api/tcg/sets`);
+  const payload = await fetchJsonWithTimeout(`${BACKEND_ORIGIN}/api/tcg/sets`, 1400);
   return Array.isArray(payload?.data) ? payload.data : [];
 }
 
+function tcgdexAssetUrl(value, suffix) {
+  const base = String(value || "").replace(/\/$/, "");
+  return base ? `${base}${suffix}` : "";
+}
+
+function normalizeTcgdexSet(payload, requestedSetId) {
+  if (!payload?.id || !payload?.name) return null;
+  const id = canonicalCardSetId(requestedSetId || payload.id);
+  const set = {
+    id,
+    name: payload.name,
+    releaseDate: payload.releaseDate || "",
+    printedTotal: payload?.cardCount?.official || payload?.cardCount?.total || null,
+    total: payload?.cardCount?.total || null,
+    cardCount: payload.cardCount || {},
+    images: {
+      logo: tcgdexAssetUrl(payload.logo, ".webp"),
+      symbol: tcgdexAssetUrl(payload.symbol, ".webp")
+    }
+  };
+  const cardSet = {
+    id: set.id,
+    name: set.name,
+    releaseDate: set.releaseDate,
+    printedTotal: set.printedTotal,
+    total: set.total,
+    cardCount: set.cardCount,
+    images: set.images
+  };
+  set.tcgdexCards = (Array.isArray(payload.cards) ? payload.cards : []).map((card) => {
+    const image = String(card?.image || "").replace(/\/$/, "");
+    return {
+      id: canonicalCardId(card?.id),
+      name: card?.name || "",
+      number: card?.localId || "",
+      rarity: "",
+      images: image ? {
+        small: `${image}/low.webp`,
+        large: `${image}/high.webp`
+      } : {},
+      set: cardSet
+    };
+  }).filter((card) => card.id && card.images.small);
+  return set;
+}
+
+async function fetchTcgdexSet(setId) {
+  const tcgdexId = tcgdexCardSetId(setId);
+  const payload = await fetchJsonWithTimeout(`${TCGDEX_API_ORIGIN}/sets/${encodeURIComponent(tcgdexId)}`, 1200);
+  return normalizeTcgdexSet(payload, setId);
+}
+
 async function fetchSet(setId) {
-  const sets = await fetchSets();
-  return sets.find((set) => String(set?.id || "").toLowerCase() === setId.toLowerCase()) || null;
+  const fallbackPromise = fetchTcgdexSet(setId).catch(() => null);
+  try {
+    const sets = await fetchSets();
+    const backendSet = sets.find((set) => String(set?.id || "").toLowerCase() === setId.toLowerCase()) || null;
+    if (backendSet) return backendSet;
+  } catch {
+    // Use the exact-set provider already running in parallel.
+  }
+  return fallbackPromise;
 }
 
 function syntheticSetCards(set) {
@@ -113,6 +174,9 @@ function syntheticSetCards(set) {
 }
 
 async function fetchCards(set) {
+  if (Array.isArray(set?.tcgdexCards) && set.tcgdexCards.length) {
+    return set.tcgdexCards;
+  }
   const setId = set.id;
   let payload = null;
   try {
@@ -159,6 +223,18 @@ function cardImage(card) {
   return candidates[0] || "";
 }
 
+function unwrappedProxyImageUrl(value) {
+  try {
+    const url = new URL(absoluteUrl(value, BACKEND_ORIGIN));
+    if (url.origin === new URL(BACKEND_ORIGIN).origin && url.pathname === "/api/proxy/image") {
+      return absoluteUrl(url.searchParams.get("u"));
+    }
+  } catch {
+    return "";
+  }
+  return "";
+}
+
 function cardImageCandidates(card) {
   const candidates = [];
   if (String(card?.set?.id || "").toLowerCase() === "mep" || String(card?.id || "").toLowerCase().startsWith("mep-")) {
@@ -168,8 +244,15 @@ function cardImageCandidates(card) {
   }
 
   const image = card?.images?.small || card?.images?.large;
-  if (image) candidates.push(route25ImageUrl(absoluteUrl(image, BACKEND_ORIGIN)));
+  if (image) {
+    const absoluteImage = absoluteUrl(image, BACKEND_ORIGIN);
+    const directImage = unwrappedProxyImageUrl(absoluteImage);
+    if (directImage) candidates.push(directImage);
+    candidates.push(route25ImageUrl(absoluteImage));
+  }
   if (String(card?.set?.id || "").toLowerCase() !== "mep" && !String(card?.id || "").toLowerCase().startsWith("mep-")) {
+    const id = String(card?.id || "");
+    if (id) candidates.push(`https://images.scrydex.com/pokemon/${encodeURIComponent(id)}/small`);
     return candidates.filter((candidate, index) => candidate && candidates.indexOf(candidate) === index);
   }
 
@@ -442,6 +525,18 @@ function renderSetPage(set, cards, req) {
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="stylesheet" href="/assets/site.css" />
   <script type="application/ld+json">${jsonScript(structuredData({ set, cards, pageUrl, image: heroImage }))}</script>
+  <script>
+    window.route25CardImageFallback = function(img) {
+      const fallbacks = String(img.dataset.fallbacks || "").split("|").filter(Boolean);
+      const next = fallbacks.shift();
+      if (!next) {
+        img.removeAttribute("onerror");
+        return;
+      }
+      img.dataset.fallbacks = fallbacks.join("|");
+      img.src = next;
+    };
+  </script>
   <style>
     .set-hero {
       min-height: calc(100vh - 64px);
@@ -752,18 +847,6 @@ function renderSetPage(set, cards, req) {
       </div>
     </section>
   </main>
-  <script>
-    function route25CardImageFallback(img) {
-      const fallbacks = String(img.dataset.fallbacks || "").split("|").filter(Boolean);
-      const next = fallbacks.shift();
-      if (!next) {
-        img.removeAttribute("onerror");
-        return;
-      }
-      img.dataset.fallbacks = fallbacks.join("|");
-      img.src = next;
-    }
-  </script>
 </body>
 </html>`;
 }
@@ -791,7 +874,8 @@ function renderNotFound(setId) {
 }
 
 module.exports = async (req, res) => {
-  const setId = String(req.query?.id || "").trim();
+  const requestedSetId = String(req.query?.id || "").trim();
+  const setId = canonicalCardSetId(requestedSetId);
   if (!setId) {
     res.statusCode = 404;
     res.setHeader("content-type", "text/html; charset=utf-8");

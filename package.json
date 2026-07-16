@@ -1,6 +1,8 @@
 {
   "private": true,
   "scripts": {
+    "audit:local": "node scripts/release-smoke.js",
+    "dev:local": "node scripts/local-server.js",
     "test": "node --test"
   },
   "dependencies": {
