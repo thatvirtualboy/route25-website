@@ -124,8 +124,14 @@ test("collector spotlight presentation uses fixed subscription and structured ed
   assert.match(previewPage, /View trainer in the Route 25 app/);
   assert.match(publicRenderer, /Continue in the Route 25 app/);
   assert.match(publicRenderer, /View trainer in the Route 25 app/);
-  assert.match(publicRenderer, /const relocatedBody = trainerCta/);
+  assert.ok(publicRenderer.includes('${trainerCta}${relatedHtml}<section class="section subscribe-prompt">'));
+  assert.doesNotMatch(publicRenderer, /relocatedBody/);
   assert.match(newsletterCss, /\.trainer-app-cta/);
+  assert.match(newsletterCss, /\.subscribe-actions/);
+  assert.equal((publicRenderer.match(/Browse all collector spotlights/g) || []).length, 1);
+  assert.equal((previewPage.match(/Browse all collector spotlights/g) || []).length, 1);
+  assert.ok(publicRenderer.indexOf('href="/newsletter/subscribe">Subscribe') < publicRenderer.indexOf('Browse all collector spotlights'));
+  assert.ok(previewPage.indexOf('href="/newsletter/subscribe">Subscribe') < previewPage.indexOf('Browse all collector spotlights'));
   assert.doesNotMatch(previewPage, /View this trainer on Route 25/);
   assert.match(previewPage, /trainerProfileUrl/);
   assert.match(previewPage, /storyBodyHtml/);
