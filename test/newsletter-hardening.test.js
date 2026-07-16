@@ -76,6 +76,7 @@ test("collector spotlight presentation uses fixed subscription and structured ed
   const previewPage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "issue.html"), "utf8");
   const publicRenderer = fs.readFileSync(path.join(__dirname, "..", "api", "newsletter-page.js"), "utf8");
   const newsletterApi = fs.readFileSync(path.join(__dirname, "..", "api", "newsletter.js"), "utf8");
+  const newsletterCss = fs.readFileSync(path.join(__dirname, "..", "newsletter", "newsletter.css"), "utf8");
 
   assert.doesNotMatch(adminPage, /name="subscribeUrl"/);
   assert.match(submissionPage, /What makes your collection interesting\?/);
@@ -117,7 +118,15 @@ test("collector spotlight presentation uses fixed subscription and structured ed
   assert.match(previewPage, /Zoom out image/);
   assert.match(previewPage, /noopener noreferrer sponsored nofollow/);
   assert.match(previewPage, /rel="noopener noreferrer me nofollow"/);
-  assert.match(previewPage, /View this trainer on Route 25/);
+  assert.match(adminPage, /Continue in the Route 25 app/);
+  assert.match(adminPage, /View trainer in the Route 25 app/);
+  assert.match(previewPage, /Continue in the Route 25 app/);
+  assert.match(previewPage, /View trainer in the Route 25 app/);
+  assert.match(publicRenderer, /Continue in the Route 25 app/);
+  assert.match(publicRenderer, /View trainer in the Route 25 app/);
+  assert.match(publicRenderer, /const relocatedBody = trainerCta/);
+  assert.match(newsletterCss, /\.trainer-app-cta/);
+  assert.doesNotMatch(previewPage, /View this trainer on Route 25/);
   assert.match(previewPage, /trainerProfileUrl/);
   assert.match(previewPage, /storyBodyHtml/);
   assert.doesNotMatch(previewPage, /issue\.subscribeUrl/);
