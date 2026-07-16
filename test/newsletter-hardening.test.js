@@ -83,6 +83,9 @@ test("collector spotlight presentation uses fixed subscription and structured ed
   assert.match(newsletterApi, /socialDetails\(socialUrl\)/);
   assert.match(newsletterApi, /Collection profile/);
   assert.match(newsletterApi, /Collector’s corner/);
+  assert.match(newsletterApi, /Continue in the Route 25 app/);
+  assert.match(newsletterApi, /View trainer in the Route 25 app/);
+  assert.ok(newsletterApi.includes('const relocatedContent = trainerCta ? content.replace(trainerCta, "").replace(tourCtaStart, `${trainerCta}${tourCtaStart}`) : content;'));
   assert.match(newsletterApi, /const masthead = `[^`]+background:#ffffff/);
   assert.match(newsletterApi, /assets\/Icon\.png/);
   assert.match(newsletterApi, /assets\/route25-logo-white\.png/);
