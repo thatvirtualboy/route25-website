@@ -57,7 +57,7 @@ test("blank card search does not fall back to browsing the newest set", async ()
   });
 });
 
-test("typed searches fall back to an independent API and return image-only card data", async () => {
+test("typed searches fall back to an independent API and return render-ready card data", async () => {
   const originalFetch = global.fetch;
   const requestedUrls = [];
   global.fetch = async (url) => {
@@ -111,7 +111,7 @@ test("typed searches fall back to an independent API and return image-only card 
     assert.ok(fallbackCardUrls.every((url) => /%2A/.test(url)));
     assert.ok(requestedUrls.some((url) => url.startsWith("https://api.tcgdex.net/v2/en/cards")));
     assert.ok(fallbackCardUrls.every((url) => new URL(url).searchParams.get("q") === "name:*bulbas*"));
-    assert.deepEqual(Object.keys(payload.data[0]).sort(), ["id", "images", "name"]);
+    assert.deepEqual(Object.keys(payload.data[0]).sort(), ["id", "images", "name", "number"]);
   } finally {
     global.fetch = originalFetch;
   }
@@ -352,6 +352,68 @@ test("broad searches merge physical-card providers and keep only usable front ar
     assert.equal(ids.filter((id) => id === "sv7-148").length, 1);
     assert.doesNotMatch(JSON.stringify(payload), /A1-053|mfb-25|tcgp/i);
     assert.match(payload.data.find((card) => card.id === "mep-039").images.small, /card-images\/mep\/mep-039\.webp/);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("complete MEP set data supplements missing name and exact-id search records", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async (url) => {
+    const requestedUrl = String(url);
+    if (requestedUrl.includes("/api/tcg/by-set") && new URL(requestedUrl).searchParams.get("set") === "mep") {
+      return {
+        ok: true,
+        async json() {
+          return {
+            data: [
+              {
+                id: "mep-046",
+                name: "Chikorita",
+                number: "046",
+                rarity: "Promo",
+                types: ["Grass"],
+                artist: "Saboteri",
+                regulationMark: "J",
+                images: { small: "https://images.scrydex.com/pokemon/mep-46/small", large: "https://images.scrydex.com/pokemon/mep-46/large" },
+                set: { id: "mep", name: "MEP Black Star Promos" }
+              },
+              {
+                id: "mep-054",
+                name: "Sobble",
+                number: "054",
+                rarity: "Promo",
+                images: { small: "https://images.scrydex.com/pokemon/mep-54/small", large: "https://images.scrydex.com/pokemon/mep-54/large" },
+                set: { id: "mep", name: "MEP Black Star Promos" }
+              }
+            ]
+          };
+        }
+      };
+    }
+    if (requestedUrl.startsWith("https://api.tcgdex.net/v2/en/cards")) {
+      return { ok: true, async json() { return []; } };
+    }
+    if (requestedUrl.startsWith("https://palettetown-backend.vercel.app/api/tcg/cards")) {
+      return { ok: true, async json() { return { data: [], totalCount: 0 }; } };
+    }
+    throw new Error("No other provider needed");
+  };
+
+  try {
+    const nameRes = responseCapture();
+    await searchCards({ query: { q: "chikorita", pageSize: "32" } }, nameRes);
+    const namePayload = JSON.parse(nameRes.body);
+    assert.equal(nameRes.statusCode, 200);
+    assert.deepEqual(namePayload.data.map((card) => card.id), ["mep-046"]);
+    assert.deepEqual(namePayload.data[0].set, { id: "mep", name: "MEP Black Star Promos" });
+    assert.equal(namePayload.data[0].artist, "Saboteri");
+
+    const idRes = responseCapture();
+    await searchCards({ query: { q: "mep-054", pageSize: "32" } }, idRes);
+    const idPayload = JSON.parse(idRes.body);
+    assert.equal(idRes.statusCode, 200);
+    assert.deepEqual(idPayload.data.map((card) => card.id), ["mep-054"]);
   } finally {
     global.fetch = originalFetch;
   }

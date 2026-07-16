@@ -90,6 +90,20 @@ async function main() {
     total: squirtleSearch.payload.totalCount
   };
 
+  for (const [query, requiredId] of [["chikorita", "mep-046"], ["sobble", "mep-054"]]) {
+    const result = await fetchJson(`/api/card-search?q=${query}&page=1&pageSize=48`);
+    const card = result.payload.data.find((item) => item.id === requiredId);
+    assert.ok(card, `${query} search must include ${requiredId} from the complete MEP catalog`);
+    report.searches[query] = {
+      elapsedMs: result.elapsedMs,
+      returned: result.payload.data.length,
+      total: result.payload.totalCount
+    };
+    report.images[requiredId] = await assertImage(card.images.small, `${requiredId} search artwork`);
+  }
+  const exactMepSearch = await fetchJson("/api/card-search?q=mep-054&page=1&pageSize=32");
+  assert.deepEqual(exactMepSearch.payload.data.map((card) => card.id), ["mep-054"], "exact MEP ids must resolve from the complete set catalog");
+
   const jolteonPage1 = await fetchJson("/api/card-search?q=jolteon&page=1&pageSize=32");
   const jolteonTotal = jolteonPage1.payload.totalCount;
   const jolteonIds = new Set(jolteonPage1.payload.data.map((card) => card.id));

@@ -14,6 +14,8 @@ let tcgdexSetAliasesPromise = null;
 const KNOWN_SET_TOTALS = {
   me3: 124
 };
+const SUPPLEMENTAL_SEARCH_SET_IDS = ["mep"];
+const supplementalSetCache = new Map();
 
 function getCachedJson(key) {
   const entry = responseCache.get(key);
@@ -162,12 +164,6 @@ function mepImageUrl(card, large = false) {
 
 function cardImages(card) {
   const images = card?.images || {};
-  if (String(card?.set?.id || "").toLowerCase() === "mep" || String(card?.id || "").toLowerCase().startsWith("mep-")) {
-    const small = mepImageUrl(card, false);
-    const large = mepImageUrl(card, true) || small;
-    if (small || large) return { small, large };
-  }
-
   if (images.small || images.large) {
     return {
       ...images,
@@ -176,17 +172,35 @@ function cardImages(card) {
     };
   }
 
+  if (String(card?.set?.id || "").toLowerCase() === "mep" || String(card?.id || "").toLowerCase().startsWith("mep-")) {
+    const small = mepImageUrl(card, false);
+    const large = mepImageUrl(card, true) || small;
+    if (small || large) return { small, large };
+  }
+
   const small = mepImageUrl(card, false);
   const large = mepImageUrl(card, true) || small;
   return small || large ? { small, large } : images;
 }
 
 function simplifySearchCard(card) {
-  return {
+  const result = {
     id: card?.id || "",
     name: card?.name || "",
     images: cardImages(card)
   };
+  if (card?.number) result.number = card.number;
+  if (card?.rarity) result.rarity = card.rarity;
+  if (Array.isArray(card?.types) && card.types.length) result.types = card.types;
+  if (card?.artist || card?.illustrator) result.artist = card.artist || card.illustrator;
+  if (card?.regulationMark) result.regulationMark = card.regulationMark;
+  if (card?.set?.id || card?.set?.name) {
+    result.set = {
+      id: card?.set?.id || cardSetId(card),
+      name: card?.set?.name || card?.set?.id || cardSetId(card)
+    };
+  }
+  return result;
 }
 
 async function fetchJson(url) {
@@ -391,6 +405,54 @@ async function settleWithin(promise, timeoutMs) {
   } finally {
     if (timeout) clearTimeout(timeout);
   }
+}
+
+async function fetchSupplementalSetCards(setId, timeoutMs = 1200) {
+  const key = String(setId || "").toLowerCase();
+  const cached = supplementalSetCache.get(key);
+  if (cached?.expiresAt > Date.now()) return cached.cards;
+  if (cached?.promise) return cached.promise;
+
+  const url = new URL(`${BACKEND_ORIGIN}/api/tcg/by-set`);
+  url.searchParams.set("set", key);
+  url.searchParams.set("pageSize", "500");
+  const promise = fetchJsonWithTimeout(url.href, timeoutMs).then((payload) => {
+    const cards = payloadItems(payload).filter((card) => !isPokemonTcgPocket(card));
+    supplementalSetCache.set(key, { cards, expiresAt: Date.now() + SET_CATALOG_TTL_MS });
+    return cards;
+  }).catch((error) => {
+    supplementalSetCache.delete(key);
+    throw error;
+  });
+  supplementalSetCache.set(key, { promise, expiresAt: 0 });
+  return promise;
+}
+
+function cardMatchesProviderQuery(card, query) {
+  const filter = tcgdexFilter(query);
+  if (!filter.value) return false;
+  if (filter.field === "id") {
+    return canonicalCardId(card?.id).toLowerCase() === canonicalCardId(filter.value).toLowerCase();
+  }
+  const name = textTokens(card?.name).join(" ");
+  return filter.tokens.length
+    ? filter.tokens.every((token) => name.includes(token))
+    : name.includes(String(filter.value).toLowerCase());
+}
+
+async function fetchSupplementalSearchResults(queries, page, pageSize, timeoutMs = 1200) {
+  const catalogs = await Promise.all(SUPPLEMENTAL_SEARCH_SET_IDS.map((setId) => fetchSupplementalSetCards(setId, timeoutMs)));
+  const merged = new Map();
+  for (const card of catalogs.flat()) {
+    if (queries.some((query) => cardMatchesProviderQuery(card, query)) && card?.id) merged.set(card.id, card);
+  }
+  const allItems = [...merged.values()];
+  const rawItems = allItems.slice((page - 1) * pageSize, page * pageSize);
+  return {
+    allItems,
+    rawItems,
+    payload: { page, pageSize, count: rawItems.length, totalCount: allItems.length }
+  };
 }
 
 function buildSearchQuery({ q, set }) {
@@ -605,26 +667,36 @@ async function fetchRemoteSearchResults(queries, page, pageSize, timeoutMs = 220
     fetchSearchProvider(OFFICIAL_API_ORIGIN, queries, page, pageSize, Math.min(timeoutMs, 5000), true, releaseDatesPromise)
   ];
   fallbackProviders.forEach((provider) => provider.catch(() => {}));
+  const supplementalProvider = fetchSupplementalSearchResults(queries, page, pageSize, Math.min(timeoutMs, 1200));
+  supplementalProvider.catch(() => {});
   const preferredProvider = fetchTcgdexSearchResults(queries, page, pageSize, Math.min(timeoutMs, 1200), releaseDatesPromise);
 
   try {
     const preferredResult = rejectWithoutItems(await preferredProvider);
     if (!shouldSortNewest) return preferredResult;
-    const [supplementalResult, releaseDates, setAliases] = await Promise.all([
+    const [backendResult, supplementalResult, releaseDates, setAliases] = await Promise.all([
       settleWithin(fallbackProviders[0], 450),
+      settleWithin(supplementalProvider, 450),
       releaseDatesPromise,
       setAliasesPromise
     ]);
-    return mergeSearchResults([preferredResult, supplementalResult], page, pageSize, releaseDates, setAliases);
+    return mergeSearchResults([preferredResult, backendResult, supplementalResult], page, pageSize, releaseDates, setAliases);
   } catch {
     // Both fallback requests were started in parallel, so a slow preferred
     // provider does not add another full network round-trip.
   }
 
   try {
-    return await Promise.any(fallbackProviders.map((provider) => provider.then(rejectWithoutItems)));
+    const fallbackResult = await Promise.any([...fallbackProviders, supplementalProvider].map((provider) => provider.then(rejectWithoutItems)));
+    if (!shouldSortNewest) return fallbackResult;
+    const [supplementalResult, releaseDates, setAliases] = await Promise.all([
+      settleWithin(supplementalProvider, 450),
+      releaseDatesPromise,
+      setAliasesPromise
+    ]);
+    return mergeSearchResults([fallbackResult, supplementalResult], page, pageSize, releaseDates, setAliases);
   } catch (error) {
-    const settled = await Promise.allSettled([preferredProvider, ...fallbackProviders]);
+    const settled = await Promise.allSettled([preferredProvider, ...fallbackProviders, supplementalProvider]);
     const emptyResult = settled.find((result) => result.status === "fulfilled");
     if (emptyResult) return emptyResult.value;
     throw error;

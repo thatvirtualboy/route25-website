@@ -512,6 +512,9 @@ function renderSearchPage() {
         number: card.number,
         setName: setName,
         rarity: card.rarity,
+        types: Array.isArray(card.types) ? card.types.join("|") : "",
+        artist: card.artist,
+        regulationMark: card.regulationMark,
         imageSmall: smallImages[0],
         imageLarge: largeImages[0],
         imageFallbacks: imageFallbacks.slice(1, 10).join("|")
