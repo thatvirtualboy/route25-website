@@ -65,7 +65,7 @@ function createLocalServer() {
         await searchData(req, res);
         return;
       }
-      if (url.pathname.startsWith("/api/proxy/") || url.pathname.startsWith("/api/__proxy/")) {
+      if (url.pathname.startsWith("/api/proxy/") || url.pathname.startsWith("/api/__proxy/") || url.pathname.startsWith("/card-images/")) {
         await proxyBackend(url.pathname, url.search, res);
         return;
       }

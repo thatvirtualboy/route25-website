@@ -25,6 +25,8 @@ test("card search page stays focused on individual-card search", async () => {
   assert.equal(res.statusCode, 200);
   assert.doesNotMatch(res.body, /setSelect|Open this set|All sets/);
   assert.match(res.body, /id="cardQuery"/);
+  assert.match(res.body, />Search by card name\.<\/p>/);
+  assert.doesNotMatch(res.body, /card number, or id/i);
   assert.match(res.body, /id="resultsSection" hidden/);
   assert.equal((res.body.match(/<a class="fan-card"/g) || []).length, 6);
   assert.match(res.body, /\.fan-card:hover/);
@@ -100,11 +102,15 @@ test("typed searches fall back to an independent API and return image-only card 
     const res = responseCapture();
     await searchCards({ query: { q: "bulbas", pageSize: "16" } }, res);
     const payload = JSON.parse(res.body);
+    const fallbackCardUrls = requestedUrls.filter((url) => {
+      if (url.startsWith("https://api.tcgdex.net")) return false;
+      return new URL(url).pathname.endsWith("/cards");
+    });
 
     assert.equal(res.statusCode, 200);
-    assert.ok(requestedUrls.filter((url) => !url.startsWith("https://api.tcgdex.net")).every((url) => /%2A/.test(url)));
+    assert.ok(fallbackCardUrls.every((url) => /%2A/.test(url)));
     assert.ok(requestedUrls.some((url) => url.startsWith("https://api.tcgdex.net/v2/en/cards")));
-    assert.ok(requestedUrls.filter((url) => !url.startsWith("https://api.tcgdex.net")).every((url) => new URL(url).searchParams.get("q") === "name:*bulbas*"));
+    assert.ok(fallbackCardUrls.every((url) => new URL(url).searchParams.get("q") === "name:*bulbas*"));
     assert.deepEqual(Object.keys(payload.data[0]).sort(), ["id", "images", "name"]);
   } finally {
     global.fetch = originalFetch;
@@ -206,6 +212,146 @@ test("multi-word card names match without requiring provider punctuation", async
     assert.equal(new URL(preferredUrl).searchParams.get("name"), "mr");
     assert.deepEqual(payload.data.map((card) => card.name), ["Mr. Mime"]);
     assert.equal(payload.totalCount, 1);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("search results exclude Pokemon TCG Pocket cards", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async (url) => {
+    const requestedUrl = String(url);
+    if (!requestedUrl.startsWith("https://api.tcgdex.net")) throw new Error("Fallback provider not needed");
+    return {
+      ok: true,
+      async json() {
+        return [
+          {
+            id: "P-A-007",
+            localId: "007",
+            name: "Professor's Research",
+            image: "https://assets.tcgdex.net/en/tcgp/P-A/007"
+          },
+          {
+            id: "swsh1-178",
+            localId: "178",
+            name: "Professor's Research",
+            image: "https://assets.tcgdex.net/en/swsh/swsh1/178"
+          }
+        ];
+      }
+    };
+  };
+
+  try {
+    const res = responseCapture();
+    await searchCards({ query: { q: "professor", pageSize: "32" } }, res);
+    const payload = JSON.parse(res.body);
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(payload.data.map((card) => card.id), ["swsh1-178"]);
+    assert.equal(payload.totalCount, 1);
+    assert.doesNotMatch(JSON.stringify(payload), /tcgp|P-A-007/i);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("broad card-name searches sort the full result set newest first", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async (url) => {
+    const requestedUrl = String(url);
+    if (requestedUrl === "https://palettetown-backend.vercel.app/api/tcg/sets") {
+      return {
+        ok: true,
+        async json() {
+          return {
+            data: [
+              { id: "det1", name: "Detective Pikachu", releaseDate: "2019/04/05" },
+              { id: "sv3pt5", name: "151", releaseDate: "2023/09/22" },
+              { id: "sv4pt5", name: "Paldean Fates", releaseDate: "2024/01/26" }
+            ]
+          };
+        }
+      };
+    }
+    if (requestedUrl.startsWith("https://api.tcgdex.net")) {
+      return {
+        ok: true,
+        async json() {
+          return [
+            { id: "det1-4", localId: "4", name: "Charmander", image: "https://assets.tcgdex.net/en/sm/det1/4" },
+            { id: "sv3pt5-004", localId: "004", name: "Charmander", image: "https://assets.tcgdex.net/en/sv/sv03.5/004" },
+            { id: "sv4pt5-007", localId: "007", name: "Charmander", image: "https://assets.tcgdex.net/en/sv/sv04.5/007" }
+          ];
+        }
+      };
+    }
+    throw new Error("Fallback card provider not needed");
+  };
+
+  try {
+    const res = responseCapture();
+    await searchCards({ query: { q: "newestordertest", pageSize: "2" } }, res);
+    const payload = JSON.parse(res.body);
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(payload.data.map((card) => card.id), ["sv4pt5-007", "sv3pt5-004"]);
+    assert.equal(payload.totalCount, 3);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("broad searches merge physical-card providers and keep only usable front artwork", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async (url) => {
+    const requestedUrl = String(url);
+    if (requestedUrl.startsWith("https://api.tcgdex.net/v2/en/cards")) {
+      return {
+        ok: true,
+        async json() {
+          return [
+            { id: "sv7-148", localId: "148", name: "Squirtle", image: "https://assets.tcgdex.net/en/sv/sv07/148" },
+            { id: "mep-039", localId: "039", name: "Squirtle", image: null },
+            { id: "mfb-25", localId: "25", name: "Squirtle", image: null },
+            { id: "A1-053", localId: "053", name: "Squirtle", image: "https://assets.tcgdex.net/en/tcgp/A1/053" }
+          ];
+        }
+      };
+    }
+    if (requestedUrl.startsWith("https://palettetown-backend.vercel.app/api/tcg/cards")) {
+      return {
+        ok: true,
+        async json() {
+          return {
+            data: [
+              { id: "sv7-148", name: "Squirtle", number: "148", images: { small: "https://images.pokemontcg.io/sv7/148.png" }, set: { id: "sv7" } },
+              { id: "mcd21-17", name: "Squirtle", number: "17", images: { small: "https://images.pokemontcg.io/mcd21/17.png" }, set: { id: "mcd21" } }
+            ],
+            totalCount: 2
+          };
+        }
+      };
+    }
+    if (requestedUrl === "https://palettetown-backend.vercel.app/api/tcg/sets") {
+      return { ok: true, async json() { return { data: [] }; } };
+    }
+    throw new Error("Slow public fallback not needed");
+  };
+
+  try {
+    const res = responseCapture();
+    await searchCards({ query: { q: "providermergetest", pageSize: "32" } }, res);
+    const payload = JSON.parse(res.body);
+    const ids = payload.data.map((card) => card.id);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(payload.totalCount, 3);
+    assert.deepEqual(new Set(ids), new Set(["sv7-148", "mcd21-17", "mep-039"]));
+    assert.equal(ids.filter((id) => id === "sv7-148").length, 1);
+    assert.doesNotMatch(JSON.stringify(payload), /A1-053|mfb-25|tcgp/i);
+    assert.match(payload.data.find((card) => card.id === "mep-039").images.small, /card-images\/mep\/mep-039\.webp/);
   } finally {
     global.fetch = originalFetch;
   }

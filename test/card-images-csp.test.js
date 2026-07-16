@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const { canonicalCardId, canonicalCardSetId, tcgdexCardId, tcgdexCardSetId } = require("../lib/card-set-id");
+const { isPokemonTcgPocket, isPokemonTcgPocketCardId, isPokemonTcgPocketSetId } = require("../lib/card-product");
 
 test("provider set ids map to canonical Route 25 set ids", () => {
   assert.equal(canonicalCardSetId("sv05"), "sv5");
@@ -12,6 +13,17 @@ test("provider set ids map to canonical Route 25 set ids", () => {
   assert.equal(tcgdexCardSetId("sv3pt5"), "sv03.5");
   assert.equal(canonicalCardId("sv05-193"), "sv5-193");
   assert.equal(tcgdexCardId("sv5-193"), "sv05-193");
+});
+
+test("Pokemon TCG Pocket records are recognized across ids, series, and artwork", () => {
+  assert.equal(isPokemonTcgPocketSetId("A4"), true);
+  assert.equal(isPokemonTcgPocketSetId("P-A"), true);
+  assert.equal(isPokemonTcgPocketSetId("sv5"), false);
+  assert.equal(isPokemonTcgPocketCardId("A4-173"), true);
+  assert.equal(isPokemonTcgPocketCardId("P-A-049"), true);
+  assert.equal(isPokemonTcgPocketCardId("base1-44"), false);
+  assert.equal(isPokemonTcgPocket({ id: "unknown-1", image: "https://assets.tcgdex.net/en/tcgp/A4/173" }), true);
+  assert.equal(isPokemonTcgPocket({ id: "base1-44", image: "https://assets.tcgdex.net/en/base/base1/44" }), false);
 });
 
 test("provider-form set URLs resolve through the canonical set fallback", async () => {
@@ -125,7 +137,7 @@ test("set pages unwrap proxied artwork and install fallbacks before card images"
   );
 });
 
-test("hinted card detail pages use the fast provider and preserve the clicked front artwork", async () => {
+test("hinted physical card detail pages use the fast provider and preserve the clicked front artwork", async () => {
   const cardPage = require("../api/cards");
   const originalFetch = global.fetch;
   const requestedUrls = [];
@@ -136,22 +148,22 @@ test("hinted card detail pages use the fast provider and preserve the clicked fr
       async json() {
         return {
           category: "Pokemon",
-          id: "P-A-049",
-          illustrator: "okayamatakatoshi",
-          image: "https://assets.tcgdex.net/en/tcgp/P-A/049",
-          localId: "049",
-          name: "Snorlax",
+          id: "base1-44",
+          illustrator: "Mitsuhiro Arita",
+          image: "https://assets.tcgdex.net/en/base/base1/44",
+          localId: "44",
+          name: "Bulbasaur",
           set: {
-            cardCount: { official: 0, total: 100 },
-            id: "P-A",
-            name: "Promos-A"
+            cardCount: { official: 102, total: 102 },
+            id: "base1",
+            name: "Base"
           },
-          hp: 140,
-          types: ["Colorless"],
-          description: "It goes promptly to sleep.",
+          hp: 40,
+          types: ["Grass"],
+          description: "A strange seed was planted on its back at birth.",
           stage: "Basic",
-          attacks: [{ cost: ["Colorless"], name: "Collapse", damage: 100 }],
-          retreat: 4
+          attacks: [{ cost: ["Grass", "Grass"], name: "Leech Seed", damage: 20 }],
+          retreat: 1
         };
       }
     };
@@ -168,20 +180,59 @@ test("hinted card detail pages use the fast provider and preserve the clicked fr
     await cardPage({
       headers: { host: "127.0.0.1:3000" },
       query: {
-        id: "P-A-049",
-        name: "Snorlax",
-        imageSmall: "https://assets.tcgdex.net/en/tcgp/P-A/049/low.webp",
-        imageLarge: "https://assets.tcgdex.net/en/tcgp/P-A/049/high.webp"
+        id: "base1-44",
+        name: "Bulbasaur",
+        imageSmall: "https://images.pokemontcg.io/base1/44.png",
+        imageLarge: "https://images.pokemontcg.io/base1/44_hires.png"
       }
     }, res);
 
     assert.equal(res.statusCode, 200);
-    assert.deepEqual(requestedUrls, ["https://api.tcgdex.net/v2/en/cards/P-A-049"]);
-    assert.match(res.body, /class="card-art" src="https:\/\/assets\.tcgdex\.net\/en\/tcgp\/P-A\/049\/low\.webp"/);
-    assert.match(res.body, /Promos-A/);
-    assert.match(res.body, /Collapse/);
-    assert.match(res.body, /okayamatakatoshi/);
-    assert.match(res.body, /It goes promptly to sleep\./);
+    assert.deepEqual(requestedUrls, ["https://api.tcgdex.net/v2/en/cards/base1-44"]);
+    assert.match(res.body, /class="card-art" src="https:\/\/images\.pokemontcg\.io\/base1\/44\.png"/);
+    assert.match(res.body, /Base/);
+    assert.match(res.body, /Leech Seed/);
+    assert.match(res.body, /Mitsuhiro Arita/);
+    assert.match(res.body, /A strange seed was planted on its back at birth\./);
+    assert.match(res.body, /class="price-spinner"/);
+    assert.match(res.body, /fetch\("\/api\/__proxy\/api\/pricing\/"/);
+    assert.match(res.body, /requestAnimationFrame\(\(\) => window\.requestAnimationFrame/);
+    assert.doesNotMatch(res.body, /fetch\(backendOrigin \+ "\/api\/pricing\//);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("Pokemon TCG Pocket card and set pages return not found", async () => {
+  const cardPage = require("../api/cards");
+  const setPage = require("../api/sets");
+  const originalFetch = global.fetch;
+  global.fetch = async () => {
+    throw new Error("Pocket ids must be rejected before provider lookup");
+  };
+
+  try {
+    const cardRes = {
+      statusCode: 0,
+      headers: {},
+      body: "",
+      setHeader(name, value) { this.headers[String(name).toLowerCase()] = value; },
+      end(value = "") { this.body = String(value); }
+    };
+    await cardPage({ headers: { host: "127.0.0.1:3000" }, query: { id: "A4-173" } }, cardRes);
+    assert.equal(cardRes.statusCode, 404);
+    assert.match(cardRes.body, /Card not found/);
+
+    const setRes = {
+      statusCode: 0,
+      headers: {},
+      body: "",
+      setHeader(name, value) { this.headers[String(name).toLowerCase()] = value; },
+      end(value = "") { this.body = String(value); }
+    };
+    await setPage({ headers: { host: "127.0.0.1:3000" }, query: { id: "A4" } }, setRes);
+    assert.equal(setRes.statusCode, 404);
+    assert.match(setRes.body, /Set not found/);
   } finally {
     global.fetch = originalFetch;
   }

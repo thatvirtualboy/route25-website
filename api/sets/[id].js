@@ -7,6 +7,7 @@ const INSTAGRAM_URL = "https://www.instagram.com/route25app/";
 const TCGDEX_API_ORIGIN = "https://api.tcgdex.net/v2/en";
 const { route25ImageUrl } = require("../../lib/route25-image-url");
 const { canonicalCardId, canonicalCardSetId, tcgdexCardSetId } = require("../../lib/card-set-id");
+const { isPokemonTcgPocket, isPokemonTcgPocketSetId } = require("../../lib/card-product");
 const { tcgplayerProductOverride } = require("../tcgplayer-overrides");
 const KNOWN_SET_TOTALS = {
   me3: 124
@@ -95,7 +96,7 @@ function tcgdexAssetUrl(value, suffix) {
 }
 
 function normalizeTcgdexSet(payload, requestedSetId) {
-  if (!payload?.id || !payload?.name) return null;
+  if (!payload?.id || !payload?.name || isPokemonTcgPocket(payload)) return null;
   const id = canonicalCardSetId(requestedSetId || payload.id);
   const set = {
     id,
@@ -142,11 +143,12 @@ async function fetchTcgdexSet(setId) {
 }
 
 async function fetchSet(setId) {
+  if (isPokemonTcgPocketSetId(setId)) return null;
   const fallbackPromise = fetchTcgdexSet(setId).catch(() => null);
   try {
     const sets = await fetchSets();
     const backendSet = sets.find((set) => String(set?.id || "").toLowerCase() === setId.toLowerCase()) || null;
-    if (backendSet) return backendSet;
+    if (backendSet && !isPokemonTcgPocket(backendSet)) return backendSet;
   } catch {
     // Use the exact-set provider already running in parallel.
   }
@@ -174,6 +176,7 @@ function syntheticSetCards(set) {
 }
 
 async function fetchCards(set) {
+  if (isPokemonTcgPocket(set)) return [];
   if (Array.isArray(set?.tcgdexCards) && set.tcgdexCards.length) {
     return set.tcgdexCards;
   }
@@ -876,7 +879,7 @@ function renderNotFound(setId) {
 module.exports = async (req, res) => {
   const requestedSetId = String(req.query?.id || "").trim();
   const setId = canonicalCardSetId(requestedSetId);
-  if (!setId) {
+  if (!setId || isPokemonTcgPocketSetId(setId)) {
     res.statusCode = 404;
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.end(renderNotFound(""));
@@ -885,7 +888,7 @@ module.exports = async (req, res) => {
 
   try {
     const set = await fetchSet(setId);
-    if (!set) {
+    if (!set || isPokemonTcgPocket(set)) {
       res.statusCode = 404;
       res.setHeader("content-type", "text/html; charset=utf-8");
       res.end(renderNotFound(setId));

@@ -66,6 +66,30 @@ async function main() {
     };
   }
 
+  const pocketSearch = await fetchJson("/api/card-search?q=A4-173&page=1&pageSize=32");
+  assert.deepEqual(pocketSearch.payload.data, [], "Pokemon TCG Pocket cards must not appear in search");
+  assert.equal(pocketSearch.payload.totalCount, 0, "Pokemon TCG Pocket searches must report zero results");
+  const pocketCard = await timedFetch("/cards/A4-173", { headers: { accept: "text/html" } });
+  assert.equal(pocketCard.response.status, 404, "Pokemon TCG Pocket card pages must return 404");
+  const pocketSet = await timedFetch("/sets/A4", { headers: { accept: "text/html" } });
+  assert.equal(pocketSet.response.status, 404, "Pokemon TCG Pocket set pages must return 404");
+
+  const squirtleSearch = await fetchJson("/api/card-search?q=squirtle&page=1&pageSize=48");
+  const squirtleIds = squirtleSearch.payload.data.map((card) => card.id);
+  assert.ok(squirtleSearch.payload.totalCount >= 29, "physical Squirtle search must merge complete provider coverage");
+  assert.ok(squirtleIds.includes("mcd21-17"), "physical Squirtle search must include provider-supplemented artwork");
+  assert.ok(squirtleIds.includes("mep-039"), "physical Squirtle search must include locally backed promo artwork");
+  assert.ok(squirtleSearch.payload.data.every((card) => !/\/tcgp\//i.test(JSON.stringify(card))), "physical Squirtle search must exclude Pocket artwork");
+  report.images.squirtleMep = await assertImage(
+    squirtleSearch.payload.data.find((card) => card.id === "mep-039").images.small,
+    "locally backed MEP search artwork"
+  );
+  report.searches.squirtle = {
+    elapsedMs: squirtleSearch.elapsedMs,
+    returned: squirtleSearch.payload.data.length,
+    total: squirtleSearch.payload.totalCount
+  };
+
   const jolteonPage1 = await fetchJson("/api/card-search?q=jolteon&page=1&pageSize=32");
   const jolteonTotal = jolteonPage1.payload.totalCount;
   const jolteonIds = new Set(jolteonPage1.payload.data.map((card) => card.id));
@@ -88,9 +112,15 @@ async function main() {
   assert.ok(artwork, "card detail must render artwork");
   assert.ok(highResolutionArtwork, "card detail must provide high-resolution artwork");
   assert.ok(setPath, "card detail must render Browse this set");
+  assert.match(detail.html, /class="price-spinner"/, "card detail must show asynchronous pricing progress");
+  assert.match(detail.html, /\/api\/__proxy\/api\/pricing\//, "card detail pricing must use the same-origin proxy");
   report.cardDetailMs = detail.elapsedMs;
   report.images.cardDetail = await assertImage(artwork, "card detail artwork");
   report.images.cardDetailHighResolution = await assertImage(highResolutionArtwork, "high-resolution card detail artwork");
+  const pricing = await fetchJson(`/api/__proxy/api/pricing/${encodeURIComponent(exactCard.id)}`, 6000);
+  assert.equal(pricing.payload.ok, true, "card detail pricing must resolve");
+  assert.ok(Number(pricing.payload.data?.marketUsd) > 0, "card detail pricing must return a market value");
+  report.pricingMs = pricing.elapsedMs;
 
   const setPage = await fetchHtml(setPath, 4000);
   assert.doesNotMatch(setPage.html, /Set not found|We could not find/i, "Browse this set must resolve");

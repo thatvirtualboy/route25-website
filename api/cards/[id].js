@@ -11,6 +11,7 @@ const SOCIAL_PREVIEW_VERSION = "2";
 const TCGDEX_API_ORIGIN = "https://api.tcgdex.net/v2/en";
 const { route25ImageUrl } = require("../../lib/route25-image-url");
 const { canonicalCardId, canonicalCardSetId, tcgdexCardId } = require("../../lib/card-set-id");
+const { isPokemonTcgPocket, isPokemonTcgPocketCardId } = require("../../lib/card-product");
 const tcgplayerResolveCache = new Map();
 const {
   tcgplayerProductOverride,
@@ -461,7 +462,7 @@ function tcgdexSetImage(image) {
 }
 
 function normalizeTcgdexCard(card) {
-  if (!card?.id || !card?.name) return null;
+  if (!card?.id || !card?.name || isPokemonTcgPocket(card)) return null;
   const retreat = Number.parseInt(card?.retreat, 10);
   const legalities = card?.legal && typeof card.legal === "object"
     ? Object.fromEntries(Object.entries(card.legal).map(([format, legal]) => [format, legal ? "Legal" : "Not Legal"]))
@@ -639,6 +640,7 @@ function queryJson(value, fallback) {
 
 async function fetchCard(cardId, timings = [], options = {}) {
   const lookupCardId = route25CardId(cardId);
+  if (isPokemonTcgPocketCardId(lookupCardId)) return null;
   const setId = cardSetId(lookupCardId);
   if (!setId) return null;
   const manualCard = manualPromoCard(lookupCardId);
@@ -719,7 +721,7 @@ async function fetchCard(cardId, timings = [], options = {}) {
     };
   }
 
-  if (!card) return null;
+  if (!card || isPokemonTcgPocket(card)) return null;
   card = withTcgplayerProductOverride(card);
   const enrichStartedAt = Date.now();
   const enrichedCard = await enrichCardSet(card, setId);
@@ -974,7 +976,9 @@ function detailRows(card, options = {}) {
       <dd>${label === "Variant"
         ? `<span id="selected-variant-label">${escapeHtml(value)}</span>`
         : label === "Estimated Value"
-          ? `<span id="selected-variant-price">${escapeHtml(value)}</span>`
+          ? `<span id="selected-variant-price" aria-live="polite" aria-busy="${value === "Loading..." ? "true" : "false"}">${value === "Loading..."
+            ? '<span class="price-loading"><span class="price-spinner" aria-hidden="true"></span><span>Loading price</span></span>'
+            : escapeHtml(value)}</span>`
         : linkUrl
         ? `<a class="detail-link" href="${escapeHtml(linkUrl)}" target="_blank" rel="nofollow sponsored noopener noreferrer"${label === "TCGPlayer" ? " data-tcgplayer-affiliate-link" : ""}>${escapeHtml(value)}${isExternal ? '<span class="external-link-icon" aria-hidden="true">↗</span>' : ""}<span class="sr-only"> Opens in a new tab</span></a>`
         : escapeHtml(value)}
@@ -1199,7 +1203,6 @@ function variantChips(card, selected, fallbackQuote) {
 function variantScript(cardId) {
   return `<script>
     (() => {
-      const backendOrigin = "${BACKEND_ORIGIN}";
       const cardId = ${JSON.stringify(cardId)};
       const chips = Array.from(document.querySelectorAll(".variant-chip"));
       const variantLabel = document.getElementById("selected-variant-label");
@@ -1208,16 +1211,12 @@ function variantScript(cardId) {
       const promotionUrl = ${JSON.stringify(TCGPLAYER_PROMOTION_URL)};
       const needsPricingFetch = variantPrice ? (chips.length
         ? chips.some((chip) => !chip.dataset.variantPrice)
-        : (!variantPrice.textContent || variantPrice.textContent === "Loading...")) : false;
-      const initialPrice = variantPrice ? (variantPrice.textContent || "") : "";
+        : (!variantPrice.textContent || /loading/i.test(variantPrice.textContent))) : false;
+      const initialPrice = variantPrice && !/loading/i.test(variantPrice.textContent) ? (variantPrice.textContent || "") : "";
       const priceCache = new Map();
-      const runWhenIdle = (callback) => {
+      const runAfterPaint = (callback) => {
         if (!needsPricingFetch) return;
-        if ("requestIdleCallback" in window) {
-          window.requestIdleCallback(callback, { timeout: 1800 });
-        } else {
-          window.setTimeout(callback, 700);
-        }
+        window.requestAnimationFrame(() => window.requestAnimationFrame(callback));
       };
       const formatUsd = (amount) => {
         const value = Number(amount);
@@ -1232,7 +1231,7 @@ function variantScript(cardId) {
         if (!id) return "";
         if (priceCache.has(id)) return priceCache.get(id);
         try {
-          const response = await fetch(backendOrigin + "/api/pricing/" + encodeURIComponent(id), { headers: { accept: "application/json" } });
+          const response = await fetch("/api/__proxy/api/pricing/" + encodeURIComponent(id), { headers: { accept: "application/json" } });
           const payload = await response.json();
           const formatted = payload && payload.ok && payload.data ? formatUsd(payload.data.marketUsd || payload.data.marketEur) : "";
           priceCache.set(id, formatted);
@@ -1255,12 +1254,15 @@ function variantScript(cardId) {
         const existing = chip.dataset.variantPrice || "";
         if (existing) {
           variantPrice.textContent = existing;
+          variantPrice.setAttribute("aria-busy", "false");
           return;
         }
         variantPrice.textContent = loadingText || "Loading...";
+        variantPrice.setAttribute("aria-busy", "true");
         const hydrated = await hydrateChipPrice(chip);
         if (chip.classList.contains("active")) {
           variantPrice.textContent = hydrated || "Price unavailable";
+          variantPrice.setAttribute("aria-busy", "false");
         }
       };
       const affiliateUrl = (productId) => {
@@ -1278,8 +1280,9 @@ function variantScript(cardId) {
       };
       if (!chips.length || !variantLabel) {
         if (variantPrice && needsPricingFetch) {
-          runWhenIdle(() => fetchPrice(cardId).then((price) => {
+          runAfterPaint(() => fetchPrice(cardId).then((price) => {
             variantPrice.textContent = price || "Price unavailable";
+            variantPrice.setAttribute("aria-busy", "false");
           }));
         }
         return;
@@ -1304,7 +1307,7 @@ function variantScript(cardId) {
       }
       const active = chips.find((chip) => chip.classList.contains("active")) || chips[0];
       if (needsPricingFetch && active && !active.dataset.variantPrice) {
-        runWhenIdle(() => setPriceForChip(active, initialPrice || "Loading..."));
+        runAfterPaint(() => setPriceForChip(active, initialPrice || "Loading..."));
       }
     })();
   </script>`;
@@ -1497,6 +1500,26 @@ function renderCardPage(card, req, options = {}) {
     .detail-row dd {
       margin: 0;
       font-weight: 760;
+    }
+    .price-loading {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: rgba(255, 255, 255, 0.72);
+    }
+    .price-spinner {
+      width: 13px;
+      height: 13px;
+      border: 2px solid rgba(255, 255, 255, 0.24);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: price-spin 0.75s linear infinite;
+    }
+    @keyframes price-spin {
+      to { transform: rotate(360deg); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .price-spinner { animation-duration: 1.5s; }
     }
     .variant-chip-row {
       display: flex;
@@ -1821,7 +1844,7 @@ function renderNotFound(cardId) {
 
 const cardPageHandler = async (req, res) => {
   const cardId = String(req.query?.id || "").trim();
-  if (!cardId) {
+  if (!cardId || isPokemonTcgPocketCardId(cardId)) {
     res.statusCode = 404;
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.end(renderNotFound(""));
@@ -1847,7 +1870,7 @@ const cardPageHandler = async (req, res) => {
         cardVariants: hintedCard.cardVariants
       };
     }
-    if (!card) {
+    if (!card || isPokemonTcgPocket(card)) {
       card = hintedCard || fallbackCardFromRequest(cardId, req);
       usedFallback = Boolean(card);
       if (usedFallback) timings.push("fallback;dur=0");

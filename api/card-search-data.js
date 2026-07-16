@@ -3,8 +3,14 @@ const OFFICIAL_API_ORIGIN = "https://api.pokemontcg.io/v2";
 const TCGDEX_API_ORIGIN = "https://api.tcgdex.net/v2/en";
 const { route25ImageUrl } = require("../lib/route25-image-url");
 const { canonicalCardId, tcgdexCardId } = require("../lib/card-set-id");
+const { isPokemonTcgPocket, isPokemonTcgPocketCardId, isPokemonTcgPocketSetId } = require("../lib/card-product");
 const responseCache = new Map();
 const CACHE_TTL_MS = 30 * 60 * 1000;
+const SET_CATALOG_TTL_MS = 6 * 60 * 60 * 1000;
+let setCatalogCache = null;
+let setCatalogPromise = null;
+let tcgdexSetAliasesCache = null;
+let tcgdexSetAliasesPromise = null;
 const KNOWN_SET_TOTALS = {
   me3: 124
 };
@@ -67,6 +73,29 @@ function searchTerms(value) {
 
 function textTokens(value) {
   return Array.from(String(value || "").matchAll(/[\p{L}\p{N}]+/gu), (match) => match[0].toLowerCase());
+}
+
+function cardSetId(card) {
+  const explicitSetId = String(card?.set?.id || "").trim();
+  if (explicitSetId) return explicitSetId.toLowerCase();
+  const cardId = String(card?.id || "").trim();
+  const separator = cardId.lastIndexOf("-");
+  return separator > 0 ? cardId.slice(0, separator).toLowerCase() : "";
+}
+
+function sortCardsNewestFirst(cards, releaseDates, setAliases = null) {
+  if (!(releaseDates instanceof Map) || !releaseDates.size) return cards;
+  return cards.map((card, index) => ({
+    card,
+    index,
+    releaseTime: Date.parse(card?.set?.releaseDate || releaseDates.get(setAliases?.get(cardSetId(card)) || cardSetId(card)) || "") || 0
+  })).sort((a, b) => {
+    if (a.releaseTime !== b.releaseTime) return b.releaseTime - a.releaseTime;
+    const setOrder = cardSetId(a.card).localeCompare(cardSetId(b.card), undefined, { numeric: true });
+    if (setOrder) return setOrder;
+    const numberOrder = String(a.card?.number || "").localeCompare(String(b.card?.number || ""), undefined, { numeric: true });
+    return numberOrder || a.index - b.index;
+  }).map((entry) => entry.card);
 }
 
 function cardMatchesSearchTerm(card, term) {
@@ -241,9 +270,8 @@ function syntheticSetCards(set, page, pageSize) {
 }
 
 async function fetchSets() {
-  const payload = await fetchJson(`${BACKEND_ORIGIN}/api/tcg/sets`);
-  const sets = Array.isArray(payload?.data) ? payload.data : [];
-  return sortSets(sets).map((set) => ({
+  const sets = await fetchSetCatalog(3500);
+  return sortSets(sets).filter((set) => !isPokemonTcgPocket(set)).map((set) => ({
     id: set?.id || "",
     name: set?.name || set?.id || "",
     releaseDate: set?.releaseDate || "",
@@ -251,6 +279,118 @@ async function fetchSets() {
     printedTotal: set?.printedTotal || set?.cardCount?.official || null,
     total: set?.total || set?.cardCount?.total || null
   })).filter((set) => set.id);
+}
+
+async function fetchSetCatalog(timeoutMs = 1200) {
+  if (setCatalogCache?.expiresAt > Date.now()) return setCatalogCache.sets;
+  if (!setCatalogPromise) {
+    setCatalogPromise = fetchJsonWithTimeout(`${BACKEND_ORIGIN}/api/tcg/sets`, timeoutMs)
+      .then((payload) => {
+        const sets = (Array.isArray(payload?.data) ? payload.data : []).filter((set) => !isPokemonTcgPocket(set));
+        setCatalogCache = { sets, expiresAt: Date.now() + SET_CATALOG_TTL_MS };
+        return sets;
+      })
+      .finally(() => {
+        setCatalogPromise = null;
+      });
+  }
+  return setCatalogPromise;
+}
+
+async function fetchSetReleaseDates(timeoutMs = 1200) {
+  const sets = await fetchSetCatalog(timeoutMs);
+  return new Map(sets.map((set) => [String(set?.id || "").toLowerCase(), set?.releaseDate || ""]));
+}
+
+function normalizedSetName(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/gi, " ")
+    .toLowerCase()
+    .trim();
+}
+
+async function fetchTcgdexSetAliases(timeoutMs = 1200) {
+  if (tcgdexSetAliasesCache?.expiresAt > Date.now()) return tcgdexSetAliasesCache.aliases;
+  if (!tcgdexSetAliasesPromise) {
+    const url = new URL(`${TCGDEX_API_ORIGIN}/sets`);
+    url.searchParams.set("pagination:page", "1");
+    url.searchParams.set("pagination:itemsPerPage", "500");
+    tcgdexSetAliasesPromise = Promise.all([
+      fetchJsonWithTimeout(url.href, timeoutMs),
+      fetchSetCatalog(timeoutMs)
+    ]).then(([tcgdexSets, backendSets]) => {
+      const backendByName = new Map(backendSets.map((set) => [normalizedSetName(set?.name), String(set?.id || "").toLowerCase()]));
+      const aliases = new Map();
+      for (const set of Array.isArray(tcgdexSets) ? tcgdexSets : []) {
+        if (isPokemonTcgPocket(set)) continue;
+        const providerId = canonicalCardId(`${set?.id || ""}-1`).replace(/-1$/, "").toLowerCase();
+        const backendId = backendByName.get(normalizedSetName(set?.name));
+        if (providerId && backendId) aliases.set(providerId, backendId);
+      }
+      tcgdexSetAliasesCache = { aliases, expiresAt: Date.now() + SET_CATALOG_TTL_MS };
+      return aliases;
+    }).finally(() => {
+      tcgdexSetAliasesPromise = null;
+    });
+  }
+  return tcgdexSetAliasesPromise;
+}
+
+function normalizedCollectorNumber(value) {
+  const text = String(value || "").toLowerCase().replace(/\s+/g, "");
+  const match = text.match(/^([a-z]*)(\d+)([a-z]*)$/i);
+  return match ? `${match[1]}${Number(match[2])}${match[3]}` : text.replace(/^0+/, "");
+}
+
+function searchCardIdentity(card, setAliases) {
+  const setId = cardSetId(card);
+  const canonicalSetId = setAliases?.get(setId) || setId;
+  return [canonicalSetId, normalizedCollectorNumber(card?.number), normalizeLookupName(card?.name)].join(":");
+}
+
+function normalizeLookupName(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/gi, "")
+    .toLowerCase();
+}
+
+function mergeSearchResults(results, page, pageSize, releaseDates, setAliases) {
+  const merged = new Map();
+  for (const result of results.filter(Boolean)) {
+    for (const card of Array.isArray(result?.allItems) ? result.allItems : (result?.rawItems || [])) {
+      if (isPokemonTcgPocket(card)) continue;
+      const images = cardImages(card);
+      if (!card?.id || !card?.name || (!images.small && !images.large)) continue;
+      const key = searchCardIdentity(card, setAliases);
+      if (!merged.has(key)) merged.set(key, { ...card, images });
+    }
+  }
+  const allItems = sortCardsNewestFirst([...merged.values()], releaseDates, setAliases);
+  const rawItems = allItems.slice((page - 1) * pageSize, page * pageSize);
+  return {
+    allItems,
+    rawItems,
+    payload: { page, pageSize, count: rawItems.length, totalCount: allItems.length }
+  };
+}
+
+async function settleWithin(promise, timeoutMs) {
+  let timeout = null;
+  try {
+    return await Promise.race([
+      promise.catch(() => null),
+      new Promise((resolve) => {
+        timeout = setTimeout(() => resolve(null), timeoutMs);
+        if (typeof timeout.unref === "function") timeout.unref();
+      })
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 function buildSearchQuery({ q, set }) {
@@ -287,19 +427,37 @@ function rejectWithoutItems(result) {
   throw new Error("No cards returned");
 }
 
-async function fetchSearchProvider(origin, queries, page, pageSize, timeoutMs, selectFields = false) {
+async function fetchSearchProvider(origin, queries, page, pageSize, timeoutMs, selectFields = false, releaseDatesPromise = null) {
   if (queries.length === 1) {
     const url = new URL(`${origin}/cards`);
     url.searchParams.set("q", queries[0]);
-    url.searchParams.set("page", String(page));
-    url.searchParams.set("pageSize", String(pageSize));
+    const shouldSort = Boolean(releaseDatesPromise);
+    url.searchParams.set("page", shouldSort ? "1" : String(page));
+    url.searchParams.set("pageSize", shouldSort ? "250" : String(pageSize));
     if (selectFields) url.searchParams.set("select", "id,name,images");
 
-    const payload = await fetchJsonWithTimeout(url.href, timeoutMs);
-    const rawItems = payloadItems(payload);
+    const [payload, releaseDates] = await Promise.all([
+      fetchJsonWithTimeout(url.href, timeoutMs),
+      releaseDatesPromise || Promise.resolve(null)
+    ]);
+    const providerItems = payloadItems(payload);
+    const filteredItems = providerItems.filter((card) => !isPokemonTcgPocket(card));
+    const allItems = sortCardsNewestFirst(filteredItems, releaseDates);
+    const rawItems = shouldSort ? allItems.slice((page - 1) * pageSize, page * pageSize) : allItems;
+    const removedCount = providerItems.length - filteredItems.length;
     return {
-      payload,
-      rawItems
+      payload: shouldSort ? {
+        page,
+        pageSize,
+        count: rawItems.length,
+        totalCount: allItems.length
+      } : removedCount ? {
+        ...payload,
+        count: rawItems.length,
+        totalCount: Math.max(rawItems.length, Number(payload?.totalCount || providerItems.length) - removedCount)
+      } : payload,
+      rawItems,
+      allItems: shouldSort ? allItems : rawItems
     };
   }
 
@@ -315,13 +473,15 @@ async function fetchSearchProvider(origin, queries, page, pageSize, timeoutMs, s
   }));
 
   for (const itemPayload of payloads) {
-    for (const item of payloadItems(itemPayload)) {
+    for (const item of payloadItems(itemPayload).filter((card) => !isPokemonTcgPocket(card))) {
       if (item?.id && !merged.has(item.id)) merged.set(item.id, item);
     }
   }
-  const allItems = [...merged.values()];
+  const releaseDates = releaseDatesPromise ? await releaseDatesPromise : null;
+  const allItems = sortCardsNewestFirst([...merged.values()], releaseDates);
   const rawItems = allItems.slice((page - 1) * pageSize, page * pageSize);
   return {
+    allItems,
     rawItems,
     payload: {
       page,
@@ -343,9 +503,9 @@ function tcgdexFilter(query) {
 }
 
 function normalizeTcgdexCards(items) {
-  return (Array.isArray(items) ? items : []).map((card) => {
+  return (Array.isArray(items) ? items : []).filter((card) => !isPokemonTcgPocket(card)).map((card) => {
     const image = String(card?.image || "").replace(/\/$/, "");
-    return {
+    const normalized = {
       id: canonicalCardId(card?.id),
       name: card?.name || "",
       number: card?.localId || "",
@@ -354,6 +514,13 @@ function normalizeTcgdexCards(items) {
         large: `${image}/high.webp`
       } : {}
     };
+    if (!normalized.images.small && normalized.id.toLowerCase().startsWith("mep-")) {
+      normalized.images = {
+        small: mepImageUrl(normalized, false),
+        large: mepImageUrl(normalized, true)
+      };
+    }
+    return normalized;
   }).filter((card) => card.id && card.images.small);
 }
 
@@ -366,16 +533,21 @@ function filterTcgdexCards(items, filter) {
   });
 }
 
-async function fetchTcgdexSearchResults(queries, page, pageSize, timeoutMs = 3500) {
+async function fetchTcgdexSearchResults(queries, page, pageSize, timeoutMs = 3500, releaseDatesPromise = null) {
   if (queries.length === 1) {
     const filter = tcgdexFilter(queries[0]);
     if (!filter.value) throw new Error("Unsupported TCGdex search query");
     const url = new URL(`${TCGDEX_API_ORIGIN}/cards`);
     url.searchParams.set(filter.field, filter.value);
-    const allItems = filterTcgdexCards(await fetchJsonWithTimeout(url.href, timeoutMs), filter);
+    const [items, releaseDates] = await Promise.all([
+      fetchJsonWithTimeout(url.href, timeoutMs),
+      releaseDatesPromise || Promise.resolve(null)
+    ]);
+    const allItems = sortCardsNewestFirst(filterTcgdexCards(items, filter), releaseDates);
     const start = (page - 1) * pageSize;
     const rawItems = allItems.slice(start, start + pageSize);
     return {
+      allItems,
       rawItems,
       payload: {
         page,
@@ -405,9 +577,11 @@ async function fetchTcgdexSearchResults(queries, page, pageSize, timeoutMs = 350
       if (!merged.has(card.id)) merged.set(card.id, card);
     }
   }
-  const allItems = [...merged.values()];
+  const releaseDates = releaseDatesPromise ? await releaseDatesPromise : null;
+  const allItems = sortCardsNewestFirst([...merged.values()], releaseDates);
   const rawItems = allItems.slice((page - 1) * pageSize, page * pageSize);
   return {
+    allItems,
     rawItems,
     payload: {
       page,
@@ -419,15 +593,29 @@ async function fetchTcgdexSearchResults(queries, page, pageSize, timeoutMs = 350
 }
 
 async function fetchRemoteSearchResults(queries, page, pageSize, timeoutMs = 2200) {
+  const shouldSortNewest = queries.some((query) => /(?:^|\s)name:/i.test(query));
+  const releaseDatesPromise = shouldSortNewest
+    ? fetchSetReleaseDates(Math.min(timeoutMs, 1200)).catch(() => new Map())
+    : null;
+  const setAliasesPromise = shouldSortNewest
+    ? fetchTcgdexSetAliases(Math.min(timeoutMs, 1200)).catch(() => new Map())
+    : null;
   const fallbackProviders = [
-    fetchSearchProvider(`${BACKEND_ORIGIN}/api/tcg`, queries, page, pageSize, timeoutMs),
-    fetchSearchProvider(OFFICIAL_API_ORIGIN, queries, page, pageSize, Math.min(timeoutMs, 5000), true)
+    fetchSearchProvider(`${BACKEND_ORIGIN}/api/tcg`, queries, page, pageSize, timeoutMs, false, releaseDatesPromise),
+    fetchSearchProvider(OFFICIAL_API_ORIGIN, queries, page, pageSize, Math.min(timeoutMs, 5000), true, releaseDatesPromise)
   ];
   fallbackProviders.forEach((provider) => provider.catch(() => {}));
-  const preferredProvider = fetchTcgdexSearchResults(queries, page, pageSize, Math.min(timeoutMs, 1200));
+  const preferredProvider = fetchTcgdexSearchResults(queries, page, pageSize, Math.min(timeoutMs, 1200), releaseDatesPromise);
 
   try {
-    return rejectWithoutItems(await preferredProvider);
+    const preferredResult = rejectWithoutItems(await preferredProvider);
+    if (!shouldSortNewest) return preferredResult;
+    const [supplementalResult, releaseDates, setAliases] = await Promise.all([
+      settleWithin(fallbackProviders[0], 450),
+      releaseDatesPromise,
+      setAliasesPromise
+    ]);
+    return mergeSearchResults([preferredResult, supplementalResult], page, pageSize, releaseDates, setAliases);
   } catch {
     // Both fallback requests were started in parallel, so a slow preferred
     // provider does not add another full network round-trip.
@@ -445,6 +633,9 @@ async function fetchRemoteSearchResults(queries, page, pageSize, timeoutMs = 220
 
 async function fetchAllCardsForSet(set, setInfo = null) {
   const normalizedSet = String(set || "").trim();
+  if (isPokemonTcgPocketSetId(normalizedSet) || isPokemonTcgPocket(setInfo)) {
+    return { rawItems: [], payload: { page: 1, pageSize: 0, count: 0, totalCount: 0 } };
+  }
   const cacheKey = `set-cards:${normalizedSet.toLowerCase()}`;
   const cached = getCachedJson(cacheKey);
   if (cached) return cached;
@@ -459,7 +650,7 @@ async function fetchAllCardsForSet(set, setInfo = null) {
   } catch {
     payload = null;
   }
-  const allItems = payloadItems(payload);
+  const allItems = payloadItems(payload).filter((card) => !isPokemonTcgPocket(card));
 
   if (allItems.length) {
     const result = {
@@ -485,7 +676,7 @@ async function fetchAllCardsForSet(set, setInfo = null) {
   } catch {
     searchPayload = null;
   }
-  const searchItems = payloadItems(searchPayload);
+  const searchItems = payloadItems(searchPayload).filter((card) => !isPokemonTcgPocket(card));
   if (searchItems.length) {
     const result = {
       rawItems: searchItems,
@@ -518,6 +709,9 @@ async function fetchAllCardsForSet(set, setInfo = null) {
 
 async function fetchCardsBySet(set, page, pageSize, setInfo = null) {
   const normalizedSet = String(set || "").trim();
+  if (isPokemonTcgPocketSetId(normalizedSet) || isPokemonTcgPocket(setInfo)) {
+    return { rawItems: [], payload: { page, pageSize, count: 0, totalCount: 0 } };
+  }
   const fullSetCacheKey = `set-cards:${normalizedSet.toLowerCase()}`;
   const cachedFullSet = getCachedJson(fullSetCacheKey);
   if (cachedFullSet) {
@@ -610,6 +804,14 @@ async function handleSearch(req, res) {
   const page = parsePositiveInt(req.query?.page, 1, 1000);
   const pageSize = parsePositiveInt(req.query?.pageSize, 24, 48);
 
+  if ((set && isPokemonTcgPocketSetId(set)) || isPokemonTcgPocketCardId(q)) {
+    res.statusCode = 200;
+    res.setHeader("content-type", "application/json; charset=utf-8");
+    res.setHeader("cache-control", "public, s-maxage=86400, stale-while-revalidate=604800");
+    res.end(JSON.stringify({ ok: true, data: [], page, pageSize, count: 0, totalCount: 0 }));
+    return;
+  }
+
   if (!q && !set) {
     res.statusCode = 200;
     res.setHeader("content-type", "application/json; charset=utf-8");
@@ -680,6 +882,7 @@ async function handleSearch(req, res) {
     return;
   }
 
+  rawItems = rawItems.filter((card) => !isPokemonTcgPocket(card));
   const body = JSON.stringify({
     ok: true,
     data: rawItems.map(simplifySearchCard),

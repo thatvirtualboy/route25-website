@@ -47,7 +47,7 @@ function renderSearchPage() {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Card Search | Route 25</title>
-  <meta name="description" content="Search Pokemon TCG cards by name, card number, or id on Route 25." />
+  <meta name="description" content="Search Pokemon TCG cards by card name on Route 25." />
   <meta name="theme-color" content="#05060a" />
   <meta name="apple-itunes-app" content="app-id=${APP_STORE_ID}, app-argument=${escapeHtml(appArgument)}" />
   <link rel="canonical" href="https://route25.app/search" />
@@ -415,7 +415,7 @@ function renderSearchPage() {
         <div>
           <p class="badge"><span class="pulse"></span> Card search</p>
           <h1>Find a card.</h1>
-          <p class="search-copy">Search by name, card number, or id.</p>
+          <p class="search-copy">Search by card name.</p>
         </div>
         <div class="search-panel">
           <form class="search-form" id="searchForm">
@@ -438,7 +438,7 @@ function renderSearchPage() {
             <button class="button" type="button" data-page-action="next" aria-label="Next page">Next</button>
           </span>
         </div>
-        <div class="empty-state" id="emptyState">No cards found. Try a broader name, card number, or id.</div>
+        <div class="empty-state" id="emptyState">No cards found. Try a broader card name.</div>
         <div class="results-grid" id="resultsGrid"></div>
         <div class="search-meta search-meta-bottom">
           <span class="pager">
@@ -606,7 +606,7 @@ function renderSearchPage() {
       const cards = payload.ok && Array.isArray(payload.data) ? payload.data : [];
       state.totalCount = Number(payload.totalCount || cards.length);
       resultsGrid.innerHTML = cards.map(renderCard).join("");
-      emptyState.textContent = "No cards found. Try a broader name, card number, or id.";
+      emptyState.textContent = "No cards found. Try a broader card name.";
       emptyState.style.display = cards.length ? "none" : "block";
       const start = cards.length ? ((state.page - 1) * state.pageSize) + 1 : 0;
       const end = cards.length ? start + cards.length - 1 : 0;
