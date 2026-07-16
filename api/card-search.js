@@ -15,11 +15,8 @@ function appDeepLink(path) {
   return `route25://${cleanPath}`;
 }
 
-function featuredCardUrl(id, name, imageLarge) {
-  const url = new URL(`/cards/${encodeURIComponent(id)}`, "https://route25.app");
-  url.searchParams.set("name", name);
-  url.searchParams.set("imageLarge", imageLarge);
-  return url.pathname + url.search;
+function featuredCardUrl(id) {
+  return `/cards/${encodeURIComponent(id)}`;
 }
 
 function socialToolbar() {
@@ -405,12 +402,12 @@ function renderSearchPage() {
     <div class="container">
       <section class="search-head">
         <nav class="card-fan" aria-label="Featured cards">
-          <a class="fan-card" href="${escapeHtml(featuredCardUrl("swsh8-271", "Gengar VMAX", "https://images.pokemontcg.io/swsh8/271_hires.png"))}" aria-label="View Gengar VMAX"><img src="https://images.pokemontcg.io/swsh8/271_hires.png" alt="Gengar VMAX" width="734" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
-          <a class="fan-card" href="${escapeHtml(featuredCardUrl("swsh12pt5-160", "Pikachu", "https://images.pokemontcg.io/swsh12pt5/160_hires.png"))}" aria-label="View Pikachu"><img src="https://images.pokemontcg.io/swsh12pt5/160_hires.png" alt="Pikachu" width="734" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
-          <a class="fan-card" href="${escapeHtml(featuredCardUrl("swsh11-186", "Giratina V", "https://images.pokemontcg.io/swsh11/186_hires.png"))}" aria-label="View Giratina V"><img src="https://images.pokemontcg.io/swsh11/186_hires.png" alt="Giratina V" width="734" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
-          <a class="fan-card" href="${escapeHtml(featuredCardUrl("me2-125", "Mega Charizard X ex", "https://images.pokemontcg.io/me2/125_hires.png"))}" aria-label="View Mega Charizard X ex"><img src="https://images.pokemontcg.io/me2/125_hires.png" alt="Mega Charizard X ex" width="733" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
-          <a class="fan-card" href="${escapeHtml(featuredCardUrl("swsh7-215", "Umbreon VMAX", "https://images.pokemontcg.io/swsh7/215_hires.png"))}" aria-label="View Umbreon VMAX"><img src="https://images.pokemontcg.io/swsh7/215_hires.png" alt="Umbreon VMAX" width="734" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
-          <a class="fan-card" href="${escapeHtml(featuredCardUrl("sv3pt5-199", "Charizard ex", "https://images.pokemontcg.io/sv3pt5/199_hires.png"))}" aria-label="View Charizard ex"><img src="https://images.pokemontcg.io/sv3pt5/199_hires.png" alt="Charizard ex" width="733" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
+          <a class="fan-card" href="${escapeHtml(featuredCardUrl("swsh8-271"))}" aria-label="View Gengar VMAX"><img src="https://images.pokemontcg.io/swsh8/271_hires.png" alt="Gengar VMAX" width="734" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
+          <a class="fan-card" href="${escapeHtml(featuredCardUrl("swsh12pt5-160"))}" aria-label="View Pikachu"><img src="https://images.pokemontcg.io/swsh12pt5/160_hires.png" alt="Pikachu" width="734" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
+          <a class="fan-card" href="${escapeHtml(featuredCardUrl("swsh11-186"))}" aria-label="View Giratina V"><img src="https://images.pokemontcg.io/swsh11/186_hires.png" alt="Giratina V" width="734" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
+          <a class="fan-card" href="${escapeHtml(featuredCardUrl("me2-125"))}" aria-label="View Mega Charizard X ex"><img src="https://images.pokemontcg.io/me2/125_hires.png" alt="Mega Charizard X ex" width="733" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
+          <a class="fan-card" href="${escapeHtml(featuredCardUrl("swsh7-215"))}" aria-label="View Umbreon VMAX"><img src="https://images.pokemontcg.io/swsh7/215_hires.png" alt="Umbreon VMAX" width="734" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
+          <a class="fan-card" href="${escapeHtml(featuredCardUrl("sv3pt5-199"))}" aria-label="View Charizard ex"><img src="https://images.pokemontcg.io/sv3pt5/199_hires.png" alt="Charizard ex" width="733" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
         </nav>
         <div>
           <p class="badge"><span class="pulse"></span> Card search</p>
@@ -500,29 +497,7 @@ function renderSearchPage() {
 
     function cardUrl(card) {
       const id = card.id || "";
-      const url = new URL("/cards/" + encodeURIComponent(id), window.location.origin);
-      const smallImages = cardImageCandidates(card, false);
-      const largeImages = cardImageCandidates(card, true);
-      const imageFallbacks = largeImages.concat(smallImages).filter(function(candidate, index, all) {
-        return candidate && all.indexOf(candidate) === index;
-      });
-      const setName = card.set && card.set.name ? card.set.name : "";
-      const hints = {
-        name: card.name,
-        number: card.number,
-        setName: setName,
-        rarity: card.rarity,
-        types: Array.isArray(card.types) ? card.types.join("|") : "",
-        artist: card.artist,
-        regulationMark: card.regulationMark,
-        imageSmall: smallImages[0],
-        imageLarge: largeImages[0],
-        imageFallbacks: imageFallbacks.slice(1, 10).join("|")
-      };
-      Object.keys(hints).forEach(function(key) {
-        if (hints[key]) url.searchParams.set(key, hints[key]);
-      });
-      return url.pathname + url.search;
+      return "/cards/" + encodeURIComponent(id);
     }
 
     function prefetchCardPage(url) {
@@ -763,6 +738,17 @@ function renderSearchPage() {
     resultsGrid.addEventListener("focusin", function(event) {
       const link = event.target.closest && event.target.closest(".result-card");
       if (link) prefetchCardPage(link.getAttribute("href"));
+    });
+    resultsGrid.addEventListener("pointerdown", function(event) {
+      const link = event.target.closest && event.target.closest(".result-card");
+      if (link) prefetchCardPage(link.getAttribute("href"));
+    });
+    document.querySelectorAll(".fan-card").forEach(function(link) {
+      ["mouseenter", "focus", "pointerdown"].forEach(function(eventName) {
+        link.addEventListener(eventName, function() {
+          prefetchCardPage(link.getAttribute("href"));
+        }, { passive: true });
+      });
     });
   </script>
 </body>

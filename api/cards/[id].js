@@ -8,9 +8,8 @@ const TCGPLAYER_PROMOTION_URL = "https://partner.tcgplayer.com/c/6678178/1780961
 const TCGPLAYER_SEARCH_API_URL = "https://mp-search-api.tcgplayer.com/v1/search/request";
 const APP_STORE_ID = "6755665546";
 const SOCIAL_PREVIEW_VERSION = "2";
-const TCGDEX_API_ORIGIN = "https://api.tcgdex.net/v2/en";
 const { route25ImageUrl } = require("../../lib/route25-image-url");
-const { canonicalCardId, canonicalCardSetId, tcgdexCardId } = require("../../lib/card-set-id");
+const { canonicalCardId, canonicalCardSetId } = require("../../lib/card-set-id");
 const { isPokemonTcgPocket, isPokemonTcgPocketCardId } = require("../../lib/card-product");
 const tcgplayerResolveCache = new Map();
 const {
@@ -174,8 +173,6 @@ function cardSocialImageUrl(req, cardId) {
 function cardPageUrl(req, cardId) {
   const url = new URL(`/cards/${encodeURIComponent(cardId)}`, requestOrigin(req));
   if (req.query?.variant) url.searchParams.set("variant", String(req.query.variant));
-  const share = socialShareParam(req.query);
-  if (share) url.searchParams.set("share", share);
   return url.href;
 }
 
@@ -451,97 +448,6 @@ async function fetchJsonWithTimeout(url, timeoutMs, fetchOptions = {}) {
   }
 }
 
-function tcgdexCardImage(image, quality) {
-  const base = String(image || "").replace(/\/$/, "");
-  return base ? `${base}/${quality}.webp` : "";
-}
-
-function tcgdexSetImage(image) {
-  const base = String(image || "").replace(/\/$/, "");
-  return base ? `${base}.webp` : "";
-}
-
-function normalizeTcgdexCard(card) {
-  if (!card?.id || !card?.name || isPokemonTcgPocket(card)) return null;
-  const retreat = Number.parseInt(card?.retreat, 10);
-  const legalities = card?.legal && typeof card.legal === "object"
-    ? Object.fromEntries(Object.entries(card.legal).map(([format, legal]) => [format, legal ? "Legal" : "Not Legal"]))
-    : undefined;
-  return {
-    id: canonicalCardId(card.id),
-    name: card.name,
-    number: card.localId || "",
-    hp: card.hp || "",
-    rarity: cleanText(card.rarity),
-    supertype: card.category || "Pokemon",
-    subtypes: card.stage ? [card.stage] : [],
-    types: Array.isArray(card.types) ? card.types : [],
-    artist: card.illustrator || "",
-    illustrator: card.illustrator || "",
-    flavorText: card.description || "",
-    attacks: Array.isArray(card.attacks) ? card.attacks : [],
-    abilities: Array.isArray(card.abilities) ? card.abilities : [],
-    weaknesses: Array.isArray(card.weaknesses) ? card.weaknesses : [],
-    resistances: Array.isArray(card.resistances) ? card.resistances : [],
-    retreatCost: Number.isFinite(retreat) && retreat > 0 ? Array.from({ length: retreat }, () => "Colorless") : [],
-    convertedRetreatCost: Number.isFinite(retreat) ? retreat : "",
-    legalities,
-    images: {
-      small: tcgdexCardImage(card.image, "low"),
-      large: tcgdexCardImage(card.image, "high")
-    },
-    set: {
-      id: canonicalCardSetId(card?.set?.id || cardSetId(card.id)),
-      name: card?.set?.name || card?.set?.id || cardSetId(card.id),
-      printedTotal: card?.set?.cardCount?.official || card?.set?.cardCount?.total || null,
-      total: card?.set?.cardCount?.total || null,
-      images: {
-        logo: tcgdexSetImage(card?.set?.logo),
-        symbol: tcgdexSetImage(card?.set?.symbol)
-      }
-    }
-  };
-}
-
-async function fetchTcgdexCard(cardId, timings = []) {
-  const startedAt = Date.now();
-  const lookupId = tcgdexCardId(cardId);
-  try {
-    const payload = await fetchJsonWithTimeout(`${TCGDEX_API_ORIGIN}/cards/${encodeURIComponent(lookupId)}`, 1000);
-    timings.push(`tcgdex;dur=${Date.now() - startedAt}`);
-    return normalizeTcgdexCard(payload);
-  } catch (error) {
-    timings.push(`tcgdex_${error.name === "AbortError" || error.name === "TimeoutError" ? "timeout" : "error"};dur=${Date.now() - startedAt}`);
-    return null;
-  }
-}
-
-function mergeCardWithHints(card, hintedCard) {
-  if (!card) return hintedCard;
-  if (!hintedCard) return card;
-  const fallbacks = [
-    ...(Array.isArray(hintedCard?.images?.fallbacks) ? hintedCard.images.fallbacks : []),
-    ...(Array.isArray(card?.images?.fallbacks) ? card.images.fallbacks : [])
-  ].filter((value, index, all) => value && all.indexOf(value) === index);
-  return {
-    ...hintedCard,
-    ...card,
-    images: {
-      ...(card.images || {}),
-      ...(hintedCard.images || {}),
-      fallbacks
-    },
-    set: {
-      ...(hintedCard.set || {}),
-      ...(card.set || {}),
-      images: {
-        ...(hintedCard?.set?.images || {}),
-        ...(card?.set?.images || {})
-      }
-    }
-  };
-}
-
 function fallbackCardFromRequest(cardId, req) {
   const lookupCardId = route25CardId(cardId);
   const manualCard = manualPromoCard(lookupCardId);
@@ -600,14 +506,32 @@ function fallbackCardFromRequest(cardId, req) {
 }
 
 function hasRequestHints(query = {}) {
-  return Boolean(
-    query.name
-    || query.number
-    || query.setName
-    || query.rarity
-    || query.imageLarge
-    || query.imageSmall
-  );
+  const hintKeys = [
+    "name",
+    "number",
+    "setName",
+    "rarity",
+    "hp",
+    "supertype",
+    "subtypes",
+    "types",
+    "artist",
+    "illustrator",
+    "flavorText",
+    "attacks",
+    "abilities",
+    "weaknesses",
+    "resistances",
+    "retreatCost",
+    "convertedRetreatCost",
+    "regulationMark",
+    "legalities",
+    "tcgplayerProductId",
+    "imageSmall",
+    "imageLarge",
+    "imageFallbacks"
+  ];
+  return hintKeys.some((key) => String(query[key] || "").trim());
 }
 
 function cleanCardPath(cardId, query = {}) {
@@ -1851,27 +1775,22 @@ const cardPageHandler = async (req, res) => {
     return;
   }
 
+  const canonicalId = route25CardId(cardId);
+  if (hasRequestHints(req.query) || canonicalId !== cardId) {
+    res.statusCode = 308;
+    res.setHeader("location", cleanCardPath(canonicalId, req.query));
+    res.setHeader("cache-control", "public, max-age=86400");
+    res.end();
+    return;
+  }
+
   try {
     const startedAt = Date.now();
     const timings = [];
     let usedFallback = false;
-    const requestHasHints = hasRequestHints(req.query);
-    const hintedCard = requestHasHints ? fallbackCardFromRequest(cardId, req) : null;
-    let card = requestHasHints
-      ? await fetchTcgdexCard(cardId, timings)
-      : await fetchCard(cardId, timings);
-    if (requestHasHints) {
-      card = mergeCardWithHints(card, hintedCard);
-      usedFallback = !card || card === hintedCard;
-    }
-    if (card && hintedCard && !tcgplayerProductIds(card).length && tcgplayerProductIds(hintedCard).length) {
-      card = {
-        ...card,
-        cardVariants: hintedCard.cardVariants
-      };
-    }
+    let card = await fetchCard(cardId, timings);
     if (!card || isPokemonTcgPocket(card)) {
-      card = hintedCard || fallbackCardFromRequest(cardId, req);
+      card = fallbackCardFromRequest(cardId, req);
       usedFallback = Boolean(card);
       if (usedFallback) timings.push("fallback;dur=0");
     }
@@ -1898,7 +1817,7 @@ const cardPageHandler = async (req, res) => {
         timings
       }));
     }
-    res.end(renderCardPage(card, req, { cleanUrl: requestHasHints && !usedFallback }));
+    res.end(renderCardPage(card, req));
   } catch (error) {
     res.statusCode = 500;
     res.setHeader("content-type", "text/html; charset=utf-8");

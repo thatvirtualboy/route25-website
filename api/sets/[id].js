@@ -275,36 +275,7 @@ function imageFallbackAttribute(candidates) {
 function cardDetailUrl(card, set) {
   const id = String(card?.id || "").trim();
   if (!id) return "/search";
-  const cardSet = {
-    ...(set || {}),
-    ...(card?.set || {}),
-    name: card?.set?.name || set?.name
-  };
-
-  const url = new URL(`/cards/${encodeURIComponent(id)}`, "https://route25.app");
-  const smallImages = cardImageCandidates(card);
-  const largeImage = route25ImageUrl(absoluteUrl(card?.images?.large || card?.images?.small, BACKEND_ORIGIN));
-  const hints = {
-    name: card?.name,
-    number: card?.number,
-    setName: cardSet.name,
-    rarity: card?.rarity,
-    hp: card?.hp,
-    supertype: card?.supertype,
-    subtypes: Array.isArray(card?.subtypes) ? card.subtypes.join("|") : "",
-    types: Array.isArray(card?.types) ? card.types.join("|") : "",
-    artist: card?.artist,
-    illustrator: card?.illustrator,
-    tcgplayerProductId: tcgplayerProductIds(card)[0],
-    imageSmall: smallImages[0],
-    imageLarge: largeImage
-  };
-
-  for (const [key, value] of Object.entries(hints)) {
-    if (value) url.searchParams.set(key, value);
-  }
-
-  return url.pathname + url.search;
+  return `/cards/${encodeURIComponent(id)}`;
 }
 
 function setLogo(set) {
@@ -850,6 +821,27 @@ function renderSetPage(set, cards, req) {
       </div>
     </section>
   </main>
+  <script>
+    (() => {
+      const prefetched = new Set();
+      function prefetchCard(link) {
+        const href = link?.getAttribute("href");
+        if (!href || prefetched.has(href)) return;
+        prefetched.add(href);
+        const preload = document.createElement("link");
+        preload.rel = "prefetch";
+        preload.as = "document";
+        preload.href = href;
+        document.head.appendChild(preload);
+      }
+      ["mouseover", "focusin", "pointerdown"].forEach((eventName) => {
+        document.addEventListener(eventName, (event) => {
+          const link = event.target.closest?.('a[href^="/cards/"]');
+          if (link) prefetchCard(link);
+        }, { passive: true });
+      });
+    })();
+  </script>
 </body>
 </html>`;
 }
@@ -883,6 +875,13 @@ module.exports = async (req, res) => {
     res.statusCode = 404;
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.end(renderNotFound(""));
+    return;
+  }
+  if (setId !== requestedSetId) {
+    res.statusCode = 308;
+    res.setHeader("location", `/sets/${encodeURIComponent(setId)}`);
+    res.setHeader("cache-control", "public, max-age=86400");
+    res.end();
     return;
   }
 

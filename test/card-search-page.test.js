@@ -30,7 +30,9 @@ test("card search page stays focused on individual-card search", async () => {
   assert.match(res.body, /id="resultsSection" hidden/);
   assert.equal((res.body.match(/<a class="fan-card"/g) || []).length, 6);
   assert.match(res.body, /\.fan-card:hover/);
-  assert.match(res.body, /\/cards\/me2-125\?/);
+  assert.match(res.body, /class="fan-card" href="\/cards\/me2-125"/);
+  assert.doesNotMatch(res.body, /class="fan-card" href="[^"]+\?/);
+  assert.match(res.body, /return "\/cards\/" \+ encodeURIComponent\(id\);/);
   assert.doesNotMatch(res.body, /result-actions|result-sub|>Details</);
   assert.doesNotMatch(res.body, /card-fan:hover \.fan-card:not|opacity: 0\.(?:58|68|72|86|92)/);
   assert.doesNotMatch(res.body, /\.loading \.results-grid/);

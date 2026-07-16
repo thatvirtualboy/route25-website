@@ -8,6 +8,8 @@ const searchPage = require(path.join(root, "api/card-search.js"));
 const searchData = require(path.join(root, "api/card-search-data.js"));
 const cardPage = require(path.join(root, "api/cards.js"));
 const setPage = require(path.join(root, "api/sets.js"));
+const sitemapCards = require(path.join(root, "api/sitemap-cards.js"));
+const sitemapSets = require(path.join(root, "api/sitemap-sets.js"));
 
 const mimeTypes = {
   ".css": "text/css; charset=utf-8",
@@ -19,7 +21,8 @@ const mimeTypes = {
   ".svg": "image/svg+xml",
   ".webp": "image/webp",
   ".woff": "font/woff",
-  ".woff2": "font/woff2"
+  ".woff2": "font/woff2",
+  ".xml": "application/xml; charset=utf-8"
 };
 
 function proxyTargetUrl(pathname, search = "") {
@@ -41,10 +44,12 @@ async function proxyBackend(pathname, search, res) {
 
 function serveStatic(pathname, res) {
   const relativePath = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
-  const filePath = path.resolve(root, relativePath);
-  if (!filePath.startsWith(`${root}${path.sep}`) || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+  let filePath = path.resolve(root, relativePath);
+  if (!filePath.startsWith(`${root}${path.sep}`) || !fs.existsSync(filePath)) {
     return false;
   }
+  if (fs.statSync(filePath).isDirectory()) filePath = path.join(filePath, "index.html");
+  if (!filePath.startsWith(`${root}${path.sep}`) || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) return false;
   res.statusCode = 200;
   res.setHeader("content-type", mimeTypes[path.extname(filePath).toLowerCase()] || "application/octet-stream");
   fs.createReadStream(filePath).pipe(res);
@@ -57,12 +62,26 @@ function createLocalServer() {
     req.query = Object.fromEntries(url.searchParams.entries());
 
     try {
+      if (url.pathname === "/index.html") {
+        res.statusCode = 308;
+        res.setHeader("location", "/");
+        res.end();
+        return;
+      }
       if (url.pathname === "/search" || url.pathname === "/search/") {
         await searchPage(req, res);
         return;
       }
       if (url.pathname === "/api/card-search") {
         await searchData(req, res);
+        return;
+      }
+      if (url.pathname === "/sitemap-cards.xml") {
+        await sitemapCards(req, res);
+        return;
+      }
+      if (url.pathname === "/sitemap-sets.xml") {
+        await sitemapSets(req, res);
         return;
       }
       if (url.pathname.startsWith("/api/proxy/") || url.pathname.startsWith("/api/__proxy/") || url.pathname.startsWith("/card-images/")) {

@@ -10,13 +10,6 @@ function escapeXml(value) {
     .replaceAll("'", "&apos;");
 }
 
-function isoDate(value) {
-  const raw = String(value || "").replaceAll("/", "-");
-  const date = raw ? new Date(`${raw}T00:00:00.000Z`) : null;
-  if (!date || Number.isNaN(date.getTime())) return new Date().toISOString().slice(0, 10);
-  return date.toISOString().slice(0, 10);
-}
-
 async function fetchJson(url) {
   const response = await fetch(url, { headers: { accept: "application/json" } });
   if (!response.ok) throw new Error(`Fetch failed ${response.status} for ${url}`);
@@ -33,7 +26,7 @@ function renderUrlset(sets) {
     .filter((set) => set?.id)
     .map((set) => {
       const loc = `${SITE_ORIGIN}/sets/${encodeURIComponent(set.id)}`;
-      return `  <url><loc>${escapeXml(loc)}</loc><lastmod>${escapeXml(isoDate(set.releaseDate))}</lastmod><changefreq>weekly</changefreq><priority>0.75</priority></url>`;
+      return `  <url><loc>${escapeXml(loc)}</loc></url>`;
     })
     .join("\n");
 

@@ -16,13 +16,6 @@ async function fetchJson(url) {
   return response.json();
 }
 
-function isoDate(value) {
-  const raw = String(value || "").replaceAll("/", "-");
-  const date = raw ? new Date(`${raw}T00:00:00.000Z`) : null;
-  if (!date || Number.isNaN(date.getTime())) return new Date().toISOString().slice(0, 10);
-  return date.toISOString().slice(0, 10);
-}
-
 async function fetchSets() {
   const payload = await fetchJson(`${BACKEND_ORIGIN}/api/tcg/sets`);
   return Array.isArray(payload.data) ? payload.data : [];
@@ -38,7 +31,7 @@ function renderSitemapIndex(sets) {
     .filter((set) => set?.id)
     .map((set) => {
       const loc = `${SITE_ORIGIN}/sitemap-cards.xml?set=${encodeURIComponent(set.id)}`;
-      return `  <sitemap><loc>${escapeXml(loc)}</loc><lastmod>${escapeXml(isoDate(set.releaseDate))}</lastmod></sitemap>`;
+      return `  <sitemap><loc>${escapeXml(loc)}</loc></sitemap>`;
     })
     .join("\n");
 
@@ -48,13 +41,12 @@ ${body}
 </sitemapindex>`;
 }
 
-function renderCardUrlset(cards, set) {
-  const lastmod = isoDate(set?.releaseDate);
+function renderCardUrlset(cards) {
   const body = cards
     .filter((card) => card?.id)
     .map((card) => {
       const loc = `${SITE_ORIGIN}/cards/${encodeURIComponent(card.id)}`;
-      return `  <url><loc>${escapeXml(loc)}</loc><lastmod>${escapeXml(lastmod)}</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>`;
+      return `  <url><loc>${escapeXml(loc)}</loc></url>`;
     })
     .join("\n");
 
@@ -86,7 +78,7 @@ module.exports = async (req, res) => {
     }
 
     const cards = await fetchCards(set.id);
-    res.end(renderCardUrlset(cards, set));
+    res.end(renderCardUrlset(cards));
   } catch (error) {
     res.statusCode = 500;
     res.setHeader("content-type", "text/plain; charset=utf-8");

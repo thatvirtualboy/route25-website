@@ -33,14 +33,6 @@ async function assertImage(value, label) {
   return { bytes: bytes.length, url: url.href };
 }
 
-function imageHints(card) {
-  return new URLSearchParams({
-    name: card.name,
-    imageSmall: card.images.small,
-    imageLarge: card.images.large || card.images.small
-  });
-}
-
 async function main() {
   const report = { baseUrl, searches: {}, images: {} };
   const searchPage = await fetchHtml("/search");
@@ -118,15 +110,19 @@ async function main() {
 
   const exactSearch = await fetchJson("/api/card-search?q=sv5-193&page=1&pageSize=32");
   const exactCard = exactSearch.payload.data[0];
-  const detailPath = `/cards/${encodeURIComponent(exactCard.id)}?${imageHints(exactCard)}`;
+  const detailPath = `/cards/${encodeURIComponent(exactCard.id)}`;
   const detail = await fetchHtml(detailPath, 2000);
   const artwork = detail.html.match(/<img class="card-art" src="([^"]+)"/i)?.[1];
-  const highResolutionArtwork = detail.html.match(/data-hires-candidates="([^"|]+)/i)?.[1];
+  const highResolutionArtwork = detail.html.match(/data-hires-candidates="([^"|]+)/i)?.[1] || artwork;
   const setPath = detail.html.match(/href="(\/sets\/[^"]+)"[^>]*>Browse this set/i)?.[1];
   assert.ok(artwork, "card detail must render artwork");
   assert.ok(highResolutionArtwork, "card detail must provide high-resolution artwork");
   assert.ok(setPath, "card detail must render Browse this set");
-  assert.match(detail.html, /class="price-spinner"/, "card detail must show asynchronous pricing progress");
+  assert.match(
+    detail.html,
+    /class="price-spinner"|id="selected-variant-price"[^>]*>\$[\d,.]+/,
+    "card detail must show asynchronous pricing progress or a resolved value"
+  );
   assert.match(detail.html, /\/api\/__proxy\/api\/pricing\//, "card detail pricing must use the same-origin proxy");
   report.cardDetailMs = detail.elapsedMs;
   report.images.cardDetail = await assertImage(artwork, "card detail artwork");

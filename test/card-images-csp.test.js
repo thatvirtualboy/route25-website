@@ -26,34 +26,13 @@ test("Pokemon TCG Pocket records are recognized across ids, series, and artwork"
   assert.equal(isPokemonTcgPocket({ id: "base1-44", image: "https://assets.tcgdex.net/en/base/base1/44" }), false);
 });
 
-test("provider-form set URLs resolve through the canonical set fallback", async () => {
+test("provider-form set URLs permanently redirect to canonical set ids", async () => {
   const setPage = require("../api/sets");
   const originalFetch = global.fetch;
   const requestedUrls = [];
   global.fetch = async (url) => {
-    const requestedUrl = String(url);
-    requestedUrls.push(requestedUrl);
-    return {
-      ok: true,
-      async json() {
-        if (requestedUrl.includes("api.tcgdex.net")) {
-          return {
-            id: "sv05",
-            name: "Temporal Forces",
-            releaseDate: "2024-03-22",
-            cardCount: { official: 162, total: 218 },
-            symbol: "https://assets.tcgdex.net/univ/sv/sv05/symbol",
-            cards: [{
-              id: "sv05-001",
-              localId: "001",
-              name: "Scyther",
-              image: "https://assets.tcgdex.net/en/sv/sv05/001"
-            }]
-          };
-        }
-        return { data: [] };
-      }
-    };
+    requestedUrls.push(String(url));
+    throw new Error("redirects must not call a set provider");
   };
 
   try {
@@ -66,12 +45,10 @@ test("provider-form set URLs resolve through the canonical set fallback", async 
     };
     await setPage({ headers: { host: "127.0.0.1:3000" }, query: { id: "sv05" } }, res);
 
-    assert.equal(res.statusCode, 200);
-    assert.ok(requestedUrls.some((url) => url.endsWith("/sets/sv05")));
-    assert.match(res.body, /Temporal Forces/);
-    assert.match(res.body, /https:\/\/127\.0\.0\.1:3000\/sets\/sv5/);
-    assert.match(res.body, /sv5-001/);
-    assert.doesNotMatch(res.body, /Set not found/);
+    assert.equal(res.statusCode, 308);
+    assert.equal(res.headers.location, "/sets/sv5");
+    assert.equal(res.body, "");
+    assert.deepEqual(requestedUrls, []);
   } finally {
     global.fetch = originalFetch;
   }
@@ -137,36 +114,13 @@ test("set pages unwrap proxied artwork and install fallbacks before card images"
   );
 });
 
-test("hinted physical card detail pages use the fast provider and preserve the clicked front artwork", async () => {
+test("legacy metadata-heavy card URLs permanently redirect before provider lookup", async () => {
   const cardPage = require("../api/cards");
   const originalFetch = global.fetch;
   const requestedUrls = [];
   global.fetch = async (url) => {
     requestedUrls.push(String(url));
-    return {
-      ok: true,
-      async json() {
-        return {
-          category: "Pokemon",
-          id: "base1-44",
-          illustrator: "Mitsuhiro Arita",
-          image: "https://assets.tcgdex.net/en/base/base1/44",
-          localId: "44",
-          name: "Bulbasaur",
-          set: {
-            cardCount: { official: 102, total: 102 },
-            id: "base1",
-            name: "Base"
-          },
-          hp: 40,
-          types: ["Grass"],
-          description: "A strange seed was planted on its back at birth.",
-          stage: "Basic",
-          attacks: [{ cost: ["Grass", "Grass"], name: "Leech Seed", damage: 20 }],
-          retreat: 1
-        };
-      }
-    };
+    throw new Error("redirects must not call a card provider");
   };
 
   try {
@@ -187,17 +141,76 @@ test("hinted physical card detail pages use the fast provider and preserve the c
       }
     }, res);
 
+    assert.equal(res.statusCode, 308);
+    assert.equal(res.headers.location, "/cards/base1-44");
+    assert.equal(res.body, "");
+    assert.deepEqual(requestedUrls, []);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("clean physical card URLs render complete card details", async () => {
+  const cardPage = require("../api/cards");
+  const originalFetch = global.fetch;
+  const requestedUrls = [];
+  global.fetch = async (url) => {
+    requestedUrls.push(String(url));
+    return {
+      ok: true,
+      async json() {
+        return {
+          data: [{
+            id: "base1-44",
+            name: "Bulbasaur",
+            number: "44",
+            illustrator: "Mitsuhiro Arita",
+            flavorText: "A strange seed was planted on its back at birth.",
+            attacks: [{ cost: ["Grass", "Grass"], name: "Leech Seed", damage: "20" }],
+            images: {
+              small: "https://images.pokemontcg.io/base1/44.png",
+              large: "https://images.pokemontcg.io/base1/44_hires.png"
+            },
+            cardVariants: [{
+              id: "base1-44:normal",
+              sourceRefs: { tcgplayerProductId: 42412 },
+              isDefault: true
+            }],
+            set: {
+              id: "base1",
+              name: "Base",
+              printedTotal: 102,
+              images: { logo: "https://images.pokemontcg.io/base1/logo.png" }
+            }
+          }]
+        };
+      }
+    };
+  };
+
+  try {
+    const res = {
+      statusCode: 0,
+      headers: {},
+      body: "",
+      setHeader(name, value) { this.headers[String(name).toLowerCase()] = value; },
+      end(value = "") { this.body = String(value); }
+    };
+    await cardPage({
+      headers: { host: "127.0.0.1:3000" },
+      query: { id: "base1-44", share: "seo-preview" }
+    }, res);
+
     assert.equal(res.statusCode, 200);
-    assert.deepEqual(requestedUrls, ["https://api.tcgdex.net/v2/en/cards/base1-44"]);
-    assert.match(res.body, /class="card-art" src="https:\/\/images\.pokemontcg\.io\/base1\/44\.png"/);
-    assert.match(res.body, /Base/);
+    assert.equal(requestedUrls.length, 1);
+    assert.match(requestedUrls[0], /palettetown-backend\.vercel\.app\/api\/tcg\/cards/);
+    assert.match(res.body, /rel="canonical" href="https:\/\/127\.0\.0\.1:3000\/cards\/base1-44"/);
+    assert.doesNotMatch(res.body, /rel="canonical"[^>]+share=/);
+    assert.match(res.body, /api\/cards\/og\?id=base1-44&amp;v=seo-preview/);
+    assert.match(res.body, /class="card-art" src="https:\/\/images\.pokemontcg\.io\/base1\/44(?:_hires)?\.png"/);
     assert.match(res.body, /Leech Seed/);
     assert.match(res.body, /Mitsuhiro Arita/);
-    assert.match(res.body, /A strange seed was planted on its back at birth\./);
     assert.match(res.body, /class="price-spinner"/);
-    assert.match(res.body, /fetch\("\/api\/__proxy\/api\/pricing\/"/);
-    assert.match(res.body, /requestAnimationFrame\(\(\) => window\.requestAnimationFrame/);
-    assert.doesNotMatch(res.body, /fetch\(backendOrigin \+ "\/api\/pricing\//);
   } finally {
     global.fetch = originalFetch;
   }
@@ -238,26 +251,10 @@ test("Pokemon TCG Pocket card and set pages return not found", async () => {
   }
 });
 
-test("official Scarlet and Violet card ids map to the fast provider format", async () => {
+test("provider-form Scarlet and Violet card ids permanently redirect to canonical ids", async () => {
   const cardPage = require("../api/cards");
   const originalFetch = global.fetch;
-  let requestedUrl = "";
-  global.fetch = async (url) => {
-    requestedUrl = String(url);
-    return {
-      ok: true,
-      async json() {
-        return {
-          category: "Trainer",
-          id: "sv05-193",
-          image: "https://assets.tcgdex.net/en/sv/sv05/193",
-          localId: "193",
-          name: "Morty's Conviction",
-          set: { id: "sv05", name: "Temporal Forces", cardCount: { official: 162, total: 218 } }
-        };
-      }
-    };
-  };
+  global.fetch = async () => { throw new Error("redirects must not call a card provider"); };
 
   try {
     const res = {
@@ -269,18 +266,12 @@ test("official Scarlet and Violet card ids map to the fast provider format", asy
     };
     await cardPage({
       headers: { host: "127.0.0.1:3000" },
-      query: {
-        id: "sv5-193",
-        name: "Morty's Conviction",
-        imageSmall: "https://images.pokemontcg.io/sv5/193.png",
-        imageLarge: "https://images.pokemontcg.io/sv5/193_hires.png"
-      }
+      query: { id: "sv05-193" }
     }, res);
 
-    assert.equal(res.statusCode, 200);
-    assert.equal(requestedUrl, "https://api.tcgdex.net/v2/en/cards/sv05-193");
-    assert.match(res.body, /Morty&#39;s Conviction/);
-    assert.match(res.body, /href="\/sets\/sv5">Browse this set/);
+    assert.equal(res.statusCode, 308);
+    assert.equal(res.headers.location, "/cards/sv5-193");
+    assert.equal(res.body, "");
   } finally {
     global.fetch = originalFetch;
   }
