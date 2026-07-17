@@ -359,6 +359,124 @@ test("broad searches merge physical-card providers and keep only usable front ar
   }
 });
 
+test("name searches wait for the complete Route 25 catalog before caching results", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async (url) => {
+    const requestedUrl = String(url);
+    if (requestedUrl === "https://palettetown-backend.vercel.app/api/tcg/sets") {
+      return {
+        ok: true,
+        async json() {
+          return {
+            data: [
+              { id: "sv4pt5", name: "Paldean Fates", releaseDate: "2024/01/26" },
+              { id: "me5", name: "Pitch Black", releaseDate: "2026/07/17" }
+            ]
+          };
+        }
+      };
+    }
+    if (requestedUrl.startsWith("https://palettetown-backend.vercel.app/api/tcg/cards")) {
+      await new Promise((resolve) => setTimeout(resolve, 550));
+      return {
+        ok: true,
+        async json() {
+          return {
+            data: [
+              { id: "sv4pt5-117", name: "Slowbro", number: "117", images: { small: "https://images.pokemontcg.io/sv4pt5/117.png" }, set: { id: "sv4pt5" } },
+              { id: "me5-30", name: "Slowbro", number: "30", images: { small: "https://images.scrydex.com/pokemon/me5-30/small" }, set: { id: "me5", name: "Pitch Black" } },
+              { id: "me5-31", name: "Mega Slowbro ex", number: "31", images: { small: "https://images.scrydex.com/pokemon/me5-31/small" }, set: { id: "me5", name: "Pitch Black" } },
+              { id: "me5-90", name: "Slowbro", number: "90", images: { small: "https://images.scrydex.com/pokemon/me5-90/small" }, set: { id: "me5", name: "Pitch Black" } }
+            ],
+            totalCount: 4
+          };
+        }
+      };
+    }
+    if (requestedUrl.startsWith("https://api.tcgdex.net/v2/en/cards")) {
+      return {
+        ok: true,
+        async json() {
+          return [{
+            id: "sv4pt5-117",
+            localId: "117",
+            name: "Slowbro",
+            image: "https://assets.tcgdex.net/en/sv/sv04.5/117"
+          }];
+        }
+      };
+    }
+    if (requestedUrl.startsWith("https://api.tcgdex.net/v2/en/sets")) {
+      return { ok: true, async json() { return []; } };
+    }
+    if (requestedUrl.includes("/api/tcg/by-set")) {
+      throw new Error("Supplemental catalog unavailable");
+    }
+    throw new Error("Public fallback not needed");
+  };
+
+  try {
+    const res = responseCapture();
+    await searchCards({ query: { q: "slowbrocatalogwait", pageSize: "32" } }, res);
+    const payload = JSON.parse(res.body);
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(
+      payload.data.filter((card) => card.id.startsWith("me5-")).map((card) => card.id),
+      ["me5-30", "me5-31", "me5-90"]
+    );
+    assert.equal(payload.totalCount, 4);
+    assert.equal(res.headers["cache-control"], "s-maxage=60, stale-while-revalidate=300");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("name searches cap the authoritative catalog wait at the quick-search budget", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async (url) => {
+    const requestedUrl = String(url);
+    if (requestedUrl.startsWith("https://palettetown-backend.vercel.app/api/tcg/cards")) {
+      await new Promise((resolve) => setTimeout(resolve, 2200));
+      return { ok: true, async json() { return { data: [] }; } };
+    }
+    if (requestedUrl.startsWith("https://api.tcgdex.net/v2/en/cards")) {
+      return {
+        ok: true,
+        async json() {
+          return [{
+            id: "sv4pt5-117",
+            localId: "117",
+            name: "Slowbro",
+            image: "https://assets.tcgdex.net/en/sv/sv04.5/117"
+          }];
+        }
+      };
+    }
+    if (requestedUrl.startsWith("https://api.tcgdex.net/v2/en/sets")) {
+      return { ok: true, async json() { return []; } };
+    }
+    if (requestedUrl.includes("/api/tcg/by-set")) {
+      throw new Error("Supplemental catalog unavailable");
+    }
+    throw new Error("Public fallback not needed");
+  };
+
+  try {
+    const res = responseCapture();
+    const startedAt = Date.now();
+    await searchCards({ query: { q: "slowbrolatencybudget", pageSize: "32" } }, res);
+    const elapsedMs = Date.now() - startedAt;
+    const payload = JSON.parse(res.body);
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(payload.data.map((card) => card.id), ["sv4pt5-117"]);
+    assert.ok(elapsedMs < 1800, `search took ${elapsedMs}ms`);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("complete MEP set data supplements missing name and exact-id search records", async () => {
   const originalFetch = global.fetch;
   global.fetch = async (url) => {

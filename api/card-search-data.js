@@ -6,6 +6,7 @@ const { canonicalCardId, tcgdexCardId } = require("../lib/card-set-id");
 const { isPokemonTcgPocket, isPokemonTcgPocketCardId, isPokemonTcgPocketSetId } = require("../lib/card-product");
 const responseCache = new Map();
 const CACHE_TTL_MS = 30 * 60 * 1000;
+const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
 const SET_CATALOG_TTL_MS = 6 * 60 * 60 * 1000;
 let setCatalogCache = null;
 let setCatalogPromise = null;
@@ -26,11 +27,11 @@ function getCachedJson(key) {
   return entry.value;
 }
 
-function setCachedJson(key, value) {
+function setCachedJson(key, value, ttlMs = CACHE_TTL_MS) {
   if (responseCache.size > 80) responseCache.delete(responseCache.keys().next().value);
   responseCache.set(key, {
     value,
-    expiresAt: Date.now() + CACHE_TTL_MS
+    expiresAt: Date.now() + ttlMs
   });
 }
 
@@ -656,6 +657,7 @@ async function fetchTcgdexSearchResults(queries, page, pageSize, timeoutMs = 350
 
 async function fetchRemoteSearchResults(queries, page, pageSize, timeoutMs = 2200) {
   const shouldSortNewest = queries.some((query) => /(?:^|\s)name:/i.test(query));
+  const backendTimeoutMs = shouldSortNewest ? Math.min(timeoutMs, 1200) : timeoutMs;
   const releaseDatesPromise = shouldSortNewest
     ? fetchSetReleaseDates(Math.min(timeoutMs, 1200)).catch(() => new Map())
     : null;
@@ -663,13 +665,38 @@ async function fetchRemoteSearchResults(queries, page, pageSize, timeoutMs = 220
     ? fetchTcgdexSetAliases(Math.min(timeoutMs, 1200)).catch(() => new Map())
     : null;
   const fallbackProviders = [
-    fetchSearchProvider(`${BACKEND_ORIGIN}/api/tcg`, queries, page, pageSize, timeoutMs, false, releaseDatesPromise),
+    fetchSearchProvider(`${BACKEND_ORIGIN}/api/tcg`, queries, page, pageSize, backendTimeoutMs, false, releaseDatesPromise),
     fetchSearchProvider(OFFICIAL_API_ORIGIN, queries, page, pageSize, Math.min(timeoutMs, 5000), true, releaseDatesPromise)
   ];
   fallbackProviders.forEach((provider) => provider.catch(() => {}));
   const supplementalProvider = fetchSupplementalSearchResults(queries, page, pageSize, Math.min(timeoutMs, 1200));
   supplementalProvider.catch(() => {});
   const preferredProvider = fetchTcgdexSearchResults(queries, page, pageSize, Math.min(timeoutMs, 1200), releaseDatesPromise);
+  preferredProvider.catch(() => {});
+
+  // The Route 25 backend is the app's complete card catalog. For name searches,
+  // wait for it before accepting a faster third-party response; otherwise a new
+  // release can appear in the app and on set pages while still being absent from
+  // web search until the external providers catch up.
+  if (shouldSortNewest) {
+    const backendResult = await fallbackProviders[0].then(rejectWithoutItems).catch(() => null);
+    if (backendResult) {
+      const [preferredResult, officialResult, supplementalResult, releaseDates, setAliases] = await Promise.all([
+        settleWithin(preferredProvider, Math.min(timeoutMs, 1200)),
+        settleWithin(fallbackProviders[1], 450),
+        settleWithin(supplementalProvider, 450),
+        releaseDatesPromise,
+        setAliasesPromise
+      ]);
+      return mergeSearchResults(
+        [backendResult, preferredResult, officialResult, supplementalResult],
+        page,
+        pageSize,
+        releaseDates,
+        setAliases
+      );
+    }
+  }
 
   try {
     const preferredResult = rejectWithoutItems(await preferredProvider);
@@ -913,7 +940,7 @@ async function handleSearch(req, res) {
   if (cached) {
     res.statusCode = 200;
     res.setHeader("content-type", "application/json; charset=utf-8");
-    res.setHeader("cache-control", "s-maxage=300, stale-while-revalidate=1800");
+    res.setHeader("cache-control", "s-maxage=60, stale-while-revalidate=300");
     res.end(cached);
     return;
   }
@@ -964,12 +991,12 @@ async function handleSearch(req, res) {
     totalCount: payload?.totalCount ?? rawItems.length,
     defaultSet
   });
-  if (rawItems.length) setCachedJson(cacheKey, body);
+  if (rawItems.length) setCachedJson(cacheKey, body, SEARCH_CACHE_TTL_MS);
   res.statusCode = 200;
   res.setHeader("content-type", "application/json; charset=utf-8");
   res.setHeader(
     "cache-control",
-    rawItems.length ? "s-maxage=300, stale-while-revalidate=1800" : "no-store"
+    rawItems.length ? "s-maxage=60, stale-while-revalidate=300" : "no-store"
   );
   res.end(body);
 }
