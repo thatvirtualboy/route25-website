@@ -34,3 +34,17 @@ test("production CSP allows every card-image provider", () => {
     );
   }
 });
+
+test("trainer avatars are served through the same-origin website path", () => {
+  const config = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "..", "vercel.json"), "utf8"),
+  );
+  const rewrite = config.rewrites.find(
+    (item) => item.source === "/trainer-avatars/:path*",
+  );
+
+  assert.deepEqual(rewrite, {
+    source: "/trainer-avatars/:path*",
+    destination: "https://palettetown-backend.vercel.app/trainer-avatars/:path*",
+  });
+});
