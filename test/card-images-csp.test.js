@@ -110,7 +110,6 @@ test("trainer avatars are served through the same-origin website path", () => {
     destination: "https://palettetown-backend.vercel.app/trainer-avatars/:path*",
   });
 });
-
 test("card detail pages have a cross-provider artwork fallback ready before images load", () => {
   const source = fs.readFileSync(
     path.join(__dirname, "..", "api", "cards", "[id].js"),
