@@ -448,63 +448,6 @@ async function fetchJsonWithTimeout(url, timeoutMs, fetchOptions = {}) {
   }
 }
 
-function fallbackCardFromRequest(cardId, req) {
-  const lookupCardId = route25CardId(cardId);
-  const manualCard = manualPromoCard(lookupCardId);
-  if (manualCard) return manualCard;
-  const setId = cardSetId(lookupCardId);
-  const slugNumber = lookupCardId.slice(setId.length + 1);
-  const number = String(req.query?.number || slugNumber || "").trim();
-  if (!setId || !number) return null;
-  const imageSmall = absoluteUrl(String(req.query?.imageSmall || "").trim(), BACKEND_ORIGIN);
-  const imageLarge = absoluteUrl(String(req.query?.imageLarge || "").trim(), BACKEND_ORIGIN);
-  const imageFallbacks = String(req.query?.imageFallbacks || "")
-    .split("|")
-    .map((url) => absoluteUrl(url.trim(), BACKEND_ORIGIN))
-    .filter(Boolean);
-  const fallbackName = titleCaseSlug(slugNumber || lookupCardId);
-  const tcgplayerProductId = queryText(req.query, "tcgplayerProductId") || tcgplayerProductOverride(lookupCardId)?.productId;
-
-  return withTcgplayerProductOverride({
-    id: lookupCardId,
-    name: queryText(req.query, "name") || fallbackName || lookupCardId,
-    number,
-    hp: queryText(req.query, "hp"),
-    rarity: queryText(req.query, "rarity"),
-    supertype: queryText(req.query, "supertype"),
-    subtypes: queryList(req.query?.subtypes),
-    types: queryList(req.query?.types),
-    artist: queryText(req.query, "artist"),
-    illustrator: queryText(req.query, "illustrator"),
-    flavorText: queryText(req.query, "flavorText"),
-    attacks: Array.isArray(queryJson(req.query?.attacks, [])) ? queryJson(req.query?.attacks, []) : [],
-    abilities: Array.isArray(queryJson(req.query?.abilities, [])) ? queryJson(req.query?.abilities, []) : [],
-    weaknesses: Array.isArray(queryJson(req.query?.weaknesses, [])) ? queryJson(req.query?.weaknesses, []) : [],
-    resistances: Array.isArray(queryJson(req.query?.resistances, [])) ? queryJson(req.query?.resistances, []) : [],
-    retreatCost: queryList(req.query?.retreatCost),
-    convertedRetreatCost: queryText(req.query, "convertedRetreatCost"),
-    regulationMark: queryText(req.query, "regulationMark"),
-    legalities: queryJson(req.query?.legalities, undefined),
-    cardVariants: tcgplayerProductId ? [{
-      id: `${lookupCardId}:tcgplayer`,
-      cardId: lookupCardId,
-      label: "TCGPlayer",
-      sourceRefs: { tcgplayerProductId },
-      isDefault: true
-    }] : [],
-    images: {
-      small: imageSmall,
-      large: imageLarge || imageSmall,
-      fallbacks: imageFallbacks
-    },
-    set: {
-      id: setId,
-      name: queryText(req.query, "setName") || setId,
-      images: {}
-    }
-  });
-}
-
 function hasRequestHints(query = {}) {
   const hintKeys = [
     "name",
@@ -540,28 +483,6 @@ function cleanCardPath(cardId, query = {}) {
   return url.pathname + url.search;
 }
 
-function queryText(query, key) {
-  return String(query?.[key] || "").trim();
-}
-
-function queryList(value) {
-  return String(value || "")
-    .split("|")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function queryJson(value, fallback) {
-  const text = String(value || "").trim();
-  if (!text) return fallback;
-  try {
-    const parsed = JSON.parse(text);
-    return parsed ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 async function fetchCard(cardId, timings = [], options = {}) {
   const lookupCardId = route25CardId(cardId);
   if (isPokemonTcgPocketCardId(lookupCardId)) return null;
@@ -576,13 +497,15 @@ async function fetchCard(cardId, timings = [], options = {}) {
 
   let card = null;
   let setCard = null;
+  let successfulLookups = 0;
   try {
     const startedAt = Date.now();
     const cardUrl = `${BACKEND_ORIGIN}/api/tcg/cards?q=${encodeURIComponent(`id:${lookupCardId}`)}&pageSize=1`;
     const cardPayload = await fetchJsonWithTimeout(cardUrl, 1800);
+    successfulLookups += 1;
     timings.push(`direct;dur=${Date.now() - startedAt}`);
     const items = Array.isArray(cardPayload.data) ? cardPayload.data : [];
-    const match = items.find((card) => String(card?.id || "").toLowerCase() === lookupCardId.toLowerCase());
+    const match = items.find((card) => canonicalCardId(card?.id).toLowerCase() === lookupCardId.toLowerCase());
     if (match) card = withTcgplayerCardVariants(match);
   } catch (error) {
     timings.push(`direct_${error.name === "AbortError" || error.name === "TimeoutError" ? "timeout" : "error"};dur=1800`);
@@ -593,6 +516,7 @@ async function fetchCard(cardId, timings = [], options = {}) {
     try {
       const startedAt = Date.now();
       setCard = await fetchCardFromSet(setId, lookupCardId);
+      successfulLookups += 1;
       timings.push(`byset_supplement;dur=${Date.now() - startedAt}`);
     } catch (error) {
       timings.push(`byset_supplement_${error.name === "AbortError" || error.name === "TimeoutError" ? "timeout" : "error"};dur=1800`);
@@ -603,6 +527,7 @@ async function fetchCard(cardId, timings = [], options = {}) {
     try {
       const startedAt = Date.now();
       setCard = await fetchCardFromSet(setId, lookupCardId);
+      successfulLookups += 1;
       timings.push(`byset;dur=${Date.now() - startedAt}`);
       if (setCard) card = setCard;
     } catch (error) {
@@ -616,9 +541,10 @@ async function fetchCard(cardId, timings = [], options = {}) {
       const startedAt = Date.now();
       const seedUrl = `${BACKEND_ORIGIN}/api/seed/cards?set=${encodeURIComponent(setId)}&page=1&pageSize=500`;
       const seedPayload = await fetchJsonWithTimeout(seedUrl, 1800);
+      successfulLookups += 1;
       timings.push(`seed;dur=${Date.now() - startedAt}`);
       const seedItems = Array.isArray(seedPayload.data) ? seedPayload.data : [];
-      card = seedItems.find((card) => String(card?.id || "").toLowerCase() === lookupCardId.toLowerCase()) || null;
+      card = seedItems.find((card) => canonicalCardId(card?.id).toLowerCase() === lookupCardId.toLowerCase()) || null;
     } catch (error) {
       timings.push(`seed_${error.name === "AbortError" || error.name === "TimeoutError" ? "timeout" : "error"};dur=1800`);
     }
@@ -645,7 +571,15 @@ async function fetchCard(cardId, timings = [], options = {}) {
     };
   }
 
-  if (!card || isPokemonTcgPocket(card)) return null;
+  if (!card) {
+    if (successfulLookups === 0) {
+      const error = new Error("Card providers are temporarily unavailable");
+      error.name = "CardLookupUnavailableError";
+      throw error;
+    }
+    return null;
+  }
+  if (isPokemonTcgPocket(card)) return null;
   card = withTcgplayerProductOverride(card);
   const enrichStartedAt = Date.now();
   const enrichedCard = await enrichCardSet(card, setId);
@@ -657,8 +591,12 @@ async function fetchCard(cardId, timings = [], options = {}) {
 async function fetchCardFromSet(setId, lookupCardId) {
   const bySetUrl = `${BACKEND_ORIGIN}/api/tcg/by-set?set=${encodeURIComponent(setId)}&pageSize=500`;
   const bySetPayload = await fetchJsonWithTimeout(bySetUrl, 1800);
-  const items = Array.isArray(bySetPayload.items) ? bySetPayload.items : [];
-  return items.find((card) => String(card?.id || "").toLowerCase() === lookupCardId.toLowerCase()) || null;
+  const items = Array.isArray(bySetPayload.items)
+    ? bySetPayload.items
+    : Array.isArray(bySetPayload.data)
+      ? bySetPayload.data
+      : [];
+  return items.find((card) => canonicalCardId(card?.id).toLowerCase() === lookupCardId.toLowerCase()) || null;
 }
 
 async function enrichCardSet(card, setId) {
@@ -1671,7 +1609,7 @@ function renderCardPage(card, req, options = {}) {
   <header class="topbar">
     <div class="topbar-inner">
       <a class="brand" href="/" aria-label="Route 25 home">
-        <img src="/assets/Icon.png" alt="" />
+        <img src="/apple-touch-icon.png" alt="" width="34" height="34" />
         <span>Route 25</span>
       </a>
       <nav class="nav" aria-label="Primary">
@@ -1751,6 +1689,7 @@ function renderNotFound(cardId) {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Card not found | Route 25</title>
+  <meta name="robots" content="noindex, nofollow" />
   <link rel="stylesheet" href="/assets/site.css" />
 </head>
 <body>
@@ -1766,11 +1705,35 @@ function renderNotFound(cardId) {
 </html>`;
 }
 
+function renderUnavailable(cardId) {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Card temporarily unavailable | Route 25</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="stylesheet" href="/assets/site.css" />
+</head>
+<body>
+  <main class="hero">
+    <div class="container">
+      <p class="badge">Temporary lookup issue</p>
+      <h1>We could not load ${escapeHtml(cardId)} just yet.</h1>
+      <p class="lead">The card catalog is taking longer than expected. Please retry in a moment.</p>
+      <div class="hero-actions"><a class="button primary" href="/search">Back to card search</a></div>
+    </div>
+  </main>
+</body>
+</html>`;
+}
+
 const cardPageHandler = async (req, res) => {
   const cardId = String(req.query?.id || "").trim();
   if (!cardId || isPokemonTcgPocketCardId(cardId)) {
     res.statusCode = 404;
     res.setHeader("content-type", "text/html; charset=utf-8");
+    res.setHeader("cache-control", "no-store");
     res.end(renderNotFound(""));
     return;
   }
@@ -1784,19 +1747,14 @@ const cardPageHandler = async (req, res) => {
     return;
   }
 
+  const startedAt = Date.now();
+  const timings = [];
   try {
-    const startedAt = Date.now();
-    const timings = [];
-    let usedFallback = false;
-    let card = await fetchCard(cardId, timings);
-    if (!card || isPokemonTcgPocket(card)) {
-      card = fallbackCardFromRequest(cardId, req);
-      usedFallback = Boolean(card);
-      if (usedFallback) timings.push("fallback;dur=0");
-    }
+    const card = await fetchCard(cardId, timings);
     if (!card) {
       res.statusCode = 404;
       res.setHeader("content-type", "text/html; charset=utf-8");
+      res.setHeader("cache-control", "no-store");
       res.setHeader("server-timing", timings.join(", "));
       res.end(renderNotFound(cardId));
       return;
@@ -1804,24 +1762,32 @@ const cardPageHandler = async (req, res) => {
     res.statusCode = 200;
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.setHeader("server-timing", timings.join(", "));
-    setCacheHeaders(res, usedFallback
-      ? "public, s-maxage=30, stale-while-revalidate=300"
-      : "public, s-maxage=86400, stale-while-revalidate=604800");
+    setCacheHeaders(res, "public, s-maxage=86400, stale-while-revalidate=604800");
     const totalMs = Date.now() - startedAt;
-    if (usedFallback || totalMs > 1500) {
+    if (totalMs > 1500) {
       console.log(JSON.stringify({
         route: "card-detail",
         cardId,
         totalMs,
-        usedFallback,
         timings
       }));
     }
     res.end(renderCardPage(card, req));
   } catch (error) {
-    res.statusCode = 500;
+    const unavailable = error?.name === "CardLookupUnavailableError";
+    res.statusCode = unavailable ? 503 : 500;
     res.setHeader("content-type", "text/html; charset=utf-8");
-    res.end(renderNotFound(cardId));
+    res.setHeader("cache-control", "no-store");
+    res.setHeader("server-timing", timings.join(", "));
+    if (unavailable) res.setHeader("retry-after", "5");
+    console.error(JSON.stringify({
+      route: "card-detail",
+      cardId,
+      totalMs: Date.now() - startedAt,
+      error: String(error?.message || error || "Card lookup failed").slice(0, 240),
+      timings
+    }));
+    res.end(renderUnavailable(cardId));
   }
 };
 

@@ -8,9 +8,10 @@ const { senderRetryAction } = require("../lib/newsletter-sender-state");
 const { normalizeTrainerId, trainerProfileUrl } = require("../lib/newsletter-trainer");
 const { socialDetails } = require("../lib/newsletter-social");
 const { collectionStoryFields, storyBodyHtml } = require("../lib/newsletter-story");
-const { senderPreheader } = require("../lib/newsletter-email");
+const { senderSubject, senderPreheader } = require("../lib/newsletter-email");
 const { plainTextParagraphs } = require("../lib/newsletter-text");
 const { route25CardUrl } = require("../lib/newsletter-products");
+const { isPrivateRelayEmail } = require("../lib/newsletter-subscriber");
 
 if (!admin.apps.length) {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
@@ -23,6 +24,7 @@ if (!admin.apps.length) {
 const db = process.env.FIRESTORE_DATABASE_ID ? getFirestore(admin.app(), process.env.FIRESTORE_DATABASE_ID) : getFirestore(admin.app());
 const bucket = admin.storage().bucket();
 const MAX_IMAGES = 15;
+const EMAIL_IMAGE_LIMIT = 6;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/heic"]);
 const IMAGE_EXTENSIONS = { "image/jpeg":"jpg", "image/png":"png", "image/webp":"webp", "image/heic":"heic" };
@@ -197,20 +199,29 @@ async function permanentNewsletterImageUrl(file, metadata) {
 }
 async function normalizeIssueImages(v, publish) {
   if (!Array.isArray(v)) return [];
-  const images = v.slice(0, MAX_IMAGES).map(image => ({
-    objectPath: text(image?.objectPath, 500),
-    url: /^https:\/\//.test(text(image?.url, 2000)) ? text(image.url, 2000) : "",
-    alt: text(image?.alt, 300),
-    caption: text(image?.caption, 500)
-  })).filter(image => image.objectPath || image.url);
+  const images = v.slice(0, MAX_IMAGES).map(image => {
+    const objectPath = text(image?.objectPath, 500);
+    return {
+      objectPath,
+      url: objectPath ? "" : (/^https:\/\//.test(text(image?.url, 2000)) ? text(image.url, 2000) : ""),
+      alt: text(image?.alt, 300),
+      caption: text(image?.caption, 500)
+    };
+  }).filter(image => image.objectPath || image.url);
   if (!publish) return images;
-  return Promise.all(images.map(async image => {
-    if (!image.objectPath) return image;
-    if (!NEWSLETTER_IMAGE_PATH.test(image.objectPath)) throw Object.assign(new Error("Invalid published image reference"), { status: 400 });
-    const file = bucket.file(image.objectPath);
-    const [metadata] = await file.getMetadata();
-    return { ...image, url: await permanentNewsletterImageUrl(file, metadata) };
-  }));
+  return Promise.all(images.map(withPermanentNewsletterImageUrl));
+}
+async function withPermanentNewsletterImageUrl(image) {
+  if (!image?.objectPath) return image;
+  if (!NEWSLETTER_IMAGE_PATH.test(image.objectPath)) throw Object.assign(new Error("Invalid published image reference"), { status: 400 });
+  const file = bucket.file(image.objectPath);
+  const [metadata] = await file.getMetadata();
+  return { ...image, url: await permanentNewsletterImageUrl(file, metadata) };
+}
+async function withTemporaryNewsletterImageUrl(image) {
+  if (!image?.objectPath) return image;
+  const [url] = await bucket.file(image.objectPath).getSignedUrl({ version: "v4", action: "read", expires: Date.now() + 86400000 });
+  return { ...image, url };
 }
 async function emailImageVariant(image, role) {
   if (!image?.objectPath) return image?.url || "";
@@ -236,6 +247,12 @@ async function emailImageVariant(image, role) {
 function docData(doc) {
   const d = doc.data(), iso = value => value?.toDate?.()?.toISOString?.() || value;
   return { id: doc.id, ...d, createdAt: iso(d.createdAt), updatedAt: iso(d.updatedAt), publishedAt: iso(d.publishedAt), publishAt: iso(d.publishAt), lastTestEmailAt: iso(d.lastTestEmailAt), emailSentAt: iso(d.emailSentAt), emailFailedAt: iso(d.emailFailedAt), emailSkippedAt: iso(d.emailSkippedAt) };
+}
+async function withSubmissionLocation(issue) {
+  const location = text(issue?.location, 200), submissionId = text(issue?.submissionId, 100);
+  if (location || !submissionId) return { ...issue, location };
+  const submission = await db.collection("newsletterSubmissions").doc(submissionId).get();
+  return { ...issue, location: submission.exists ? text(submission.data()?.location, 200) : "" };
 }
 function languageFlags(values) {
   const source = values.join(" ").toLowerCase();
@@ -306,6 +323,7 @@ async function senderRequest(path, options = {}) {
 async function syncSubscriberToSender(email) {
   const groupId = text(process.env.SENDER_GROUP_ID, 200);
   if (!senderConfigured() || !groupId) throw Object.assign(new Error("Sender subscriber sync is not configured"), { status: 503 });
+  if (isPrivateRelayEmail(email)) throw Object.assign(new Error("Apple private relay addresses are not supported for newsletter delivery."), { status: 422, code: "PRIVATE_RELAY_EMAIL" });
   try {
     const created = await senderRequest("/subscribers", { method: "POST", body: JSON.stringify({ email, groups: [groupId], trigger_automation: false }) });
     return { subscriberId: text(created?.data?.id, 200), groupId };
@@ -319,9 +337,11 @@ function buildEmail(issue) {
   const site = (process.env.PUBLIC_SITE_URL || "https://route25.app").replace(/\/$/, "");
   const canonicalUrl = issue.emailCanonicalUrl || `${site}/newsletter/${issue.slug}`;
   const photoSectionUrl = `${canonicalUrl.split("#")[0]}#collection-photos`;
-  const emailImages = (issue.images || []).filter(image => /^https:\/\//.test(image.emailUrl || image.url || ""));
-  const [hero, storyImage, thirdImage] = emailImages;
-  const remainingPhotos = Math.max(0, (issue.images || []).length - [hero, storyImage, thirdImage].filter(Boolean).length);
+  const emailImages = (issue.images || []).filter(image => /^https:\/\//.test(image.emailUrl || image.url || "")).slice(0, EMAIL_IMAGE_LIMIT);
+  const [hero, storyImage, ...closingImages] = emailImages;
+  const remainingPhotos = Math.max(0, (issue.images || []).length - emailImages.length);
+  const closingGallery = closingImages.map(image => `<a href="${html(photoSectionUrl)}" target="_blank" rel="noopener noreferrer" style="display:block;margin:30px 0;text-decoration:none"><img src="${html(image.emailUrl || image.url)}" width="672" alt="${html(image.alt || `${issue.trainerName} collection`)}" style="display:block;width:100%;max-width:672px;height:auto;border:0;border-radius:14px"></a>`).join("");
+  const morePhotosLink = closingImages.length && remainingPhotos ? `<p style="margin:-14px 0 30px;text-align:center"><a href="${html(photoSectionUrl)}" target="_blank" rel="noopener noreferrer" style="color:#087bb5;font-size:15px;font-weight:bold;text-decoration:none">See ${remainingPhotos} more collection photo${remainingPhotos === 1 ? "" : "s"} <span aria-hidden="true">→</span></a></p>` : "";
   const products = (issue.products || []).filter(product => product.name).slice(0, 8);
   const productGroup = (title, items, linkLabel, linkField, sponsored) => items.length ? `<tr><td style="padding:18px 20px 8px;color:#168fc8;font-size:12px;font-weight:bold;letter-spacing:1.2px;text-transform:uppercase">${title}</td></tr>${items.map(product => { const url = product[linkField]; return `<tr><td style="padding:0 20px 12px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#ffffff;border:1px solid #dce4ec;border-radius:12px"><tr><td style="padding:14px 16px;color:#475467;font-size:14px;line-height:1.45"><strong style="display:block;color:#101828;font-size:16px">${html(product.name)}</strong>${product.note ? html(product.note) : ""}</td>${url ? `<td align="right" style="padding:14px 16px;white-space:nowrap"><a href="${html(url)}" target="_blank" rel="${sponsored ? "noopener noreferrer sponsored nofollow" : "noopener noreferrer"}" style="display:inline-block;color:#087bb5;font-size:13px;font-weight:bold;text-decoration:none">${linkLabel} →</a></td>` : ""}</tr></table></td></tr>`; }).join("")}` : "";
   const gear = products.length ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;margin:34px 0 0;background:#f1f7fb;border:1px solid #cfe1ec;border-radius:18px;overflow:hidden"><tr><td style="padding:22px 20px;background:#07111f"><p style="margin:0 0 5px;color:#58c7ff;font-size:11px;font-weight:bold;letter-spacing:1.5px;text-transform:uppercase">From the collection</p><h2 style="margin:0;color:#ffffff;font-size:23px">Collector’s corner</h2><p style="margin:8px 0 0;color:#b8c6d5;font-size:14px;line-height:1.5">The cards and tools that help shape this collection.</p></td></tr>${productGroup("Cards mentioned", products.filter(product => product.category === "card"), "View card", "route25Url", false)}${productGroup("Gear used", products.filter(product => product.category !== "card"), "Shop gear", "url", true)}<tr><td style="height:10px"></td></tr></table>` : "";
@@ -340,37 +360,23 @@ function buildEmail(issue) {
   const trainerUrl = trainerProfileUrl(issue.trainerId, site);
   const trainerCta = trainerUrl ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;margin:34px 0 0;background:#f1f7fb;border:1px solid #cfe1ec;border-radius:16px;overflow:hidden"><tr><td style="padding:20px 18px;text-align:center;color:#344054;font-family:Arial,sans-serif"><p style="margin:0 0 7px;color:#168fc8;font-size:11px;font-weight:bold;letter-spacing:1.4px;text-transform:uppercase">Continue in the Route 25 app</p><p style="margin:0 0 14px;font-size:15px;line-height:1.55">Visit ${html(issue.trainerName || "this collector")}’s trainer profile in the app.</p><a href="${html(trainerUrl)}" style="display:inline-block;background:#202737;color:#ffffff;text-decoration:none;font-size:14px;font-weight:bold;padding:11px 17px;border-radius:999px">View trainer in the Route 25 app</a></td></tr></table>` : "";
   const storyBody = storyBodyHtml(issue);
+  const location = text(issue.location, 200);
+  const locationLine = location ? `<p style="margin:13px 0 0;color:#667085;font-family:Arial,sans-serif;font-size:15px;line-height:1.4"><span aria-hidden="true">&#128205;</span>&nbsp;${html(location)}</p>` : "";
   const issueNumber = Number.isInteger(Number(issue.issueNumber)) && Number(issue.issueNumber) > 0 ? `#${String(Number(issue.issueNumber)).padStart(3, "0")}` : "Preview";
   const displayDate = issueDisplayDate(issue);
   const masthead = `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#ffffff"><tr><td class="r25-outer" align="center" style="padding:24px 4px 0"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:720px"><tr><td align="right" style="padding:0 4px 12px;color:#475467;font-family:Arial,sans-serif;font-size:14px">${html(displayDate)}</td></tr><tr><td class="r25-masthead-pad" style="padding:22px 18px;background:#07111f;color:#ffffff;font-family:Arial,sans-serif;border-radius:20px;overflow:hidden"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr><td style="color:#ffffff;white-space:nowrap"><table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr><td style="padding-right:10px"><img src="${html(`${site}/assets/Icon.png`)}" width="38" height="38" alt="" style="display:block;width:38px;height:38px;border:0;border-radius:9px"></td><td><img src="${html(`${site}/assets/route25-logo-white.png`)}" width="112" height="27" alt="Route 25" style="display:block;width:112px;max-width:112px;height:auto;border:0;color:#ffffff;font-family:Arial,sans-serif;font-size:20px;font-weight:bold"></td></tr></table></td><td align="right" style="color:#aab4c3;font-family:Courier New,monospace;font-size:12px;letter-spacing:1.5px;text-transform:uppercase">Issue ${html(issueNumber)} · ${html(issue.trainerName || "Collector Spotlights")}</td></tr></table></td></tr></table></td></tr></table>`;
   const noteContent = issue.emailNoteMarkdown ? markdownEmail(issue.emailNoteMarkdown) : issue.emailNoteHtml;
   const editorNote = noteContent ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#ffffff"><tr><td class="r25-outer" align="center" style="padding:18px 4px 0"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:720px;background:#f1f7fb;border:1px solid #dde3ea;border-radius:20px;overflow:hidden"><tr><td class="r25-pad" style="padding:28px 18px;color:#344054;font-family:Arial,sans-serif;font-size:17px;line-height:1.7"><p style="margin:0 0 14px;color:#168fc8;font-family:Courier New,monospace;font-size:13px;font-weight:bold;letter-spacing:1px;text-transform:uppercase">From the editor</p>${noteContent}</td></tr></table></td></tr></table>` : "";
-  const content = `<style>@media screen and (max-width:600px){.r25-shell{padding:8px 0!important}.r25-card{border-left:0!important;border-right:0!important;border-radius:0!important}.r25-pad{padding-left:16px!important;padding-right:16px!important}.r25-image-pad{padding-left:8px!important;padding-right:8px!important}.r25-title{font-size:34px!important}.r25-highlight{display:block!important;width:auto!important;margin-bottom:8px!important}}</style><div style="display:none;max-height:0;overflow:hidden">${html(issue.dek || issue.summary).slice(0, 180)}</div>${masthead}${editorNote}<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#ffffff"><tr><td class="r25-shell" align="center" style="padding:18px 8px"><table class="r25-card" role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:720px;background:#ffffff;border:1px solid #dde3ea;border-radius:20px;overflow:hidden"><tr><td class="r25-pad" style="padding:30px 24px 18px"><p style="margin:0 0 8px;color:#168fc8;font-family:Arial,sans-serif;font-size:12px;font-weight:bold;letter-spacing:1.6px;text-transform:uppercase">Route 25 · Issue ${html(issueNumber)}</p><h1 class="r25-title" style="margin:0;color:#101828;font-family:Arial,sans-serif;font-size:40px;line-height:1.08;letter-spacing:-1.2px">${html(issue.title)}</h1>${emailParagraphs(issue.summary, "color:#475467;font-family:Arial,sans-serif;font-size:18px;line-height:1.65", "18px 0 0", "12px 0 0")}${socials}${trainerCta}</td></tr>${hero ? `<tr><td class="r25-image-pad" style="padding:10px 12px 24px"><a href="${html(photoSectionUrl)}" target="_blank" rel="noopener noreferrer" style="display:block;text-decoration:none"><img src="${html(hero.emailUrl || hero.url)}" width="696" alt="${html(hero.alt || issue.title)}" style="display:block;width:100%;max-width:696px;height:auto;border:0;border-radius:16px"></a></td></tr>` : ""}<tr><td class="r25-pad" style="padding:4px 24px 34px;color:#344054;font-family:Arial,sans-serif;font-size:16px;line-height:1.7">${storyBody ? `<div style="color:#344054">${storyBody}</div>` : ""}${collectionProfile}${storyImage ? `<a href="${html(photoSectionUrl)}" target="_blank" rel="noopener noreferrer" style="display:block;margin:30px 0;text-decoration:none"><img src="${html(storyImage.emailUrl || storyImage.url)}" width="672" alt="${html(storyImage.alt || `${issue.trainerName} collection`)}" style="display:block;width:100%;max-width:672px;height:auto;border:0;border-radius:14px"></a>` : ""}${interview}${thirdImage ? `<a href="${html(photoSectionUrl)}" target="_blank" rel="noopener noreferrer" style="display:block;margin:30px 0;text-decoration:none"><img src="${html(thirdImage.emailUrl || thirdImage.url)}" width="672" alt="${html(thirdImage.alt || `${issue.trainerName} collection`)}" style="display:block;width:100%;max-width:672px;height:auto;border:0;border-radius:14px"></a>` : ""}${gear}<div style="margin:34px 0 10px;padding:24px;text-align:center;background:#07111f;border-radius:16px"><p style="margin:0 0 16px;color:#d7e1eb;font-size:15px;line-height:1.55">${remainingPhotos ? `${remainingPhotos} more collection photo${remainingPhotos === 1 ? "" : "s"} and the rest of the story are waiting on Route 25.` : "Continue reading the full collector spotlight on Route 25."}</p><a href="${html(canonicalUrl)}" style="display:inline-block;background:#28a9ea;color:#ffffff;text-decoration:none;font-weight:bold;padding:13px 20px;border-radius:999px">See the full collection tour</a></div><p style="margin:28px 0 0;color:#667085;font-size:12px;line-height:1.55;text-align:center">Some links may be affiliate links. Purchases support Route 25 at no additional cost to you.</p><p style="margin:10px 0 0;text-align:center;font-size:11px"><a href="{{unsubscribe_link}}" style="color:#667085">{{unsubscribe_text}}</a></p></td></tr></table></td></tr></table>`;
+  const content = `<style>@media screen and (max-width:600px){.r25-shell{padding:8px 0!important}.r25-card{border-left:0!important;border-right:0!important;border-radius:0!important}.r25-pad{padding-left:16px!important;padding-right:16px!important}.r25-image-pad{padding-left:8px!important;padding-right:8px!important}.r25-title{font-size:34px!important}.r25-highlight{display:block!important;width:auto!important;margin-bottom:8px!important}}</style><div style="display:none;max-height:0;overflow:hidden">${html(issue.dek || issue.summary).slice(0, 180)}</div>${masthead}${editorNote}<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#ffffff"><tr><td class="r25-shell" align="center" style="padding:18px 8px"><table class="r25-card" role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:720px;background:#ffffff;border:1px solid #dde3ea;border-radius:20px;overflow:hidden"><tr><td class="r25-pad" style="padding:30px 24px 18px"><p style="margin:0 0 8px;color:#168fc8;font-family:Arial,sans-serif;font-size:12px;font-weight:bold;letter-spacing:1.6px;text-transform:uppercase">Route 25 · Issue ${html(issueNumber)}</p><h1 class="r25-title" style="margin:0;color:#101828;font-family:Arial,sans-serif;font-size:40px;line-height:1.08;letter-spacing:-1.2px">${html(issue.title)}</h1>${locationLine}${emailParagraphs(issue.summary, "color:#475467;font-family:Arial,sans-serif;font-size:18px;line-height:1.65", "18px 0 0", "12px 0 0")}${socials}${trainerCta}</td></tr>${hero ? `<tr><td class="r25-image-pad" style="padding:10px 12px 24px"><a href="${html(photoSectionUrl)}" target="_blank" rel="noopener noreferrer" style="display:block;text-decoration:none"><img src="${html(hero.emailUrl || hero.url)}" width="696" alt="${html(hero.alt || issue.title)}" style="display:block;width:100%;max-width:696px;height:auto;border:0;border-radius:16px"></a></td></tr>` : ""}<tr><td class="r25-pad" style="padding:4px 24px 34px;color:#344054;font-family:Arial,sans-serif;font-size:16px;line-height:1.7">${storyBody ? `<div style="color:#344054">${storyBody}</div>` : ""}${collectionProfile}${storyImage ? `<a href="${html(photoSectionUrl)}" target="_blank" rel="noopener noreferrer" style="display:block;margin:30px 0;text-decoration:none"><img src="${html(storyImage.emailUrl || storyImage.url)}" width="672" alt="${html(storyImage.alt || `${issue.trainerName} collection`)}" style="display:block;width:100%;max-width:672px;height:auto;border:0;border-radius:14px"></a>` : ""}${interview}${closingGallery}${morePhotosLink}${gear}<div style="margin:34px 0 10px;padding:24px;text-align:center;background:#07111f;border-radius:16px"><p style="margin:0 0 16px;color:#d7e1eb;font-size:15px;line-height:1.55">Continue reading the full Collector Spotlight on Route 25.</p><a href="${html(canonicalUrl)}" style="display:inline-block;background:#28a9ea;color:#ffffff;text-decoration:none;font-weight:bold;padding:13px 20px;border-radius:999px">See the full collection tour</a></div><p style="margin:28px 0 0;color:#667085;font-size:12px;line-height:1.55;text-align:center">Some links may be affiliate links. Purchases support Route 25 at no additional cost to you.</p><p style="margin:10px 0 0;text-align:center;font-size:11px"><a href="{{unsubscribe_link}}" style="color:#667085">{{unsubscribe_text}}</a></p></td></tr></table></td></tr></table>`;
   const tourCtaStart = '<div style="margin:34px 0 10px;padding:24px;text-align:center;background:#07111f';
   const relocatedContent = trainerCta ? content.replace(trainerCta, "").replace(tourCtaStart, `${trainerCta}${tourCtaStart}`) : content;
   const widthOverrides = `.r25-shell{padding-left:4px!important;padding-right:4px!important}.r25-pad{padding-left:18px!important;padding-right:18px!important}.r25-image-pad{padding-left:8px!important;padding-right:8px!important}@media screen and (max-width:600px){.r25-outer,.r25-shell{padding-left:0!important;padding-right:0!important}.r25-pad{padding-left:10px!important;padding-right:10px!important}.r25-image-pad{padding-left:0!important;padding-right:0!important}.r25-masthead-pad{padding-left:12px!important;padding-right:12px!important}.r25-panel-pad{padding-left:14px!important;padding-right:14px!important}}`;
   const responsiveContent = relocatedContent.replace("</style>", `${widthOverrides}</style>`);
-  const repeatedPhotoCopy = remainingPhotos ? `${remainingPhotos} more collection photo${remainingPhotos === 1 ? "" : "s"} and the rest of the story are waiting on Route 25.` : "";
-  let enhancedContent = repeatedPhotoCopy ? responsiveContent.replace(repeatedPhotoCopy, "Continue reading the full Collector Spotlight on Route 25.") : responsiveContent;
-  if (thirdImage && remainingPhotos) {
-    const linkedPhotoStart = `<a href="${html(photoSectionUrl)}"`;
-    let imageStart = -1;
-    for (let index = 0, cursor = 0; index < 3; index += 1) {
-      imageStart = enhancedContent.indexOf(linkedPhotoStart, cursor);
-      if (imageStart < 0) break;
-      cursor = imageStart + linkedPhotoStart.length;
-    }
-    const imageLinkEnd = imageStart >= 0 ? enhancedContent.indexOf("</a>", imageStart) : -1;
-    if (imageLinkEnd >= 0) {
-      const morePhotosLink = `<p style="margin:-14px 0 30px;text-align:center"><a href="${html(photoSectionUrl)}" target="_blank" rel="noopener noreferrer" style="color:#087bb5;font-size:15px;font-weight:bold;text-decoration:none">See ${remainingPhotos} more collection photo${remainingPhotos === 1 ? "" : "s"} <span aria-hidden="true">→</span></a></p>`;
-      enhancedContent = `${enhancedContent.slice(0, imageLinkEnd + 4)}${morePhotosLink}${enhancedContent.slice(imageLinkEnd + 4)}`;
-    }
-  }
-  return { subject: issue.title, preheader: senderPreheader(issue), content: enhancedContent, canonicalUrl };
+  return { subject: senderSubject(issue), preheader: senderPreheader(issue), content: responsiveContent, canonicalUrl };
 }
 async function createSenderCampaign(issue, groupId, label) {
   if (!senderConfigured() || !groupId) throw Object.assign(new Error("Sender campaign delivery is not configured"), { status: 503 });
-  const images = await Promise.all((issue.images || []).map(async (image, index) => index < 3 ? { ...image, emailUrl: await emailImageVariant(image, index === 0 ? "hero" : "story") } : image));
+  const images = await Promise.all((issue.images || []).map(async (image, index) => index < EMAIL_IMAGE_LIMIT ? { ...image, emailUrl: await emailImageVariant(image, index === 0 ? "hero" : "story") } : image));
   const email = buildEmail({ ...issue, images });
   const replyTo = text(process.env.SENDER_REPLY_TO, 254) || text(process.env.SENDER_FROM_EMAIL, 254);
   const result = await senderRequest("/campaigns", { method: "POST", body: JSON.stringify({
@@ -390,8 +396,9 @@ async function senderCampaignStatus(campaignId) {
 }
 async function deliverAndPublishIssue(ref, source) {
   const config = deliveryConfig();
-  const images = await normalizeIssueImages(source.images, true);
-  const issue = { ...source, images, status: "scheduled" };
+  const hydratedSource = await withSubmissionLocation(source);
+  const images = await normalizeIssueImages(hydratedSource.images, true);
+  const issue = { ...hydratedSource, images, status: "scheduled" };
   const preflight = publicationPreflight(issue, config);
   if (!preflight.readyToPublish) {
     const missing = preflight.checks.filter(check => !check.ok).map(check => check.label);
@@ -419,7 +426,7 @@ async function deliverAndPublishIssue(ref, source) {
     const retryAction = senderRetryAction(providerStatus);
     if (retryAction === "send") await sendSenderCampaign(campaignId);
     else if (retryAction === "wait") throw Object.assign(new Error(`Sender campaign is already ${providerStatus}; wait for it to finish before retrying.`), { status: 409 });
-    await ref.update({ status: "published", publicVisibility: true, images, emailStatus: "sent", emailSentAt: admin.firestore.FieldValue.serverTimestamp(), publishedAt: admin.firestore.FieldValue.serverTimestamp(), preflightMissing: [], updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+    await ref.update({ status: "published", publicVisibility: true, location: issue.location, images, emailStatus: "sent", emailSentAt: admin.firestore.FieldValue.serverTimestamp(), publishedAt: admin.firestore.FieldValue.serverTimestamp(), preflightMissing: [], updatedAt: admin.firestore.FieldValue.serverTimestamp() });
     if (source.submissionId) await db.collection("newsletterSubmissions").doc(source.submissionId).set({ status: "published", updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
     try { await notifyEditorial(["*Collector Spotlight issue published and emailed*", `*${source.title}*`, `Sender campaign: ${campaignId}`, `<${process.env.PUBLIC_SITE_URL || "https://route25.app"}/newsletter/${source.slug}|View issue>`]); } catch (notifyError) { console.error(notifyError); }
     return { published: true, email: "sent", campaignId };
@@ -447,9 +454,14 @@ function cronAuthorized(req) {
 }
 async function retryFailedSubscribers(limit = 100) {
   const snap = await db.collection("newsletterSubscribers").where("senderStatus", "==", "failed").limit(limit).get();
-  let synced = 0, failed = 0;
+  let synced = 0, failed = 0, excluded = 0;
   for (const doc of snap.docs) {
     const email = text(doc.data().email, 254);
+    if (isPrivateRelayEmail(email)) {
+      await doc.ref.set({ status: "excluded", senderStatus: "excluded", senderExclusionReason: "apple-private-relay", senderGroupId: admin.firestore.FieldValue.delete(), senderSyncError: admin.firestore.FieldValue.delete(), updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+      excluded += 1;
+      continue;
+    }
     try {
       const result = await syncSubscriberToSender(email);
       await doc.ref.set({ senderStatus: "synced", senderSubscriberId: result.subscriberId, senderGroupId: result.groupId, senderSyncedAt: admin.firestore.FieldValue.serverTimestamp(), senderSyncError: admin.firestore.FieldValue.delete(), updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
@@ -459,7 +471,7 @@ async function retryFailedSubscribers(limit = 100) {
       failed += 1;
     }
   }
-  return { attempted: snap.size, synced, failed };
+  return { attempted: snap.size, synced, failed, excluded };
 }
 async function allCollectionDocuments(collectionName, pageSize = 500) {
   const documents = [];
@@ -472,6 +484,29 @@ async function allCollectionDocuments(collectionName, pageSize = 500) {
     cursor = page.size === pageSize ? page.docs[page.docs.length - 1] : null;
   } while (cursor);
   return documents;
+}
+async function excludePrivateRelaySubscribers() {
+  const groupId = text(process.env.SENDER_GROUP_ID, 200);
+  const documents = await allCollectionDocuments("newsletterSubscribers");
+  const candidates = documents.filter(doc => isPrivateRelayEmail(doc.data().email) && (doc.data().senderStatus !== "excluded" || doc.data().senderGroupId));
+  if (!candidates.length) return { scanned: documents.length, matched: 0, removed: 0, failed: 0 };
+  if (!text(process.env.SENDER_API_TOKEN, 2000) || !groupId) return { scanned: documents.length, matched: candidates.length, removed: 0, failed: candidates.length, skipped: "Sender subscriber cleanup is not configured" };
+
+  let removed = 0, failed = 0;
+  for (let offset = 0; offset < candidates.length; offset += 100) {
+    const chunk = candidates.slice(offset, offset + 100);
+    try {
+      await senderRequest(`/subscribers/groups/${encodeURIComponent(groupId)}`, { method: "DELETE", body: JSON.stringify({ subscribers: chunk.map(doc => text(doc.data().email, 254)) }) });
+      const batch = db.batch();
+      for (const doc of chunk) batch.set(doc.ref, { status: "excluded", senderStatus: "excluded", senderExclusionReason: "apple-private-relay", senderGroupId: admin.firestore.FieldValue.delete(), senderRemovedAt: admin.firestore.FieldValue.serverTimestamp(), senderSyncError: admin.firestore.FieldValue.delete(), updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+      await batch.commit();
+      removed += chunk.length;
+    } catch (error) {
+      console.error("Sender private relay cleanup failed", { count: chunk.length, message: text(error.message, 500) });
+      failed += chunk.length;
+    }
+  }
+  return { scanned: documents.length, matched: candidates.length, removed, failed };
 }
 async function cleanupOrphanUploads() {
   const [submissionDocs, issueDocs, filesResult] = await Promise.all([
@@ -571,6 +606,7 @@ module.exports = async (req, res) => {
       await verifyTurnstile(req, req.body?.turnstileToken, "newsletter_subscribe");
       const email = text(req.body?.email, 254).toLowerCase();
       if (!/^\S+@\S+\.\S+$/.test(email) || req.body?.consent !== true) return json(res, 400, { error: "A valid email and consent are required." });
+      if (isPrivateRelayEmail(email)) return json(res, 422, { error: "Apple private relay addresses can’t receive this newsletter. Please subscribe with a non-relay email address." });
       const id = crypto.createHash("sha256").update(email).digest("hex");
       const ref = db.collection("newsletterSubscribers").doc(id);
       await ref.set({ email, status: "subscribed", source: text(req.body?.source, 100) || "archive", consentAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
@@ -587,13 +623,13 @@ module.exports = async (req, res) => {
     }
     if (action === "issues" && req.method === "GET") {
       const snap = await db.collection("newsletterIssues").where("status", "==", "published").limit(100).get();
-      const issues = snap.docs.map(docData).filter(isPublicIssue).sort((a, b) => String(b.publishedAt || "").localeCompare(String(a.publishedAt || ""))).slice(0, 50).map(({ emailHtml, emailNoteHtml, emailNoteMarkdown, previewToken, ...x }) => x);
+      const issues = snap.docs.map(docData).filter(isPublicIssue).sort((a, b) => String(b.publishedAt || "").localeCompare(String(a.publishedAt || ""))).slice(0, 50).map(({ emailHtml, emailNoteHtml, emailNoteMarkdown, previewToken, ...x }) => ({ ...x, displayTitle: senderSubject(x) }));
       return json(res, 200, { issues });
     }
     if (action === "issue" && req.method === "GET") {
       const slug = safeSlug(req.query.slug); const snap = await db.collection("newsletterIssues").where("slug", "==", slug).limit(1).get();
       if (snap.empty || snap.docs[0].data().status !== "published" || !isPublicIssue(snap.docs[0].data())) return json(res, 404, { error: "Issue not found" });
-      const { emailNoteHtml, emailNoteMarkdown, ...issue } = docData(snap.docs[0]);
+      const { emailNoteHtml, emailNoteMarkdown, ...issue } = await withSubmissionLocation(docData(snap.docs[0]));
       return json(res, 200, { issue });
     }
     if (action === "issue-preview" && req.method === "GET") {
@@ -601,12 +637,8 @@ module.exports = async (req, res) => {
       if (!/^[a-f0-9]{64}$/.test(token)) return json(res, 404, { error: "Preview not found" });
       const snap = await db.collection("newsletterIssues").where("previewToken", "==", token).limit(1).get();
       if (snap.empty) return json(res, 404, { error: "Preview not found" });
-      const issue = docData(snap.docs[0]);
-      issue.images = await Promise.all((issue.images || []).map(async image => {
-        if (!image.objectPath) return image;
-        const [url] = await bucket.file(image.objectPath).getSignedUrl({ version: "v4", action: "read", expires: Date.now() + 86400000 });
-        return { ...image, url };
-      }));
+      const issue = await withSubmissionLocation(docData(snap.docs[0]));
+      issue.images = await Promise.all((issue.images || []).map(withPermanentNewsletterImageUrl));
       return json(res, 200, { issue });
     }
     if (action === "publish-due" && (req.method === "GET" || req.method === "POST")) {
@@ -627,8 +659,9 @@ module.exports = async (req, res) => {
     }
     if (action === "maintenance" && (req.method === "GET" || req.method === "POST")) {
       if (!cronAuthorized(req)) return json(res, 401, { error: "Unauthorized" });
-      const [uploads, subscribers, submissionSessions] = await Promise.all([cleanupOrphanUploads(), retryFailedSubscribers(100), cleanupExpiredSubmissionSessions()]);
-      return json(res, 200, { ok: true, uploads, subscribers, submissionSessions });
+      const [uploads, privateRelays, submissionSessions] = await Promise.all([cleanupOrphanUploads(), excludePrivateRelaySubscribers(), cleanupExpiredSubmissionSessions()]);
+      const subscribers = await retryFailedSubscribers(100);
+      return json(res, 200, { ok: privateRelays.failed === 0, uploads, privateRelays, subscribers, submissionSessions });
     }
 
     await requireAdmin(req);
@@ -654,21 +687,19 @@ module.exports = async (req, res) => {
     if (action === "admin-list" && req.method === "GET") {
       const snap = await db.collection("newsletterSubmissions").orderBy("createdAt", "desc").limit(100).get();
       const submissions = await Promise.all(snap.docs.map(async d => {
-        const item = docData(d); item.images = await Promise.all((item.images || []).map(async image => {
-          const [url] = await bucket.file(image.objectPath).getSignedUrl({ version: "v4", action: "read", expires: Date.now() + 86400000 });
-          return { ...image, url };
-        })); return item;
+        const item = docData(d); item.images = await Promise.all((item.images || []).map(withTemporaryNewsletterImageUrl)); return item;
       }));
       return json(res, 200, { submissions });
     }
     if (action === "admin-issues" && req.method === "GET") {
       const snap = await db.collection("newsletterIssues").limit(100).get();
       const config = deliveryConfig(), now = Date.now();
-      const issues = snap.docs.map(doc => {
+      const issues = (await Promise.all(snap.docs.map(async doc => {
         const item = docData(doc), publishTime = item.publishAt ? new Date(item.publishAt).getTime() : 0;
+        item.images = await Promise.all((item.images || []).map(withPermanentNewsletterImageUrl));
         const normalized = { ...item, isTest: item.isTest === true || !isPublicIssue(item) };
         return { ...normalized, preflight: publicationPreflight(normalized, config), missedPublication: item.status === "scheduled" && publishTime > 0 && publishTime < now - 90 * 60 * 1000 };
-      }).sort((a,b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+      }))).sort((a,b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
       const nextIssueNumber = Math.max(0, ...issues.filter(issue => !issue.isTest).map(issue => Number(issue.issueNumber) || 0)) + 1;
       return json(res, 200, { issues, nextIssueNumber });
     }
@@ -710,7 +741,7 @@ module.exports = async (req, res) => {
         const numberedIssues = await db.collection("newsletterIssues").limit(1000).get();
         issueNumber = Math.max(0, ...numberedIssues.docs.filter(doc => doc.id !== existing.docs[0]?.id && isPublicIssue(doc.data())).map(doc => Number(doc.data().issueNumber) || 0)) + 1;
       }
-      const issue = { slug, title:text(b.title,200), issueNumber:Number.isInteger(issueNumber)&&issueNumber>0?issueNumber:null, emailNoteMarkdown:text(b.emailNoteMarkdown,10000), dek:text(b.dek,500), summary:text(b.summary,2000), bodyHtml:text(b.bodyHtml,50000), collectionFocus:text(b.collectionFocus,1000), favorite:text(b.favorite,1000), currentChase:text(b.currentChase,1000), grail:text(b.grail,1000), trainerName:text(b.trainerName,120), trainerId, socialUrl:normalizeSocialUrl(b.socialUrl), submissionId:text(b.submissionId,100), images:await normalizeIssueImages(b.images, status === "published"), interviewAnswers:normalizeAnswers(b.interviewAnswers), products:normalizeProducts(b.products), pokemonTags:list(b.pokemonTags,30), cardTags:list(b.cardTags,30), setTags:list(b.setTags,30), collectionTags:list(b.collectionTags,30), status:status === "scheduled" && !scheduleDateValid ? "draft" : status, isTest:b.isTest === true, publicVisibility:b.isTest !== true, publishAt: status === "scheduled" && scheduleDateValid ? admin.firestore.Timestamp.fromDate(parsedPublishAt) : null, updatedAt:admin.firestore.FieldValue.serverTimestamp() };
+      const issue = { slug, title:text(b.title,200), issueNumber:Number.isInteger(issueNumber)&&issueNumber>0?issueNumber:null, emailNoteMarkdown:text(b.emailNoteMarkdown,10000), dek:text(b.dek,500), summary:text(b.summary,2000), bodyHtml:text(b.bodyHtml,50000), collectionFocus:text(b.collectionFocus,1000), favorite:text(b.favorite,1000), currentChase:text(b.currentChase,1000), grail:text(b.grail,1000), trainerName:text(b.trainerName,120), location:text(b.location,200), trainerId, socialUrl:normalizeSocialUrl(b.socialUrl), submissionId:text(b.submissionId,100), images:await normalizeIssueImages(b.images, status === "published"), interviewAnswers:normalizeAnswers(b.interviewAnswers), products:normalizeProducts(b.products), pokemonTags:list(b.pokemonTags,30), cardTags:list(b.cardTags,30), setTags:list(b.setTags,30), collectionTags:list(b.collectionTags,30), status:status === "scheduled" && !scheduleDateValid ? "draft" : status, isTest:b.isTest === true, publicVisibility:b.isTest !== true, publishAt: status === "scheduled" && scheduleDateValid ? admin.firestore.Timestamp.fromDate(parsedPublishAt) : null, updatedAt:admin.firestore.FieldValue.serverTimestamp() };
       let schedulingBlocked = [];
       if (status === "scheduled") {
         if (scheduleDateValid) {
@@ -763,13 +794,13 @@ module.exports = async (req, res) => {
     }
     if (action === "email-export" && req.method === "GET") {
       const slug=safeSlug(req.query.slug), snap=await db.collection("newsletterIssues").where("slug","==",slug).limit(1).get(); if(snap.empty)return json(res,404,{error:"Issue not found"});
-      const i=docData(snap.docs[0]), email=buildEmail(i);
-      return json(res,200,{subject:email.subject,previewText:email.preheader,html:email.content,text:`${i.title}\n\n${i.summary}\n\nSee the full collection tour: ${email.canonicalUrl}`,canonicalUrl:email.canonicalUrl});
+      const i=await withSubmissionLocation(docData(snap.docs[0])); i.images=await normalizeIssueImages(i.images,true); const email=buildEmail(i);
+      return json(res,200,{subject:email.subject,previewText:email.preheader,html:email.content,text:`${i.title}${i.location ? `\n\n📍 ${i.location}` : ""}\n\n${i.summary}\n\nSee the full collection tour: ${email.canonicalUrl}`,canonicalUrl:email.canonicalUrl});
     }
     if (action === "admin-test-email" && req.method === "POST") {
       const slug = safeSlug(req.body?.slug), snap = await db.collection("newsletterIssues").where("slug", "==", slug).limit(1).get();
       if (snap.empty) return json(res, 404, { error: "Issue not found" });
-      const issue = docData(snap.docs[0]);
+      const issue = await withSubmissionLocation(docData(snap.docs[0]));
       const groupId = text(process.env.SENDER_TEST_GROUP_ID, 200), liveGroupId = text(process.env.SENDER_GROUP_ID, 200);
       if (!groupId || !liveGroupId) return json(res, 503, { error: "Both Sender test and live groups must be configured" });
       if (groupId === liveGroupId) return json(res, 409, { error: "Test send blocked: the Sender test and live group IDs must be different" });
@@ -779,7 +810,8 @@ module.exports = async (req, res) => {
       const previewToken = issue.previewToken || crypto.randomBytes(32).toString("hex");
       if (!issue.previewToken) await snap.docs[0].ref.set({ previewToken }, { merge: true });
       const previewUrl = `${(process.env.PUBLIC_SITE_URL || "https://route25.app").replace(/\/$/, "")}/newsletter/preview/${previewToken}`;
-      const campaign = await createSenderCampaign({ ...issue, emailCanonicalUrl: previewUrl }, groupId, "TEST");
+      const images = await normalizeIssueImages(issue.images, true);
+      const campaign = await createSenderCampaign({ ...issue, images, emailCanonicalUrl: previewUrl }, groupId, "TEST");
       await sendSenderCampaign(campaign.campaignId);
       await snap.docs[0].ref.set({ lastTestEmailAt: admin.firestore.FieldValue.serverTimestamp(), lastTestCampaignId: campaign.campaignId, testEmailCount: admin.firestore.FieldValue.increment(1), updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
       return json(res, 200, { ok: true, campaignId: campaign.campaignId, recipient: "test-group" });

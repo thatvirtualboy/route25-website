@@ -1,5 +1,6 @@
 const BACKEND_ORIGIN = "https://palettetown-backend.vercel.app";
 const SITE_ORIGIN = "https://route25.app";
+const { canonicalCardId, canonicalCardSetId } = require("../lib/card-set-id");
 
 function escapeXml(value) {
   return String(value ?? "")
@@ -30,7 +31,7 @@ function renderSitemapIndex(sets) {
   const body = sets
     .filter((set) => set?.id)
     .map((set) => {
-      const loc = `${SITE_ORIGIN}/sitemap-cards.xml?set=${encodeURIComponent(set.id)}`;
+      const loc = `${SITE_ORIGIN}/sitemap-cards.xml?set=${encodeURIComponent(canonicalCardSetId(set.id))}`;
       return `  <sitemap><loc>${escapeXml(loc)}</loc></sitemap>`;
     })
     .join("\n");
@@ -42,10 +43,12 @@ ${body}
 }
 
 function renderCardUrlset(cards) {
-  const body = cards
-    .filter((card) => card?.id)
-    .map((card) => {
-      const loc = `${SITE_ORIGIN}/cards/${encodeURIComponent(card.id)}`;
+  const cardIds = [...new Set(cards
+    .map((card) => canonicalCardId(card?.id))
+    .filter(Boolean))];
+  const body = cardIds
+    .map((cardId) => {
+      const loc = `${SITE_ORIGIN}/cards/${encodeURIComponent(cardId)}`;
       return `  <url><loc>${escapeXml(loc)}</loc></url>`;
     })
     .join("\n");
@@ -70,7 +73,8 @@ module.exports = async (req, res) => {
       return;
     }
 
-    const set = sets.find((item) => String(item?.id || "").toLowerCase() === setId.toLowerCase());
+    const canonicalSetId = canonicalCardSetId(setId);
+    const set = sets.find((item) => canonicalCardSetId(item?.id).toLowerCase() === canonicalSetId.toLowerCase());
     if (!set) {
       res.statusCode = 404;
       res.end(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>`);

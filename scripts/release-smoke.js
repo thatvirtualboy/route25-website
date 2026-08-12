@@ -40,13 +40,16 @@ async function main() {
   assert.doesNotMatch(searchPage.html, /setSelect|All sets/, "set picker must remain removed");
   assert.match(searchPage.html, /pageSize: 32/, "desktop search must request 32 cards");
   assert.match(searchPage.html, /repeat\(8, minmax\(0, 1fr\)\)/, "desktop grid must use eight columns");
+  assert.match(searchPage.html, /src="\/apple-touch-icon\.png"/, "search header must use the optimized app icon");
+  assert.doesNotMatch(searchPage.html, /images\.pokemontcg\.io\/[^"']+_hires\.png/, "featured cards must not use high-resolution source images");
 
   const fanImages = Array.from(searchPage.html.matchAll(/<a class="fan-card"[\s\S]*?<img src="([^"]+)"/g), (match) => match[1]);
   assert.equal(fanImages.length, 6, "all fan cards must have artwork");
-  report.images.fanFirst = await assertImage(fanImages[0], "first fan card");
-  report.images.fanLast = await assertImage(fanImages.at(-1), "last fan card");
+  const fanReports = await Promise.all(fanImages.map((url, index) => assertImage(url, `fan card ${index + 1}`)));
+  report.images.fanTotalBytes = fanReports.reduce((sum, image) => sum + image.bytes, 0);
+  assert.ok(report.images.fanTotalBytes < 300_000, `featured card payload is ${report.images.fanTotalBytes} bytes`);
 
-  for (const query of ["bulbas", "snorlax", "jolteon", "mr mime", "sv5-193"]) {
+  for (const query of ["bulbas", "snorlax", "jolteon", "mr mime", "sv5-193", "litleo"]) {
     const result = await fetchJson(`/api/card-search?q=${encodeURIComponent(query)}&page=1&pageSize=32`);
     assert.equal(result.payload.ok, true, `${query} search must succeed`);
     assert.ok(Array.isArray(result.payload.data) && result.payload.data.length > 0, `${query} search must return cards`);
@@ -57,6 +60,13 @@ async function main() {
       total: result.payload.totalCount
     };
   }
+  const litleo = await fetchJson("/api/card-search?q=litleo&page=1&pageSize=32");
+  assert.ok(litleo.payload.data.some((card) => card.id === "sv8pt5-15"), "provider-padded Litleo must use the canonical card id");
+  assert.ok(litleo.payload.data.every((card) => card.id !== "sv8pt5-015"), "search must never emit the padded Litleo id");
+
+  const paddedDetail = await timedFetch("/cards/sv8pt5-015", { headers: { accept: "text/html" }, redirect: "manual" });
+  assert.equal(paddedDetail.response.status, 308, "padded card ids must permanently redirect");
+  assert.equal(paddedDetail.response.headers.get("location"), "/cards/sv8pt5-15", "padded card ids must redirect to the canonical URL");
 
   const pocketSearch = await fetchJson("/api/card-search?q=A4-173&page=1&pageSize=32");
   assert.deepEqual(pocketSearch.payload.data, [], "Pokemon TCG Pocket cards must not appear in search");

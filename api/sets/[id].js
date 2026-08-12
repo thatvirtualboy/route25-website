@@ -762,7 +762,7 @@ function renderSetPage(set, cards, req) {
   <header class="topbar">
     <div class="topbar-inner">
       <a class="brand" href="/" aria-label="Route 25 home">
-        <img src="/assets/Icon.png" alt="" />
+        <img src="/apple-touch-icon.png" alt="" width="34" height="34" />
         <span>Route 25</span>
       </a>
       <nav class="nav" aria-label="Primary">

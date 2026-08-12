@@ -45,6 +45,18 @@ test("public HTML links only use the canonical home URL", () => {
   });
 });
 
+test("homepage web-search callout stays focused on card search", () => {
+  const homepage = fs.readFileSync(path.join(root, "index.html"), "utf8");
+  const panelStart = homepage.indexOf('<div class="seo-panel"');
+  const panel = homepage.slice(panelStart, homepage.indexOf("</section>", panelStart));
+
+  assert.ok(panelStart >= 0);
+  assert.match(panel, />Web card search</);
+  assert.match(panel, />Find a Pokémon card\.</);
+  assert.match(panel, /href="\/search">Open card search</);
+  assert.doesNotMatch(panel, /Collector tools|TCG journey|Collection management|Download Route 25/);
+});
+
 test("the public Elite Trainers page is indexable and self-canonical", () => {
   const html = fs.readFileSync(path.join(root, "elite-trainers", "index.html"), "utf8");
   const sitemap = fs.readFileSync(path.join(root, "sitemap.xml"), "utf8");
@@ -61,9 +73,9 @@ test("generated card sitemaps contain only canonical locations", async () => {
     ok: true,
     async json() {
       if (String(url).includes("/api/tcg/by-set")) {
-        return { items: [{ id: "base1-1" }, { id: "base1-2" }] };
+        return { items: [{ id: "sv08.5-015" }, { id: "sv8pt5-15" }, { id: "sv08.5-016" }] };
       }
-      return { data: [{ id: "base1", name: "Base", releaseDate: "1999/01/09" }] };
+      return { data: [{ id: "sv08.5", name: "Prismatic Evolutions", releaseDate: "2025/01/17" }] };
     }
   });
 
@@ -71,13 +83,17 @@ test("generated card sitemaps contain only canonical locations", async () => {
     const indexResponse = responseCapture();
     await sitemapCards({ query: {} }, indexResponse);
     assert.equal(indexResponse.statusCode, 200);
-    assert.match(indexResponse.body, /sitemap-cards\.xml\?set=base1/);
+    assert.match(indexResponse.body, /sitemap-cards\.xml\?set=sv8pt5/);
+    assert.doesNotMatch(indexResponse.body, /set=sv08\.5/);
     assert.doesNotMatch(indexResponse.body, /<lastmod>|<changefreq>|<priority>/);
 
     const setResponse = responseCapture();
-    await sitemapCards({ query: { set: "base1" } }, setResponse);
+    await sitemapCards({ query: { set: "sv8pt5" } }, setResponse);
     assert.equal(setResponse.statusCode, 200);
-    assert.match(setResponse.body, /<loc>https:\/\/route25\.app\/cards\/base1-1<\/loc>/);
+    assert.match(setResponse.body, /<loc>https:\/\/route25\.app\/cards\/sv8pt5-15<\/loc>/);
+    assert.match(setResponse.body, /<loc>https:\/\/route25\.app\/cards\/sv8pt5-16<\/loc>/);
+    assert.doesNotMatch(setResponse.body, /sv08\.5|sv8pt5-015/);
+    assert.equal((setResponse.body.match(/sv8pt5-15/g) || []).length, 1);
     assert.doesNotMatch(setResponse.body, /\?name=|<lastmod>|<changefreq>|<priority>/);
   } finally {
     global.fetch = originalFetch;

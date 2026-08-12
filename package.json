@@ -3,6 +3,7 @@
   "scripts": {
     "audit:local": "node scripts/release-smoke.js",
     "dev:local": "node scripts/local-server.js",
+    "newsletter:exclude-private-relays": "node scripts/remove-private-relay-subscribers.js",
     "test": "node --test"
   },
   "dependencies": {

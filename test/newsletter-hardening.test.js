@@ -79,8 +79,20 @@ test("collector spotlight presentation uses fixed subscription and structured ed
   const newsletterCss = fs.readFileSync(path.join(__dirname, "..", "newsletter", "newsletter.css"), "utf8");
 
   assert.doesNotMatch(adminPage, /name="subscribeUrl"/);
+  assert.match(adminPage, /name="location" maxlength="200"/);
+  assert.match(adminPage, /f\.location\.value=s\.location\|\|''/);
+  assert.match(adminPage, /f\.location\.value=i\.location\|\|submission\?\.location\|\|''/);
   assert.match(submissionPage, /What makes your collection interesting\?/);
   assert.match(newsletterApi, /collectionFocus:text\(b\.collectionFocus,1000\)/);
+  assert.match(newsletterApi, /async function withSubmissionLocation/);
+  assert.match(newsletterApi, /location:text\(b\.location,200\)/);
+  assert.match(newsletterApi, /const locationLine = location \?/);
+  assert.match(newsletterApi, /<span aria-hidden="true">&#128205;<\/span>&nbsp;/);
+  assert.match(publicRenderer, /function locationMarkup/);
+  assert.match(publicRenderer, /collection\("newsletterSubmissions"\)/);
+  assert.match(publicRenderer, /\$\{locationMarkup\(location\)\}<div class="lede story-summary">/);
+  assert.match(previewPage, /\$\{locationMarkup\(issue\.location\)\}<div class="lede story-summary">/);
+  assert.match(newsletterCss, /\.issue-location\{/);
   assert.match(newsletterApi, /socialDetails\(socialUrl\)/);
   assert.match(newsletterApi, /Collection profile/);
   assert.match(newsletterApi, /Collector’s corner/);
@@ -156,6 +168,37 @@ test("editorial photo uploads are admin-only and retain newsletter image safegua
   assert.match(newsletterApi, /IMAGE_TYPES = new Set\(\["image\/jpeg", "image\/png", "image\/webp", "image\/heic"\]\)/);
 });
 
+test("draft previews and test emails resolve images from stable storage paths", () => {
+  const adminPage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "admin.html"), "utf8");
+  const newsletterApi = fs.readFileSync(path.join(__dirname, "..", "api", "newsletter.js"), "utf8");
+
+  assert.match(newsletterApi, /url: objectPath \? ""/);
+  assert.match(newsletterApi, /withPermanentNewsletterImageUrl/);
+  assert.match(newsletterApi, /withTemporaryNewsletterImageUrl/);
+  assert.match(newsletterApi, /item\.images = await Promise\.all\(\(item\.images \|\| \[\]\)\.map\(withPermanentNewsletterImageUrl\)\)/);
+  assert.match(newsletterApi, /const images = await normalizeIssueImages\(issue\.images, true\)/);
+  assert.match(adminPage, /url:x\.url\|\|source\.find\(y=>y\.objectPath===x\.objectPath\)\?\.url/);
+});
+
+test("the Latest spotlights archive uses numbered issue display titles", () => {
+  const archivePage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "index.html"), "utf8");
+  const newsletterApi = fs.readFileSync(path.join(__dirname, "..", "api", "newsletter.js"), "utf8");
+
+  assert.match(newsletterApi, /displayTitle: senderSubject\(x\)/);
+  assert.match(archivePage, /i\.displayTitle\|\|i\.title/);
+});
+
+test("Latest spotlight cards are complete accessible links with restrained motion", () => {
+  const archivePage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "index.html"), "utf8");
+  const newsletterCss = fs.readFileSync(path.join(__dirname, "..", "newsletter", "newsletter.css"), "utf8");
+
+  assert.match(archivePage, /<a class="card story-card" href="\/newsletter\/\$\{i\.slug\}">/);
+  assert.doesNotMatch(archivePage, /<article class="card story-card">/);
+  assert.match(newsletterCss, /\.story-card:hover,.story-card:focus-visible/);
+  assert.match(newsletterCss, /\.story-card:active/);
+  assert.match(newsletterCss, /@media\(prefers-reduced-motion:reduce\)/);
+});
+
 test("swapping one submission question preserves every unchanged answer", () => {
   const submissionPage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "submit.html"), "utf8");
 
@@ -195,19 +238,21 @@ test("structured story text preserves paragraphs across web, preview, and email"
   assert.match(newsletterApi, /emailParagraphs\(collection\.collectionFocus/);
 });
 
-test("newsletter emails use three distinct images in the editorial sequence", () => {
+test("newsletter emails use up to six distinct images in the editorial sequence", () => {
   const adminPage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "admin.html"), "utf8");
   const newsletterApi = fs.readFileSync(path.join(__dirname, "..", "api", "newsletter.js"), "utf8");
 
-  assert.match(adminPage, /first three included photos appear in the email/i);
-  assert.match(newsletterApi, /const \[hero, storyImage, thirdImage\] = emailImages/);
-  assert.match(newsletterApi, /\$\{interview\}\$\{thirdImage \?/);
+  assert.match(adminPage, /first six included photos appear in the email/i);
+  assert.match(newsletterApi, /const EMAIL_IMAGE_LIMIT = 6/);
+  assert.match(newsletterApi, /\.slice\(0, EMAIL_IMAGE_LIMIT\)/);
+  assert.match(newsletterApi, /const \[hero, storyImage, \.\.\.closingImages\] = emailImages/);
+  assert.match(newsletterApi, /\$\{interview\}\$\{closingGallery\}\$\{morePhotosLink\}/);
   assert.match(newsletterApi, /\$\{gear\}/);
-  assert.match(newsletterApi, /index < 3/);
+  assert.match(newsletterApi, /index < EMAIL_IMAGE_LIMIT/);
   assert.match(newsletterApi, /position: sharp\.gravity\.centre/);
   assert.match(newsletterApi, /\$\{image\.objectPath\}:\$\{role\}:v2/);
   assert.match(newsletterApi, /See \$\{remainingPhotos\} more collection photo/);
-  assert.match(newsletterApi, /imageLinkEnd/);
+  assert.match(newsletterApi, /closingImages\.length && remainingPhotos/);
   assert.match(newsletterApi, /href="\$\{html\(photoSectionUrl\)\}" target="_blank"/);
 });
 

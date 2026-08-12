@@ -9,10 +9,20 @@ test("provider set ids map to canonical Route 25 set ids", () => {
   assert.equal(canonicalCardSetId("sv05"), "sv5");
   assert.equal(canonicalCardSetId("sv03.5"), "sv3pt5");
   assert.equal(canonicalCardSetId("swsh10.5"), "swsh10pt5");
+  assert.equal(canonicalCardSetId("me02.5"), "me2pt5");
+  assert.equal(canonicalCardSetId("me05"), "me5");
   assert.equal(tcgdexCardSetId("sv5"), "sv05");
   assert.equal(tcgdexCardSetId("sv3pt5"), "sv03.5");
   assert.equal(canonicalCardId("sv05-193"), "sv5-193");
+  assert.equal(canonicalCardId("sv08.5-015"), "sv8pt5-15");
+  assert.equal(canonicalCardId("sv8pt5-015"), "sv8pt5-15");
+  assert.equal(canonicalCardId("me02.5-022"), "me2pt5-22");
+  assert.equal(canonicalCardId("mep-039"), "mep-039");
+  assert.equal(canonicalCardId("swsh45sv-SV020"), "swsh45sv-SV020");
   assert.equal(tcgdexCardId("sv5-193"), "sv05-193");
+  assert.equal(tcgdexCardId("sv8pt5-15"), "sv08.5-015");
+  assert.equal(tcgdexCardId("me2pt5-22"), "me02.5-022");
+  assert.equal(tcgdexCardId("mep-039"), "mep-039");
 });
 
 test("Pokemon TCG Pocket records are recognized across ids, series, and artwork", () => {
@@ -85,6 +95,20 @@ test("production CSP allows every card-image provider", () => {
       `img-src must allow ${source}`,
     );
   }
+});
+
+test("trainer avatars are served through the same-origin website path", () => {
+  const config = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "..", "vercel.json"), "utf8"),
+  );
+  const rewrite = config.rewrites.find(
+    (item) => item.source === "/trainer-avatars/:path*",
+  );
+
+  assert.deepEqual(rewrite, {
+    source: "/trainer-avatars/:path*",
+    destination: "https://palettetown-backend.vercel.app/trainer-avatars/:path*",
+  });
 });
 
 test("card detail pages have a cross-provider artwork fallback ready before images load", () => {
@@ -274,5 +298,92 @@ test("provider-form Scarlet and Violet card ids permanently redirect to canonica
     assert.equal(res.body, "");
   } finally {
     global.fetch = originalFetch;
+  }
+});
+
+test("padded numeric card ids permanently redirect before provider lookup", async () => {
+  const cardPage = require("../api/cards");
+  const originalFetch = global.fetch;
+  const requestedUrls = [];
+  global.fetch = async (url) => {
+    requestedUrls.push(String(url));
+    throw new Error("redirects must not call a card provider");
+  };
+
+  try {
+    const res = {
+      statusCode: 0,
+      headers: {},
+      body: "",
+      setHeader(name, value) { this.headers[String(name).toLowerCase()] = value; },
+      end(value = "") { this.body = String(value); }
+    };
+    await cardPage({
+      headers: { host: "127.0.0.1:3000" },
+      query: { id: "sv8pt5-015" }
+    }, res);
+
+    assert.equal(res.statusCode, 308);
+    assert.equal(res.headers.location, "/cards/sv8pt5-15");
+    assert.equal(res.body, "");
+    assert.deepEqual(requestedUrls, []);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("unresolved card ids never render fabricated indexable product pages", async () => {
+  const cardPage = require("../api/cards");
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    async json() { return { data: [], items: [] }; }
+  });
+
+  try {
+    const res = {
+      statusCode: 0,
+      headers: {},
+      body: "",
+      setHeader(name, value) { this.headers[String(name).toLowerCase()] = value; },
+      end(value = "") { this.body = String(value); }
+    };
+    await cardPage({ headers: { host: "127.0.0.1:3000" }, query: { id: "base1-999" } }, res);
+
+    assert.equal(res.statusCode, 404);
+    assert.equal(res.headers["cache-control"], "no-store");
+    assert.match(res.body, /Card not found/);
+    assert.match(res.body, /noindex, nofollow/);
+    assert.doesNotMatch(res.body, /Estimated value|Shop on TCGPlayer|class="card-art"/);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("card-provider outages return a retryable non-cacheable response", async () => {
+  const cardPage = require("../api/cards");
+  const originalFetch = global.fetch;
+  const originalConsoleError = console.error;
+  global.fetch = async () => { throw new Error("catalog unavailable"); };
+  console.error = () => {};
+
+  try {
+    const res = {
+      statusCode: 0,
+      headers: {},
+      body: "",
+      setHeader(name, value) { this.headers[String(name).toLowerCase()] = value; },
+      end(value = "") { this.body = String(value); }
+    };
+    await cardPage({ headers: { host: "127.0.0.1:3000" }, query: { id: "base1-44" } }, res);
+
+    assert.equal(res.statusCode, 503);
+    assert.equal(res.headers["cache-control"], "no-store");
+    assert.equal(res.headers["retry-after"], "5");
+    assert.match(res.body, /temporarily unavailable|retry in a moment/i);
+    assert.doesNotMatch(res.body, /Estimated value|Shop on TCGPlayer|class="card-art"/);
+  } finally {
+    global.fetch = originalFetch;
+    console.error = originalConsoleError;
   }
 });

@@ -1,6 +1,16 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { SENDER_PREHEADER_MAX, senderPreheader } = require("../lib/newsletter-email");
+const { SENDER_PREHEADER_MAX, senderSubject, senderPreheader } = require("../lib/newsletter-email");
+
+test("Sender subjects include the zero-padded saved issue number", () => {
+  assert.equal(senderSubject({ issueNumber:2, title:"Meet Fernando Silva" }), "002 - Meet Fernando Silva");
+  assert.equal(senderSubject({ issueNumber:27, title:"  Meet Ryan  " }), "027 - Meet Ryan");
+});
+
+test("Sender subjects keep the plain title when an issue has no real number", () => {
+  assert.equal(senderSubject({ issueNumber:null, title:"Formatting preview" }), "Formatting preview");
+  assert.equal(senderSubject({ issueNumber:0, title:"Test issue" }), "Test issue");
+});
 
 test("Sender preheaders never exceed the provider's 255-character limit", () => {
   assert.equal(SENDER_PREHEADER_MAX, 255);

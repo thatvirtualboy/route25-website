@@ -248,7 +248,8 @@ function renderSearchPage() {
       gap: 18px;
     }
     .result-card {
-      display: block;
+      display: grid;
+      grid-template-rows: auto 1fr;
       min-width: 0;
       padding: 5px;
       border-radius: 12px;
@@ -265,6 +266,32 @@ function renderSearchPage() {
       object-fit: contain;
       border-radius: 8px;
       filter: drop-shadow(0 16px 18px rgba(0, 0, 0, 0.42));
+    }
+    .result-info {
+      display: grid;
+      align-content: start;
+      gap: 3px;
+      min-width: 0;
+      padding: 8px 3px 3px;
+      text-align: left;
+    }
+    .result-info strong {
+      display: -webkit-box;
+      overflow: hidden;
+      color: var(--ink);
+      font-size: 12px;
+      line-height: 1.25;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+    .result-info span {
+      display: -webkit-box;
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.3;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
     }
     .empty-state {
       display: none;
@@ -388,7 +415,7 @@ function renderSearchPage() {
   <header class="topbar">
     <div class="topbar-inner">
       <a class="brand" href="/" aria-label="Route 25 home">
-        <img src="/assets/Icon.png" alt="" />
+        <img src="/apple-touch-icon.png" alt="" width="34" height="34" />
         <span>Route 25</span>
       </a>
       <nav class="nav" aria-label="Primary">
@@ -402,24 +429,24 @@ function renderSearchPage() {
     <div class="container">
       <section class="search-head">
         <nav class="card-fan" aria-label="Featured cards">
-          <a class="fan-card" href="${escapeHtml(featuredCardUrl("swsh8-271"))}" aria-label="View Gengar VMAX"><img src="https://images.pokemontcg.io/swsh8/271_hires.png" alt="Gengar VMAX" width="734" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
-          <a class="fan-card" href="${escapeHtml(featuredCardUrl("swsh12pt5-160"))}" aria-label="View Pikachu"><img src="https://images.pokemontcg.io/swsh12pt5/160_hires.png" alt="Pikachu" width="734" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
-          <a class="fan-card" href="${escapeHtml(featuredCardUrl("swsh11-186"))}" aria-label="View Giratina V"><img src="https://images.pokemontcg.io/swsh11/186_hires.png" alt="Giratina V" width="734" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
-          <a class="fan-card" href="${escapeHtml(featuredCardUrl("me2-125"))}" aria-label="View Mega Charizard X ex"><img src="https://images.pokemontcg.io/me2/125_hires.png" alt="Mega Charizard X ex" width="733" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
-          <a class="fan-card" href="${escapeHtml(featuredCardUrl("swsh7-215"))}" aria-label="View Umbreon VMAX"><img src="https://images.pokemontcg.io/swsh7/215_hires.png" alt="Umbreon VMAX" width="734" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
-          <a class="fan-card" href="${escapeHtml(featuredCardUrl("sv3pt5-199"))}" aria-label="View Charizard ex"><img src="https://images.pokemontcg.io/sv3pt5/199_hires.png" alt="Charizard ex" width="733" height="1024" loading="eager" fetchpriority="high" decoding="sync" /></a>
+          <a class="fan-card" href="${escapeHtml(featuredCardUrl("swsh8-271"))}" aria-label="View Gengar VMAX"><img src="https://assets.tcgdex.net/en/swsh/swsh8/271/low.webp" alt="Gengar VMAX" width="245" height="342" loading="lazy" fetchpriority="low" decoding="async" /></a>
+          <a class="fan-card" href="${escapeHtml(featuredCardUrl("swsh12pt5-160"))}" aria-label="View Pikachu"><img src="https://assets.tcgdex.net/en/swsh/swsh12.5/160/low.webp" alt="Pikachu" width="245" height="342" loading="lazy" fetchpriority="low" decoding="async" /></a>
+          <a class="fan-card" href="${escapeHtml(featuredCardUrl("swsh11-186"))}" aria-label="View Giratina V"><img src="https://assets.tcgdex.net/en/swsh/swsh11/186/low.webp" alt="Giratina V" width="245" height="342" loading="lazy" fetchpriority="low" decoding="async" /></a>
+          <a class="fan-card" href="${escapeHtml(featuredCardUrl("me2-125"))}" aria-label="View Mega Charizard X ex"><img src="https://assets.tcgdex.net/en/me/me02/125/low.webp" alt="Mega Charizard X ex" width="245" height="342" loading="eager" fetchpriority="high" decoding="async" /></a>
+          <a class="fan-card" href="${escapeHtml(featuredCardUrl("swsh7-215"))}" aria-label="View Umbreon VMAX"><img src="https://assets.tcgdex.net/en/swsh/swsh7/215/low.webp" alt="Umbreon VMAX" width="245" height="342" loading="lazy" fetchpriority="low" decoding="async" /></a>
+          <a class="fan-card" href="${escapeHtml(featuredCardUrl("sv3pt5-199"))}" aria-label="View Charizard ex"><img src="https://assets.tcgdex.net/en/sv/sv03.5/199/low.webp" alt="Charizard ex" width="245" height="342" loading="lazy" fetchpriority="low" decoding="async" /></a>
         </nav>
         <div>
           <p class="badge"><span class="pulse"></span> Card search</p>
           <h1>Find a card.</h1>
-          <p class="search-copy">Search by card name.</p>
+          <p class="search-copy">Search by card name, then add its card number to narrow the results.</p>
         </div>
         <div class="search-panel">
           <form class="search-form" id="searchForm">
             <div class="field search-field">
               <div class="input-wrap">
                 <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg>
-                <input class="search-input" id="cardQuery" name="q" type="search" placeholder="Search Pokemon cards" autocomplete="off" aria-label="Search Pokemon cards" />
+                <input class="search-input" id="cardQuery" name="q" type="search" placeholder="Try Mew 47" autocomplete="off" aria-label="Search Pokemon cards by name and optional card number" />
               </div>
             </div>
             <button class="button primary" type="submit">Search</button>
@@ -575,9 +602,13 @@ function renderSearchPage() {
       const img = imageCandidates[0];
       const url = cardUrl(card);
       if (!img) return "";
-      const loading = index < 6 ? ' loading="eager" fetchpriority="high"' : ' loading="lazy"';
-      return '<a class="result-card" href="' + url + '" aria-label="View ' + escapeHtml(card.name) + '">' +
-        '<img src="' + escapeHtml(img) + '" alt="' + escapeHtml(card.name) + ' card"' + loading + ' decoding="async"' + imageFallbackAttribute(imageCandidates) + ' /></a>';
+      const setName = card.set && (card.set.name || card.set.id) || String(card.id || "").split("-").slice(0, -1).join("-");
+      const number = card.number || String(card.id || "").split("-").pop();
+      const context = [setName, number ? "#" + number : ""].filter(Boolean).join(" · ");
+      const loading = index < 2 ? ' loading="eager" fetchpriority="high"' : ' loading="lazy"';
+      return '<a class="result-card" href="' + url + '" aria-label="View ' + escapeHtml([card.name, context].filter(Boolean).join(" — ")) + '">' +
+        '<img src="' + escapeHtml(img) + '" alt="' + escapeHtml(card.name) + ' card"' + loading + ' decoding="async"' + imageFallbackAttribute(imageCandidates) + ' />' +
+        '<span class="result-info" aria-hidden="true"><strong>' + escapeHtml(card.name) + '</strong><span>' + escapeHtml(context) + '</span></span></a>';
     }
 
     function renderPayload(payload) {

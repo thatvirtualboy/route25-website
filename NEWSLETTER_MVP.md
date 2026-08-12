@@ -20,6 +20,10 @@ Never put the service account in browser code or commit it. The MVP admin screen
 - `newsletterIssues`: issue number, title/slug/dek/summary/body HTML, email-only editor note, trainer/submission references, ordered images, answers, typed Collector’s corner entries with Route 25 card links and optional affiliate links, editorial tags, preflight/delivery state, status, subscription URL, publish timestamps.
 - `newsletterSubscribers`: SHA-256 email document ID, email, status, source, consent timestamp.
 
+Apple Hide My Email addresses ending in `@privaterelay.appleid.com` are not eligible for newsletter delivery. The subscribe endpoint rejects them, Sender synchronization guards against adding them, and daily maintenance removes any legacy relay addresses from the live group while retaining the local consent record with an `excluded` status.
+
+Use `npm run newsletter:exclude-private-relays` with the production environment for a count-only dry run. Add `-- --apply` to remove the matched addresses from the configured Sender group and mark their Firestore records excluded.
+
 Firestore is schemaless, so the idempotent question seed is the only migration. Existing collections are untouched.
 
 ## Security and limits

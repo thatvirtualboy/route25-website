@@ -2,11 +2,12 @@ const BACKEND_ORIGIN = "https://palettetown-backend.vercel.app";
 const OFFICIAL_API_ORIGIN = "https://api.pokemontcg.io/v2";
 const TCGDEX_API_ORIGIN = "https://api.tcgdex.net/v2/en";
 const { route25ImageUrl } = require("../lib/route25-image-url");
-const { canonicalCardId, tcgdexCardId } = require("../lib/card-set-id");
+const { canonicalCardId, canonicalCardSetId, tcgdexCardId } = require("../lib/card-set-id");
 const { isPokemonTcgPocket, isPokemonTcgPocketCardId, isPokemonTcgPocketSetId } = require("../lib/card-product");
 const responseCache = new Map();
 const CACHE_TTL_MS = 30 * 60 * 1000;
 const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
+const EMPTY_SEARCH_CACHE_TTL_MS = 30 * 1000;
 const SET_CATALOG_TTL_MS = 6 * 60 * 60 * 1000;
 let setCatalogCache = null;
 let setCatalogPromise = null;
@@ -66,6 +67,12 @@ function nameSearchQuery(value) {
   return tokens.map((token) => `name:*${token}*`).join(" ");
 }
 
+function splitNameAndCollectorNumber(value) {
+  const match = String(value || "").trim().match(/^(.+?)\s+#?([a-z]*\d+[a-z]*)$/i);
+  if (!match) return { name: String(value || "").trim(), number: "" };
+  return { name: match[1].trim(), number: match[2] };
+}
+
 function searchTerms(value) {
   const terms = String(value || "")
     .split(",")
@@ -104,6 +111,14 @@ function sortCardsNewestFirst(cards, releaseDates, setAliases = null) {
 function cardMatchesSearchTerm(card, term) {
   const normalizedTerm = normalizeCardId(term).toLowerCase();
   if (!normalizedTerm) return true;
+
+  const nameAndNumber = splitNameAndCollectorNumber(term);
+  if (nameAndNumber.number) {
+    const name = textTokens(card?.name).join(" ");
+    const nameTokens = textTokens(nameAndNumber.name);
+    return collectorNumberMatches(card, nameAndNumber.number)
+      && nameTokens.every((token) => name.includes(token));
+  }
 
   const id = String(card?.id || "").toLowerCase();
   const number = String(card?.number || "").toLowerCase();
@@ -186,7 +201,7 @@ function cardImages(card) {
 
 function simplifySearchCard(card) {
   const result = {
-    id: card?.id || "",
+    id: canonicalCardId(card?.id),
     name: card?.name || "",
     images: cardImages(card)
   };
@@ -197,7 +212,7 @@ function simplifySearchCard(card) {
   if (card?.regulationMark) result.regulationMark = card.regulationMark;
   if (card?.set?.id || card?.set?.name) {
     result.set = {
-      id: card?.set?.id || cardSetId(card),
+      id: canonicalCardSetId(card?.set?.id || cardSetId(card)),
       name: card?.set?.name || card?.set?.id || cardSetId(card)
     };
   }
@@ -360,9 +375,10 @@ function normalizedCollectorNumber(value) {
 }
 
 function searchCardIdentity(card, setAliases) {
-  const setId = cardSetId(card);
+  const setId = canonicalCardSetId(cardSetId(card));
   const canonicalSetId = setAliases?.get(setId) || setId;
-  return [canonicalSetId, normalizedCollectorNumber(card?.number), normalizeLookupName(card?.name)].join(":");
+  const idNumber = String(card?.id || "").split("-").pop();
+  return [canonicalSetId, normalizedCollectorNumber(card?.number || idNumber), normalizeLookupName(card?.name)].join(":");
 }
 
 function normalizeLookupName(value) {
@@ -436,9 +452,10 @@ function cardMatchesProviderQuery(card, query) {
     return canonicalCardId(card?.id).toLowerCase() === canonicalCardId(filter.value).toLowerCase();
   }
   const name = textTokens(card?.name).join(" ");
-  return filter.tokens.length
+  const nameMatches = filter.tokens.length
     ? filter.tokens.every((token) => name.includes(token))
     : name.includes(String(filter.value).toLowerCase());
+  return nameMatches && collectorNumberMatches(card, filter.number);
 }
 
 async function fetchSupplementalSearchResults(queries, page, pageSize, timeoutMs = 1200) {
@@ -463,9 +480,14 @@ function buildSearchQuery({ q, set }) {
 
   if (setId) parts.push(`set.id:${setId}`);
   if (term) {
-    const normalized = normalizeCardId(term);
-    const nameQuery = nameSearchQuery(term);
-    parts.push(isCardIdSearch(normalized) ? `id:${normalized}` : nameQuery);
+    const normalized = canonicalCardId(normalizeCardId(term));
+    if (isCardIdSearch(normalized)) {
+      parts.push(`id:${normalized}`);
+    } else {
+      const nameAndNumber = splitNameAndCollectorNumber(term);
+      parts.push(nameSearchQuery(nameAndNumber.name));
+      if (nameAndNumber.number) parts.push(`number:${nameAndNumber.number}`);
+    }
   }
 
   return parts.filter(Boolean).join(" ");
@@ -485,6 +507,34 @@ function payloadItems(payload) {
       : [];
 }
 
+function exactCardIdFromQuery(query) {
+  const match = String(query || "").match(/(?:^|\s)id:([^\s]+)/i);
+  return match ? canonicalCardId(normalizeCardId(match[1])).toLowerCase() : "";
+}
+
+function filterExactCardId(items, query) {
+  const exactId = exactCardIdFromQuery(query);
+  if (!exactId) return items;
+  return items.filter((card) => canonicalCardId(card?.id).toLowerCase() === exactId);
+}
+
+function collectorNumberFromQuery(query) {
+  const match = String(query || "").match(/(?:^|\s)number:([^\s]+)/i);
+  return match ? match[1] : "";
+}
+
+function collectorNumberMatches(card, number) {
+  if (!number) return true;
+  const idNumber = String(card?.id || "").split("-").pop();
+  return normalizedCollectorNumber(card?.number || card?.localId || idNumber) === normalizedCollectorNumber(number);
+}
+
+function filterProviderCards(items, query) {
+  const exactIdItems = filterExactCardId(items, query);
+  const number = collectorNumberFromQuery(query);
+  return number ? exactIdItems.filter((card) => collectorNumberMatches(card, number)) : exactIdItems;
+}
+
 function rejectWithoutItems(result) {
   if (Array.isArray(result?.rawItems) && result.rawItems.length) return result;
   throw new Error("No cards returned");
@@ -497,13 +547,13 @@ async function fetchSearchProvider(origin, queries, page, pageSize, timeoutMs, s
     const shouldSort = Boolean(releaseDatesPromise);
     url.searchParams.set("page", shouldSort ? "1" : String(page));
     url.searchParams.set("pageSize", shouldSort ? "250" : String(pageSize));
-    if (selectFields) url.searchParams.set("select", "id,name,images");
+    if (selectFields) url.searchParams.set("select", "id,name,number,images,set");
 
     const [payload, releaseDates] = await Promise.all([
       fetchJsonWithTimeout(url.href, timeoutMs),
       releaseDatesPromise || Promise.resolve(null)
     ]);
-    const providerItems = payloadItems(payload);
+    const providerItems = filterProviderCards(payloadItems(payload), queries[0]);
     const filteredItems = providerItems.filter((card) => !isPokemonTcgPocket(card));
     const allItems = sortCardsNewestFirst(filteredItems, releaseDates);
     const rawItems = shouldSort ? allItems.slice((page - 1) * pageSize, page * pageSize) : allItems;
@@ -531,12 +581,12 @@ async function fetchSearchProvider(origin, queries, page, pageSize, timeoutMs, s
     url.searchParams.set("q", query);
     url.searchParams.set("page", "1");
     url.searchParams.set("pageSize", String(fetchSize));
-    if (selectFields) url.searchParams.set("select", "id,name,images");
-    return fetchJsonWithTimeout(url.href, timeoutMs);
+    if (selectFields) url.searchParams.set("select", "id,name,number,images,set");
+    return { query, payload: await fetchJsonWithTimeout(url.href, timeoutMs) };
   }));
 
-  for (const itemPayload of payloads) {
-    for (const item of payloadItems(itemPayload).filter((card) => !isPokemonTcgPocket(card))) {
+  for (const { query, payload: itemPayload } of payloads) {
+    for (const item of filterProviderCards(payloadItems(itemPayload), query).filter((card) => !isPokemonTcgPocket(card))) {
       if (item?.id && !merged.has(item.id)) merged.set(item.id, item);
     }
   }
@@ -559,10 +609,15 @@ function tcgdexFilter(query) {
   const idMatch = String(query || "").match(/^id:([^\s]+)$/i);
   if (idMatch) {
     const value = tcgdexCardId(normalizeCardId(idMatch[1]));
-    return { field: "id", value, tokens: [] };
+    return { field: "id", value, tokens: [], number: "" };
   }
   const nameParts = Array.from(String(query || "").matchAll(/name:\*([^*]+)\*/gi), (match) => match[1]);
-  return { field: "name", value: nameParts[0] || "", tokens: nameParts.map((part) => part.toLowerCase()) };
+  return {
+    field: "name",
+    value: nameParts[0] || "",
+    tokens: nameParts.map((part) => part.toLowerCase()),
+    number: collectorNumberFromQuery(query)
+  };
 }
 
 function normalizeTcgdexCards(items) {
@@ -589,10 +644,15 @@ function normalizeTcgdexCards(items) {
 
 function filterTcgdexCards(items, filter) {
   const cards = normalizeTcgdexCards(items);
-  if (filter.field !== "name" || filter.tokens.length < 2) return cards;
+  if (filter.field === "id") {
+    const exactId = canonicalCardId(filter.value).toLowerCase();
+    return cards.filter((card) => canonicalCardId(card.id).toLowerCase() === exactId);
+  }
+  if (filter.field !== "name" || (filter.tokens.length < 2 && !filter.number)) return cards;
   return cards.filter((card) => {
     const name = textTokens(card.name).join(" ");
-    return filter.tokens.every((token) => name.includes(token));
+    return collectorNumberMatches(card, filter.number)
+      && filter.tokens.every((token) => name.includes(token));
   });
 }
 
@@ -657,6 +717,7 @@ async function fetchTcgdexSearchResults(queries, page, pageSize, timeoutMs = 350
 
 async function fetchRemoteSearchResults(queries, page, pageSize, timeoutMs = 2200) {
   const shouldSortNewest = queries.some((query) => /(?:^|\s)name:/i.test(query));
+  const needsSupplementalCatalog = shouldSortNewest || queries.some((query) => /(?:^|\s)id:mep-/i.test(query));
   const backendTimeoutMs = shouldSortNewest ? Math.min(timeoutMs, 1200) : timeoutMs;
   const releaseDatesPromise = shouldSortNewest
     ? fetchSetReleaseDates(Math.min(timeoutMs, 1200)).catch(() => new Map())
@@ -669,7 +730,13 @@ async function fetchRemoteSearchResults(queries, page, pageSize, timeoutMs = 220
     fetchSearchProvider(OFFICIAL_API_ORIGIN, queries, page, pageSize, Math.min(timeoutMs, 5000), true, releaseDatesPromise)
   ];
   fallbackProviders.forEach((provider) => provider.catch(() => {}));
-  const supplementalProvider = fetchSupplementalSearchResults(queries, page, pageSize, Math.min(timeoutMs, 1200));
+  const supplementalProvider = needsSupplementalCatalog
+    ? fetchSupplementalSearchResults(queries, page, pageSize, Math.min(timeoutMs, 1200))
+    : Promise.resolve({
+        allItems: [],
+        rawItems: [],
+        payload: { page, pageSize, count: 0, totalCount: 0 }
+      });
   supplementalProvider.catch(() => {});
   const preferredProvider = fetchTcgdexSearchResults(queries, page, pageSize, Math.min(timeoutMs, 1200), releaseDatesPromise);
   preferredProvider.catch(() => {});
@@ -938,9 +1005,14 @@ async function handleSearch(req, res) {
   const cacheKey = `cards:${queries.join("|")}:page:${page}:size:${pageSize}`;
   const cached = getCachedJson(cacheKey);
   if (cached) {
+    const cachedPayload = JSON.parse(cached);
+    const hasResults = Array.isArray(cachedPayload?.data) && cachedPayload.data.length > 0;
     res.statusCode = 200;
     res.setHeader("content-type", "application/json; charset=utf-8");
-    res.setHeader("cache-control", "s-maxage=60, stale-while-revalidate=300");
+    res.setHeader(
+      "cache-control",
+      hasResults ? "s-maxage=60, stale-while-revalidate=300" : "public, s-maxage=15, stale-while-revalidate=30"
+    );
     res.end(cached);
     return;
   }
@@ -991,17 +1063,18 @@ async function handleSearch(req, res) {
     totalCount: payload?.totalCount ?? rawItems.length,
     defaultSet
   });
-  if (rawItems.length) setCachedJson(cacheKey, body, SEARCH_CACHE_TTL_MS);
+  setCachedJson(cacheKey, body, rawItems.length ? SEARCH_CACHE_TTL_MS : EMPTY_SEARCH_CACHE_TTL_MS);
   res.statusCode = 200;
   res.setHeader("content-type", "application/json; charset=utf-8");
   res.setHeader(
     "cache-control",
-    rawItems.length ? "s-maxage=60, stale-while-revalidate=300" : "no-store"
+    rawItems.length ? "s-maxage=60, stale-while-revalidate=300" : "public, s-maxage=15, stale-while-revalidate=30"
   );
   res.end(body);
 }
 
 module.exports = async (req, res) => {
+  const startedAt = Date.now();
   try {
     if (req.query?.sets === "1") {
       await handleSets(res);
@@ -1009,9 +1082,19 @@ module.exports = async (req, res) => {
     }
 
     await handleSearch(req, res);
+    const totalMs = Date.now() - startedAt;
+    if (totalMs > 1500) {
+      console.log(JSON.stringify({
+        route: "card-search",
+        query: String(req.query?.q || "").slice(0, 80),
+        page: parsePositiveInt(req.query?.page, 1, 1000),
+        totalMs
+      }));
+    }
   } catch (error) {
     console.error(JSON.stringify({
       route: "card-search",
+      totalMs: Date.now() - startedAt,
       error: String(error?.message || error || "Search unavailable").slice(0, 300)
     }));
     res.statusCode = 500;
