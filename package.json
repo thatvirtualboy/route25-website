@@ -4,7 +4,8 @@
     "audit:local": "node scripts/release-smoke.js",
     "dev:local": "node scripts/local-server.js",
     "newsletter:exclude-private-relays": "node scripts/remove-private-relay-subscribers.js",
-    "test": "node --test"
+    "test": "node --test",
+    "verify:production": "node scripts/verify-production-contract.js"
   },
   "dependencies": {
     "@fontsource/geist-sans": "^5.2.5",
