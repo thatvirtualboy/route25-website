@@ -114,6 +114,39 @@ test("Japanese card search uses the regional catalog and returns web-ready resul
   }
 });
 
+test("Japanese search falls back to TCGplayer artwork when catalog images are unavailable", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        ok: true,
+        region: "jp",
+        items: [{
+          id: "m2a_ja-44",
+          name: "Pikachu ex",
+          number: "44",
+          sourceRefs: { tcgplayerProductId: 665715 },
+          set: { id: "m2a_ja", name: "MEGA Dream ex" }
+        }],
+        nextCursor: null,
+        totalCount: 1
+      };
+    }
+  });
+
+  try {
+    const res = responseCapture();
+    await searchCards({ query: { q: "Pikachu artwork fallback", region: "jp", pageSize: "32" } }, res);
+    const card = JSON.parse(res.body).data[0];
+
+    assert.equal(card.images.small, "https://tcgplayer-cdn.tcgplayer.com/product/665715_200w.jpg");
+    assert.equal(card.images.large, "https://tcgplayer-cdn.tcgplayer.com/product/665715_in_1000x1000.jpg");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("blank card search does not fall back to browsing the newest set", async () => {
   const res = responseCapture();
   await searchCards({ query: {} }, res);

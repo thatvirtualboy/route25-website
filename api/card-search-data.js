@@ -156,6 +156,7 @@ async function fetchCardsBySetSearch(set, q, page, pageSize, setInfo = null) {
 }
 
 function tcgplayerProductId(card) {
+  if (card?.sourceRefs?.tcgplayerProductId) return card.sourceRefs.tcgplayerProductId;
   const variants = Array.isArray(card?.cardVariants) ? card.cardVariants : [];
   for (const variant of variants) {
     const productId = variant?.sourceRefs?.tcgplayerProductId;
@@ -186,6 +187,16 @@ function cardImages(card) {
       ...(images.small ? { small: route25ImageUrl(images.small) } : {}),
       ...(images.large ? { large: route25ImageUrl(images.large) } : {})
     };
+  }
+
+  if (/_ja$/i.test(String(card?.set?.id || cardSetId(card)))) {
+    const productId = tcgplayerProductId(card);
+    if (productId) {
+      return {
+        small: `https://tcgplayer-cdn.tcgplayer.com/product/${productId}_200w.jpg`,
+        large: `https://tcgplayer-cdn.tcgplayer.com/product/${productId}_in_1000x1000.jpg`
+      };
+    }
   }
 
   if (String(card?.set?.id || "").toLowerCase() === "mep" || String(card?.id || "").toLowerCase().startsWith("mep-")) {
