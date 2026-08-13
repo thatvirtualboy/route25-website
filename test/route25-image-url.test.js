@@ -34,3 +34,17 @@ test("preserves already-relative backend image paths", () => {
   assert.equal(route25ImageUrl("/api/proxy/image?u=test"), "/api/proxy/image?u=test");
   assert.equal(route25ImageUrl("/card-images/mep/mep-001.webp"), "/card-images/mep/mep-001.webp");
 });
+
+test("uses the configured backend origin for protected previews", () => {
+  const originalOrigin = process.env.ROUTE25_BACKEND_ORIGIN;
+  process.env.ROUTE25_BACKEND_ORIGIN = "https://palettetown-backend-japanese-preview.vercel.app";
+  try {
+    assert.equal(
+      route25ImageUrl("https://palettetown-backend-japanese-preview.vercel.app/set-logos/sv9-ja.png"),
+      "/api/__proxy/set-logos/sv9-ja.png"
+    );
+  } finally {
+    if (originalOrigin == null) delete process.env.ROUTE25_BACKEND_ORIGIN;
+    else process.env.ROUTE25_BACKEND_ORIGIN = originalOrigin;
+  }
+});

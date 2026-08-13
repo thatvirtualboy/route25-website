@@ -76,10 +76,6 @@
       "destination": "/assets/Route25-App-Store-Screenshots-iPhone.zip"
     },
     {
-      "source": "/api/__proxy/:path*",
-      "destination": "https://palettetown-backend.vercel.app/:path*"
-    },
-    {
       "source": "/api/cards/og",
       "destination": "/api/cards/og.js"
     },
@@ -128,12 +124,16 @@
       "destination": "https://palettetown-backend.vercel.app/card-images/:path*"
     },
     {
+      "source": "/set-logos/:path*",
+      "destination": "/api/__proxy/set-logos/:path*"
+    },
+    {
       "source": "/trainer-avatars/:path*",
       "destination": "https://palettetown-backend.vercel.app/trainer-avatars/:path*"
     },
     {
       "source": "/api/proxy/:path*",
-      "destination": "https://palettetown-backend.vercel.app/api/proxy/:path*"
+      "destination": "/api/__proxy/api/proxy/:path*"
     },
     {
       "source": "/login",
@@ -177,19 +177,19 @@
     },
     {
       "source": "/post/:id",
-      "destination": "https://palettetown-backend.vercel.app/post/:id"
+      "destination": "/api/__proxy/post/:id"
     },
     {
       "source": "/post/:id/",
-      "destination": "https://palettetown-backend.vercel.app/post/:id/"
+      "destination": "/api/__proxy/post/:id/"
     },
     {
       "source": "/post",
-      "destination": "https://palettetown-backend.vercel.app/post"
+      "destination": "/api/__proxy/post"
     },
     {
       "source": "/post/",
-      "destination": "https://palettetown-backend.vercel.app/post/"
+      "destination": "/api/__proxy/post/"
     },
     {
       "source": "/trade/:id",
@@ -209,35 +209,35 @@
     },
     {
       "source": "/collection/:id",
-      "destination": "https://palettetown-backend.vercel.app/collection/:id"
+      "destination": "/api/__proxy/collection/:id"
     },
     {
       "source": "/collection/:id/",
-      "destination": "https://palettetown-backend.vercel.app/collection/:id/"
+      "destination": "/api/__proxy/collection/:id/"
     },
     {
       "source": "/collection",
-      "destination": "https://palettetown-backend.vercel.app/collection"
+      "destination": "/api/__proxy/collection"
     },
     {
       "source": "/collection/",
-      "destination": "https://palettetown-backend.vercel.app/collection/"
+      "destination": "/api/__proxy/collection/"
     },
     {
       "source": "/folders/:id",
-      "destination": "https://palettetown-backend.vercel.app/folders/:id"
+      "destination": "/api/__proxy/folders/:id"
     },
     {
       "source": "/folders/:id/",
-      "destination": "https://palettetown-backend.vercel.app/folders/:id/"
+      "destination": "/api/__proxy/folders/:id/"
     },
     {
       "source": "/folders",
-      "destination": "https://palettetown-backend.vercel.app/folders"
+      "destination": "/api/__proxy/folders"
     },
     {
       "source": "/folders/",
-      "destination": "https://palettetown-backend.vercel.app/folders/"
+      "destination": "/api/__proxy/folders/"
     }
   ],
   "crons": [
