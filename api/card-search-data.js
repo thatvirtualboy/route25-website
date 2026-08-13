@@ -1,6 +1,6 @@
-const BACKEND_ORIGIN = "https://palettetown-backend.vercel.app";
 const OFFICIAL_API_ORIGIN = "https://api.pokemontcg.io/v2";
 const TCGDEX_API_ORIGIN = "https://api.tcgdex.net/v2/en";
+const { BACKEND_ORIGIN, route25BackendHeaders } = require("../lib/route25-backend");
 const { route25ImageUrl } = require("../lib/route25-image-url");
 const { canonicalCardId, canonicalCardSetId, tcgdexCardId } = require("../lib/card-set-id");
 const { isPokemonTcgPocket, isPokemonTcgPocketCardId, isPokemonTcgPocketSetId } = require("../lib/card-product");
@@ -221,7 +221,9 @@ function simplifySearchCard(card) {
 
 async function fetchJson(url) {
   const requestUrl = String(url).replace(/\*/g, "%2A");
-  const response = await fetch(requestUrl, { headers: { accept: "application/json" } });
+  const response = await fetch(requestUrl, {
+    headers: route25BackendHeaders(requestUrl, { accept: "application/json" })
+  });
   if (!response.ok) {
     throw new Error(`Fetch failed ${response.status} for ${requestUrl}`);
   }
@@ -235,7 +237,7 @@ async function fetchJsonWithTimeout(url, timeoutMs) {
   try {
     return await Promise.race([
       fetch(requestUrl, {
-        headers: { accept: "application/json" },
+        headers: route25BackendHeaders(requestUrl, { accept: "application/json" }),
         signal: controller.signal
       }).then((response) => {
         if (!response.ok) throw new Error(`Fetch failed ${response.status} for ${requestUrl}`);
@@ -797,6 +799,44 @@ async function fetchRemoteSearchResults(queries, page, pageSize, timeoutMs = 220
   }
 }
 
+async function fetchJapaneseSearchResults(q, page, pageSize, timeoutMs = 6500) {
+  const start = (page - 1) * pageSize;
+  const end = page * pageSize;
+  const collected = [];
+  let cursor = null;
+  let totalCount = null;
+
+  do {
+    const url = new URL(`${BACKEND_ORIGIN}/api/tcg/search`);
+    url.searchParams.set("region", "jp");
+    url.searchParams.set("q", q);
+    url.searchParams.set("pageSize", String(Math.min(150, Math.max(8, end - collected.length))));
+    url.searchParams.set("sort", "newest");
+    if (cursor) url.searchParams.set("cursor", cursor);
+
+    const searchPayload = await fetchJsonWithTimeout(url.href, timeoutMs);
+    const items = payloadItems(searchPayload);
+    collected.push(...items);
+    if (Number.isFinite(Number(searchPayload?.totalCount))) {
+      totalCount = Number(searchPayload.totalCount);
+    }
+    cursor = typeof searchPayload?.nextCursor === "string" && searchPayload.nextCursor
+      ? searchPayload.nextCursor
+      : null;
+  } while (cursor && collected.length < end);
+
+  const rawItems = collected.slice(start, end);
+  return {
+    rawItems,
+    payload: {
+      page,
+      pageSize,
+      count: rawItems.length,
+      totalCount: totalCount ?? collected.length
+    }
+  };
+}
+
 async function fetchAllCardsForSet(set, setInfo = null) {
   const normalizedSet = String(set || "").trim();
   if (isPokemonTcgPocketSetId(normalizedSet) || isPokemonTcgPocket(setInfo)) {
@@ -967,6 +1007,7 @@ async function handleSets(res) {
 async function handleSearch(req, res) {
   const q = String(req.query?.q || "").trim();
   const set = String(req.query?.set || "").trim();
+  const region = String(req.query?.region || "").toLowerCase() === "jp" ? "jp" : "international";
   const page = parsePositiveInt(req.query?.page, 1, 1000);
   const pageSize = parsePositiveInt(req.query?.pageSize, 24, 48);
 
@@ -986,15 +1027,15 @@ async function handleSearch(req, res) {
     return;
   }
 
-  let queries = buildSearchQueries({ q, set });
+  let queries = region === "jp" && q ? [] : buildSearchQueries({ q, set });
   let defaultSet = null;
-  if (!queries.length) {
+  if (!queries.length && region !== "jp") {
     const sets = await fetchSets();
     defaultSet = sets[0] || null;
     queries = defaultSet?.id ? [`set.id:${defaultSet.id}`] : [];
   }
 
-  if (!queries.length) {
+  if (!queries.length && region !== "jp") {
     const body = JSON.stringify({ ok: true, data: [], page, pageSize, count: 0, totalCount: 0 });
     res.statusCode = 200;
     res.setHeader("content-type", "application/json; charset=utf-8");
@@ -1002,7 +1043,9 @@ async function handleSearch(req, res) {
     return;
   }
 
-  const cacheKey = `cards:${queries.join("|")}:page:${page}:size:${pageSize}`;
+  const cacheKey = region === "jp"
+    ? `cards:jp:${q.toLowerCase()}:page:${page}:size:${pageSize}`
+    : `cards:${queries.join("|")}:page:${page}:size:${pageSize}`;
   const cached = getCachedJson(cacheKey);
   if (cached) {
     const cachedPayload = JSON.parse(cached);
@@ -1020,7 +1063,11 @@ async function handleSearch(req, res) {
   let payload = null;
   let rawItems = [];
   const browseSetId = !q ? (set || defaultSet?.id || "") : "";
-  if (browseSetId) {
+  if (region === "jp") {
+    const japaneseResult = await fetchJapaneseSearchResults(q, page, pageSize);
+    payload = japaneseResult.payload;
+    rawItems = japaneseResult.rawItems;
+  } else if (browseSetId) {
     const bySetResult = await fetchCardsBySet(browseSetId, page, pageSize, defaultSet);
     payload = bySetResult.payload;
     rawItems = bySetResult.rawItems;
@@ -1061,7 +1108,8 @@ async function handleSearch(req, res) {
     pageSize: payload?.pageSize || pageSize,
     count: payload?.count ?? rawItems.length,
     totalCount: payload?.totalCount ?? rawItems.length,
-    defaultSet
+    defaultSet,
+    ...(region === "jp" ? { region: "jp" } : {})
   });
   setCachedJson(cacheKey, body, rawItems.length ? SEARCH_CACHE_TTL_MS : EMPTY_SEARCH_CACHE_TTL_MS);
   res.statusCode = 200;
