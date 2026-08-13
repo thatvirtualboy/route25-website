@@ -82,6 +82,10 @@ async function remoteFontBuffer(origin, file) {
   if (!response.ok) {
     throw new Error(`Font fetch failed ${response.status} for ${file}`);
   }
+  const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+  if (contentType && !contentType.includes("font") && !contentType.includes("woff") && !contentType.includes("octet-stream")) {
+    throw new Error(`Unexpected font content type ${contentType} for ${file}`);
+  }
   return response.arrayBuffer();
 }
 

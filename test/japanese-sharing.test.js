@@ -1,4 +1,6 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const test = require("node:test");
 
 function responseRecorder() {
@@ -129,4 +131,10 @@ test("protected backend previews receive the server-side bypass header", () => {
     if (originalSecret == null) delete process.env.ROUTE25_VERCEL_BYPASS_SECRET;
     else process.env.ROUTE25_VERCEL_BYPASS_SECRET = originalSecret;
   }
+});
+
+test("social preview fonts reject protected-deployment HTML before parsing", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "api", "cards", "og.js"), "utf8");
+  assert.match(source, /Unexpected font content type/);
+  assert.match(source, /contentType\.includes\("font"\)/);
 });
