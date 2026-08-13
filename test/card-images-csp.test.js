@@ -116,11 +116,12 @@ test("share-page rewrites flow through the configurable backend proxy", () => {
     fs.readFileSync(path.join(__dirname, "..", "vercel.json"), "utf8"),
   );
   const expected = new Map([
-    ["/set-logos/:path*", "/api/__proxy/set-logos/:path*"],
-    ["/api/proxy/:path*", "/api/__proxy/api/proxy/:path*"],
-    ["/post/:id", "/api/__proxy/post/:id"],
-    ["/collection/:id", "/api/__proxy/collection/:id"],
-    ["/folders/:id", "/api/__proxy/folders/:id"],
+    ["/api/__proxy/:path*", "/api/backend-proxy.js?path=:path*"],
+    ["/set-logos/:path*", "/api/backend-proxy.js?path=set-logos/:path*"],
+    ["/api/proxy/:path*", "/api/backend-proxy.js?path=api/proxy/:path*"],
+    ["/post/:id", "/api/backend-proxy.js?path=post/:id"],
+    ["/collection/:id", "/api/backend-proxy.js?path=collection/:id"],
+    ["/folders/:id", "/api/backend-proxy.js?path=folders/:id"],
   ]);
 
   for (const [source, destination] of expected) {

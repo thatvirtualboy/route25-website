@@ -76,6 +76,10 @@
       "destination": "/assets/Route25-App-Store-Screenshots-iPhone.zip"
     },
     {
+      "source": "/api/__proxy/:path*",
+      "destination": "/api/backend-proxy.js?path=:path*"
+    },
+    {
       "source": "/api/cards/og",
       "destination": "/api/cards/og.js"
     },
@@ -125,7 +129,7 @@
     },
     {
       "source": "/set-logos/:path*",
-      "destination": "/api/__proxy/set-logos/:path*"
+      "destination": "/api/backend-proxy.js?path=set-logos/:path*"
     },
     {
       "source": "/trainer-avatars/:path*",
@@ -133,7 +137,7 @@
     },
     {
       "source": "/api/proxy/:path*",
-      "destination": "/api/__proxy/api/proxy/:path*"
+      "destination": "/api/backend-proxy.js?path=api/proxy/:path*"
     },
     {
       "source": "/login",
@@ -177,19 +181,19 @@
     },
     {
       "source": "/post/:id",
-      "destination": "/api/__proxy/post/:id"
+      "destination": "/api/backend-proxy.js?path=post/:id"
     },
     {
       "source": "/post/:id/",
-      "destination": "/api/__proxy/post/:id/"
+      "destination": "/api/backend-proxy.js?path=post/:id/"
     },
     {
       "source": "/post",
-      "destination": "/api/__proxy/post"
+      "destination": "/api/backend-proxy.js?path=post"
     },
     {
       "source": "/post/",
-      "destination": "/api/__proxy/post/"
+      "destination": "/api/backend-proxy.js?path=post/"
     },
     {
       "source": "/trade/:id",
@@ -209,35 +213,35 @@
     },
     {
       "source": "/collection/:id",
-      "destination": "/api/__proxy/collection/:id"
+      "destination": "/api/backend-proxy.js?path=collection/:id"
     },
     {
       "source": "/collection/:id/",
-      "destination": "/api/__proxy/collection/:id/"
+      "destination": "/api/backend-proxy.js?path=collection/:id/"
     },
     {
       "source": "/collection",
-      "destination": "/api/__proxy/collection"
+      "destination": "/api/backend-proxy.js?path=collection"
     },
     {
       "source": "/collection/",
-      "destination": "/api/__proxy/collection/"
+      "destination": "/api/backend-proxy.js?path=collection/"
     },
     {
       "source": "/folders/:id",
-      "destination": "/api/__proxy/folders/:id"
+      "destination": "/api/backend-proxy.js?path=folders/:id"
     },
     {
       "source": "/folders/:id/",
-      "destination": "/api/__proxy/folders/:id/"
+      "destination": "/api/backend-proxy.js?path=folders/:id/"
     },
     {
       "source": "/folders",
-      "destination": "/api/__proxy/folders"
+      "destination": "/api/backend-proxy.js?path=folders"
     },
     {
       "source": "/folders/",
-      "destination": "/api/__proxy/folders/"
+      "destination": "/api/backend-proxy.js?path=folders/"
     }
   ],
   "crons": [
