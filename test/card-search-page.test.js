@@ -66,7 +66,7 @@ test("Japanese card search uses the regional catalog and returns web-ready resul
     assert.equal(parsed.searchParams.get("region"), "jp");
     assert.equal(parsed.searchParams.get("q"), "Pikachu");
     assert.equal(parsed.searchParams.get("sort"), "newest");
-    assert.equal(parsed.searchParams.has("debug"), false);
+    assert.equal(parsed.searchParams.get("debug"), "1");
     return {
       ok: true,
       async json() {

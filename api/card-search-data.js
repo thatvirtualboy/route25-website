@@ -812,6 +812,9 @@ async function fetchJapaneseSearchResults(q, page, pageSize, timeoutMs = 6500) {
     url.searchParams.set("q", q);
     url.searchParams.set("pageSize", String(Math.min(150, Math.max(8, end - collected.length))));
     url.searchParams.set("sort", "newest");
+    // The stable preview predates the public totalCount field. Keep the
+    // lightweight debug total as a compatibility fallback during rollout.
+    url.searchParams.set("debug", "1");
     if (cursor) url.searchParams.set("cursor", cursor);
 
     const searchPayload = await fetchJsonWithTimeout(url.href, timeoutMs);
@@ -819,6 +822,8 @@ async function fetchJapaneseSearchResults(q, page, pageSize, timeoutMs = 6500) {
     collected.push(...items);
     if (Number.isFinite(Number(searchPayload?.totalCount))) {
       totalCount = Number(searchPayload.totalCount);
+    } else if (Number.isFinite(Number(searchPayload?.debug?.total))) {
+      totalCount = Number(searchPayload.debug.total);
     }
     cursor = typeof searchPayload?.nextCursor === "string" && searchPayload.nextCursor
       ? searchPayload.nextCursor
