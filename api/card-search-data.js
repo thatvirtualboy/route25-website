@@ -761,15 +761,13 @@ async function fetchRemoteSearchResults(queries, page, pageSize, timeoutMs = 220
   if (shouldSortNewest) {
     const backendResult = await fallbackProviders[0].then(rejectWithoutItems).catch(() => null);
     if (backendResult) {
-      const [preferredResult, officialResult, supplementalResult, releaseDates, setAliases] = await Promise.all([
-        settleWithin(preferredProvider, Math.min(timeoutMs, 1200)),
-        settleWithin(fallbackProviders[1], 450),
-        settleWithin(supplementalProvider, 450),
+      const [supplementalResult, releaseDates, setAliases] = await Promise.all([
+        supplementalProvider.catch(() => null),
         releaseDatesPromise,
         setAliasesPromise
       ]);
       return mergeSearchResults(
-        [backendResult, preferredResult, officialResult, supplementalResult],
+        [backendResult, supplementalResult],
         page,
         pageSize,
         releaseDates,
