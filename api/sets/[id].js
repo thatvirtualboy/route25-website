@@ -1,4 +1,9 @@
-const BACKEND_ORIGIN = "https://palettetown-backend.vercel.app";
+const {
+  BACKEND_ORIGIN,
+  isJapaneseSetId,
+  route25BackendHeaders,
+  route25BackendUrl
+} = require("../../lib/route25-backend");
 const APP_STORE_URL = "https://apps.apple.com/us/app/route-25-tcg-social-network/id6755665546";
 const APP_STORE_ID = "6755665546";
 const DISCORD_URL = "https://discord.gg/WncmGEFuNw";
@@ -53,7 +58,7 @@ function formatDate(value) {
 }
 
 async function fetchJson(url) {
-  const response = await fetch(url, { headers: { accept: "application/json" } });
+  const response = await fetch(url, { headers: route25BackendHeaders(url, { accept: "application/json" }) });
   if (!response.ok) throw new Error(`Fetch failed ${response.status} for ${url}`);
   return response.json();
 }
@@ -64,7 +69,7 @@ async function fetchJsonWithTimeout(url, timeoutMs) {
   try {
     return await Promise.race([
       fetch(url, {
-        headers: { accept: "application/json" },
+        headers: route25BackendHeaders(url, { accept: "application/json" }),
         signal: controller.signal
       }).then((response) => {
         if (!response.ok) throw new Error(`Fetch failed ${response.status} for ${url}`);
@@ -85,8 +90,8 @@ async function fetchJsonWithTimeout(url, timeoutMs) {
   }
 }
 
-async function fetchSets() {
-  const payload = await fetchJsonWithTimeout(`${BACKEND_ORIGIN}/api/tcg/sets`, 1400);
+async function fetchSets(setId) {
+  const payload = await fetchJsonWithTimeout(route25BackendUrl("/api/tcg/sets", setId), 1400);
   return Array.isArray(payload?.data) ? payload.data : [];
 }
 
@@ -144,9 +149,9 @@ async function fetchTcgdexSet(setId) {
 
 async function fetchSet(setId) {
   if (isPokemonTcgPocketSetId(setId)) return null;
-  const fallbackPromise = fetchTcgdexSet(setId).catch(() => null);
+  const fallbackPromise = isJapaneseSetId(setId) ? Promise.resolve(null) : fetchTcgdexSet(setId).catch(() => null);
   try {
-    const sets = await fetchSets();
+    const sets = await fetchSets(setId);
     const backendSet = sets.find((set) => String(set?.id || "").toLowerCase() === setId.toLowerCase()) || null;
     if (backendSet && !isPokemonTcgPocket(backendSet)) return backendSet;
   } catch {
@@ -183,7 +188,7 @@ async function fetchCards(set) {
   const setId = set.id;
   let payload = null;
   try {
-    payload = await fetchJsonWithTimeout(`${BACKEND_ORIGIN}/api/tcg/by-set?set=${encodeURIComponent(setId)}&pageSize=500`, 2400);
+    payload = await fetchJsonWithTimeout(route25BackendUrl("/api/tcg/by-set", setId, { set: setId, pageSize: 500 }), 2400);
   } catch {
     payload = null;
   }
@@ -192,7 +197,7 @@ async function fetchCards(set) {
     : Array.isArray(payload?.data)
       ? payload.data
       : [];
-  if (!items.length) {
+  if (!items.length && !isJapaneseSetId(setId)) {
     let searchPayload = null;
     try {
       searchPayload = await fetchJsonWithTimeout(`${BACKEND_ORIGIN}/api/tcg/cards?q=${encodeURIComponent(`set.id:${setId}`)}&page=1&pageSize=500`, 5200);
@@ -205,7 +210,7 @@ async function fetchCards(set) {
         ? searchPayload.items
         : [];
   }
-  if (!items.length) return syntheticSetCards(set);
+  if (!items.length) return isJapaneseSetId(setId) ? [] : syntheticSetCards(set);
   return items.filter((card) => card?.id).slice(0, 500);
 }
 
@@ -252,6 +257,9 @@ function cardImageCandidates(card) {
     const directImage = unwrappedProxyImageUrl(absoluteImage);
     if (directImage) candidates.push(directImage);
     candidates.push(route25ImageUrl(absoluteImage));
+  }
+  if (isJapaneseSetId(card?.set?.id)) {
+    return candidates.filter((candidate, index) => candidate && candidates.indexOf(candidate) === index);
   }
   if (String(card?.set?.id || "").toLowerCase() !== "mep" && !String(card?.id || "").toLowerCase().startsWith("mep-")) {
     const id = String(card?.id || "");

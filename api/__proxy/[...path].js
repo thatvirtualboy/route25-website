@@ -1,4 +1,5 @@
 const { Readable } = require("node:stream");
+const { route25BackendHeaders, route25BackendOrigin } = require("../../lib/route25-backend");
 
 const HOP_BY_HOP_HEADERS = new Set([
   "connection",
@@ -10,18 +11,6 @@ const HOP_BY_HOP_HEADERS = new Set([
   "transfer-encoding",
   "upgrade"
 ]);
-
-function normalizeBackendOrigin(origin) {
-  if (!origin) return null;
-
-  try {
-    const url = new URL(origin.trim());
-    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-    return url.origin;
-  } catch {
-    return null;
-  }
-}
 
 function getPathSegments(pathQuery) {
   if (Array.isArray(pathQuery)) return pathQuery.filter(Boolean);
@@ -91,7 +80,7 @@ function setResponseHeaders(res, upstreamHeaders, backendOrigin) {
 }
 
 module.exports = async (req, res) => {
-  const backendOrigin = normalizeBackendOrigin(process.env.ROUTE25_BACKEND_ORIGIN) || "https://palettetown-backend.vercel.app";
+  const backendOrigin = route25BackendOrigin();
   if (!backendOrigin) {
     res.statusCode = 500;
     res.setHeader("content-type", "text/plain; charset=utf-8");
@@ -105,7 +94,7 @@ module.exports = async (req, res) => {
   appendQueryParams(upstreamUrl, req.query);
 
   const method = (req.method || "GET").toUpperCase();
-  const headers = getRequestHeaders(req);
+  const headers = route25BackendHeaders(upstreamUrl, getRequestHeaders(req));
   const init = { method, headers, redirect: "manual" };
 
   if (method !== "GET" && method !== "HEAD") {
@@ -125,4 +114,3 @@ module.exports = async (req, res) => {
   res.setHeader("content-length", String(buffer.length));
   res.end(buffer);
 };
-

@@ -214,6 +214,49 @@ function renderSearchPage() {
       border-radius: 999px;
       cursor: pointer;
     }
+    .search-region {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .search-region-label {
+      color: rgba(255, 255, 255, 0.58);
+      font-size: 11px;
+      font-weight: 750;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .region-toggle {
+      display: inline-flex;
+      gap: 3px;
+      padding: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.055);
+    }
+    .region-option {
+      min-width: 92px;
+      padding: 8px 14px;
+      border: 0;
+      border-radius: 999px;
+      color: rgba(255, 255, 255, 0.62);
+      background: transparent;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 720;
+      cursor: pointer;
+    }
+    .region-option[aria-pressed="true"] {
+      color: #05060a;
+      background: var(--ink);
+      box-shadow: 0 8px 22px rgba(0, 0, 0, 0.25);
+    }
+    .region-option:focus-visible {
+      outline: 2px solid rgba(88, 199, 255, 0.9);
+      outline-offset: 2px;
+    }
     .search-meta {
       display: flex;
       align-items: center;
@@ -451,6 +494,13 @@ function renderSearchPage() {
             </div>
             <button class="button primary" type="submit">Search</button>
           </form>
+          <div class="search-region">
+            <span class="search-region-label">Results</span>
+            <div class="region-toggle" role="group" aria-label="Card language">
+              <button class="region-option" type="button" data-region="international" aria-pressed="true">English</button>
+              <button class="region-option" type="button" data-region="jp" aria-pressed="false">Japanese</button>
+            </div>
+          </div>
         </div>
       </section>
       <section aria-live="polite" aria-busy="false" id="resultsSection" hidden>
@@ -475,9 +525,11 @@ function renderSearchPage() {
     </div>
   </main>
   <script>
+    const initialParams = new URLSearchParams(window.location.search);
     const state = {
-      q: new URLSearchParams(window.location.search).get("q") || "",
-      page: Math.max(1, Number.parseInt(new URLSearchParams(window.location.search).get("page") || "1", 10) || 1),
+      q: initialParams.get("q") || "",
+      region: initialParams.get("region") === "jp" ? "jp" : "international",
+      page: Math.max(1, Number.parseInt(initialParams.get("page") || "1", 10) || 1),
       pageSize: 32,
       totalCount: 0,
       loading: false
@@ -491,6 +543,7 @@ function renderSearchPage() {
     const pageLabels = Array.from(document.querySelectorAll("[data-page-label]"));
     const prevPageButtons = Array.from(document.querySelectorAll("[data-page-action='prev']"));
     const nextPageButtons = Array.from(document.querySelectorAll("[data-page-action='next']"));
+    const regionButtons = Array.from(document.querySelectorAll("[data-region]"));
     let activeController = null;
     let activeRequestKey = "";
     const resultCache = new Map();
@@ -517,6 +570,7 @@ function renderSearchPage() {
     function updateUrl() {
       const params = new URLSearchParams();
       if (state.q) params.set("q", state.q);
+      if (state.region === "jp") params.set("region", "jp");
       if (state.page > 1) params.set("page", String(state.page));
       const query = params.toString();
       history.replaceState(null, "", query ? "/search?" + query : "/search");
@@ -538,11 +592,13 @@ function renderSearchPage() {
     }
 
     function searchParamsFor(nextState) {
-      return new URLSearchParams({
+      const params = new URLSearchParams({
         q: nextState.q,
         page: String(nextState.page),
         pageSize: String(nextState.pageSize)
       });
+      if (nextState.region === "jp") params.set("region", "jp");
+      return params;
     }
 
     function cacheKey(nextState) {
@@ -620,8 +676,14 @@ function renderSearchPage() {
       const start = cards.length ? ((state.page - 1) * state.pageSize) + 1 : 0;
       const end = cards.length ? start + cards.length - 1 : 0;
       resultSummary.textContent = cards.length
-        ? "Showing " + start + "-" + end + " of " + state.totalCount.toLocaleString() + " cards"
+        ? "Showing " + start + "-" + end + " of " + state.totalCount.toLocaleString() + " " + (state.region === "jp" ? "Japanese" : "English") + " cards"
         : "No cards found";
+    }
+
+    function renderRegionToggle() {
+      regionButtons.forEach(function(button) {
+        button.setAttribute("aria-pressed", button.dataset.region === state.region ? "true" : "false");
+      });
     }
 
     function setLoading(isLoading) {
@@ -725,6 +787,7 @@ function renderSearchPage() {
     }
 
     queryInput.value = state.q;
+    renderRegionToggle();
     loadCards();
     if (!state.q) {
       fetch("/api/card-search?q=base1-1&pageSize=1", { headers: { accept: "application/json" } }).catch(function() {});
@@ -748,6 +811,17 @@ function renderSearchPage() {
       emptyState.style.display = "none";
       setLoading(false);
       resultsSection.hidden = true;
+    });
+    regionButtons.forEach(function(button) {
+      button.addEventListener("click", function() {
+        const nextRegion = button.dataset.region === "jp" ? "jp" : "international";
+        if (nextRegion === state.region) return;
+        state.region = nextRegion;
+        state.page = 1;
+        state.totalCount = 0;
+        renderRegionToggle();
+        loadCards();
+      });
     });
     document.querySelectorAll("[data-page-action]").forEach(function(button) {
       button.addEventListener("click", function() {

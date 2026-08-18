@@ -2,6 +2,7 @@ const React = require("react");
 const { readFileSync } = require("fs");
 const path = require("path");
 const sharp = require("sharp");
+const { route25BackendHeaders } = require("../../lib/route25-backend");
 const {
   BACKEND_ORIGIN,
   absoluteUrlForSocial,
@@ -47,7 +48,9 @@ async function imageDataUrl(url) {
   if (source.startsWith("data:")) return source;
   if (imageCache.has(source)) return imageCache.get(source);
 
-  const response = await fetch(source, { headers: { accept: "image/png,image/jpeg,image/webp,*/*" } });
+  const response = await fetch(source, {
+    headers: route25BackendHeaders(source, { accept: "image/png,image/jpeg,image/webp,*/*" })
+  });
   if (!response.ok) {
     throw new Error(`Image fetch failed ${response.status} for ${source}`);
   }
@@ -78,6 +81,10 @@ async function remoteFontBuffer(origin, file) {
   const response = await fetch(`${origin}/assets/fonts/${file}`);
   if (!response.ok) {
     throw new Error(`Font fetch failed ${response.status} for ${file}`);
+  }
+  const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+  if (contentType && !contentType.includes("font") && !contentType.includes("woff") && !contentType.includes("octet-stream")) {
+    throw new Error(`Unexpected font content type ${contentType} for ${file}`);
   }
   return response.arrayBuffer();
 }

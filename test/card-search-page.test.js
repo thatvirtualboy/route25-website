@@ -27,6 +27,11 @@ test("card search page stays focused on individual-card search", async () => {
   assert.match(res.body, /id="cardQuery"/);
   assert.match(res.body, />Search by card name, then add its card number to narrow the results\.<\/p>/);
   assert.match(res.body, /placeholder="Try Mew 47"/);
+  assert.match(res.body, /aria-label="Card language"/);
+  assert.match(res.body, /data-region="international" aria-pressed="true">English/);
+  assert.match(res.body, /data-region="jp" aria-pressed="false">Japanese/);
+  assert.match(res.body, /initialParams\.get\("region"\) === "jp"/);
+  assert.match(res.body, /if \(state\.region === "jp"\) params\.set\("region", "jp"\)/);
   assert.match(res.body, /id="resultsSection" hidden/);
   assert.equal((res.body.match(/<a class="fan-card"/g) || []).length, 6);
   assert.match(res.body, /\.fan-card:hover/);
@@ -47,6 +52,99 @@ test("card search page stays focused on individual-card search", async () => {
   assert.match(res.body, /src="\/apple-touch-icon\.png"/);
   assert.doesNotMatch(res.body, /images\.pokemontcg\.io\/[^"']+_hires\.png/);
   assert.match(res.body, /loading="lazy" fetchpriority="low" decoding="async"/);
+});
+
+test("Japanese card search uses the regional catalog and returns web-ready results", async () => {
+  const originalFetch = global.fetch;
+  const requestedUrls = [];
+  global.fetch = async (url) => {
+    const requestedUrl = String(url);
+    requestedUrls.push(requestedUrl);
+    const parsed = new URL(requestedUrl);
+    assert.equal(parsed.origin, "https://palettetown-backend.vercel.app");
+    assert.equal(parsed.pathname, "/api/tcg/search");
+    assert.equal(parsed.searchParams.get("region"), "jp");
+    assert.equal(parsed.searchParams.get("q"), "Pikachu");
+    assert.equal(parsed.searchParams.get("sort"), "newest");
+    assert.equal(parsed.searchParams.get("debug"), "1");
+    return {
+      ok: true,
+      async json() {
+        return {
+          ok: true,
+          region: "jp",
+          items: [{
+            id: "sv9_ja-22",
+            name: "Pikachu",
+            number: "22",
+            images: {
+              small: "https://palettetown-backend.vercel.app/api/proxy/card-images/jp/sv9_ja/22/low.webp",
+              large: "https://palettetown-backend.vercel.app/api/proxy/card-images/jp/sv9_ja/22/high.png"
+            },
+            set: { id: "sv9_ja", name: "Battle Partners" }
+          }],
+          nextCursor: null,
+          totalCount: 1
+        };
+      }
+    };
+  };
+
+  try {
+    const res = responseCapture();
+    await searchCards({ query: { q: "Pikachu", region: "jp", pageSize: "32" } }, res);
+    const payload = JSON.parse(res.body);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(requestedUrls.length, 1);
+    assert.equal(payload.region, "jp");
+    assert.equal(payload.totalCount, 1);
+    assert.deepEqual(payload.data[0], {
+      id: "sv9_ja-22",
+      name: "Pikachu",
+      number: "22",
+      images: {
+        small: "/api/proxy/card-images/jp/sv9_ja/22/low.webp",
+        large: "/api/proxy/card-images/jp/sv9_ja/22/high.png"
+      },
+      set: { id: "sv9_ja", name: "Battle Partners" }
+    });
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("Japanese search falls back to TCGplayer artwork when catalog images are unavailable", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        ok: true,
+        region: "jp",
+        items: [{
+          id: "m2a_ja-44",
+          name: "Pikachu ex",
+          number: "44",
+          sourceRefs: { tcgplayerProductId: 665715 },
+          set: { id: "m2a_ja", name: "MEGA Dream ex" }
+        }],
+        nextCursor: null,
+        totalCount: 1
+      };
+    }
+  });
+
+  try {
+    const res = responseCapture();
+    await searchCards({ query: { q: "Pikachu artwork fallback", region: "jp", pageSize: "32" } }, res);
+    const card = JSON.parse(res.body).data[0];
+
+    assert.equal(card.images.small, "https://tcgplayer-cdn.tcgplayer.com/product/665715_200w.jpg");
+    assert.equal(card.images.large, "https://tcgplayer-cdn.tcgplayer.com/product/665715_in_1000x1000.jpg");
+  } finally {
+    global.fetch = originalFetch;
+  }
 });
 
 test("blank card search does not fall back to browsing the newest set", async () => {

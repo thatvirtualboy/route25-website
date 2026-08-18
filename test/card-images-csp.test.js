@@ -110,6 +110,24 @@ test("trainer avatars are served through the same-origin website path", () => {
     destination: "https://palettetown-backend.vercel.app/trainer-avatars/:path*",
   });
 });
+
+test("share-page rewrites flow through the configurable backend proxy", () => {
+  const config = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "..", "vercel.json"), "utf8"),
+  );
+  const expected = new Map([
+    ["/api/__proxy/:path*", "/api/backend-proxy.js?path=:path*"],
+    ["/set-logos/:path*", "/api/backend-proxy.js?path=set-logos/:path*"],
+    ["/api/proxy/:path*", "/api/backend-proxy.js?path=api/proxy/:path*"],
+    ["/post/:id", "/api/backend-proxy.js?path=post/:id"],
+    ["/collection/:id", "/api/backend-proxy.js?path=collection/:id"],
+    ["/folders/:id", "/api/backend-proxy.js?path=folders/:id"],
+  ]);
+
+  for (const [source, destination] of expected) {
+    assert.equal(config.rewrites.find((item) => item.source === source)?.destination, destination);
+  }
+});
 test("card detail pages have a cross-provider artwork fallback ready before images load", () => {
   const source = fs.readFileSync(
     path.join(__dirname, "..", "api", "cards", "[id].js"),

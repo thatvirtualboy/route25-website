@@ -1,4 +1,9 @@
-const BACKEND_ORIGIN = "https://palettetown-backend.vercel.app";
+const {
+  BACKEND_ORIGIN,
+  isJapaneseSetId,
+  route25BackendHeaders,
+  route25BackendUrl
+} = require("../../lib/route25-backend");
 const APP_STORE_URL = "https://apps.apple.com/us/app/route-25-tcg-social-network/id6755665546";
 const X_URL = "https://x.com/route25app";
 const INSTAGRAM_URL = "https://www.instagram.com/route25app/";
@@ -72,7 +77,11 @@ function resolvedCardImages(card, large = true) {
     ? (card?.images?.large || card?.images?.small)
     : (card?.images?.small || card?.images?.large);
   if (image) candidates.push(absoluteUrl(image, BACKEND_ORIGIN));
-  if (String(card?.set?.id || cardSetId(card?.id)).toLowerCase() !== "mep" && !String(card?.id || "").toLowerCase().startsWith("mep-")) {
+  const setId = String(card?.set?.id || cardSetId(card?.id)).toLowerCase();
+  if (isJapaneseSetId(setId)) {
+    return candidates.filter((candidate, index) => candidate && candidates.indexOf(candidate) === index);
+  }
+  if (setId !== "mep" && !String(card?.id || "").toLowerCase().startsWith("mep-")) {
     if (id) candidates.push(`https://images.scrydex.com/pokemon/${encodeURIComponent(id)}/${large ? "large" : "small"}`);
     return candidates.filter((candidate, index) => candidate && candidates.indexOf(candidate) === index);
   }
@@ -381,7 +390,7 @@ function tcgplayerProductUrl(productId, card, selectedVariant) {
   const slug = selectedVariant?.sourceRefs?.tcgplayerSlug || tcgplayerProductOverride(card)?.slug || tcgplayerProductSlug(card);
   const url = new URL(`https://www.tcgplayer.com/product/${encodeURIComponent(productId)}${slug ? `/${slug}` : ""}`);
   url.searchParams.set("page", "1");
-  url.searchParams.set("Language", "English");
+  url.searchParams.set("Language", isJapaneseSetId(card?.set?.id || cardSetId(card?.id)) ? "Japanese" : "English");
   return url.href;
 }
 
@@ -414,10 +423,10 @@ function ebaySearchQuery(card) {
 async function fetchJson(url, options = {}) {
   const response = await fetch(url, {
     method: options.method || "GET",
-    headers: {
+    headers: route25BackendHeaders(url, {
       accept: "application/json",
       ...(options.body ? { "content-type": "application/json" } : {})
-    },
+    }),
     body: options.body,
     signal: options.signal
   });
@@ -494,11 +503,12 @@ async function fetchCard(cardId, timings = [], options = {}) {
     return manualCard;
   }
   const allowBroadFallback = options.allowBroadFallback !== false;
+  const isJapanese = isJapaneseSetId(setId);
 
   let card = null;
   let setCard = null;
   let successfulLookups = 0;
-  try {
+  if (!isJapanese) try {
     const startedAt = Date.now();
     const cardUrl = `${BACKEND_ORIGIN}/api/tcg/cards?q=${encodeURIComponent(`id:${lookupCardId}`)}&pageSize=1`;
     const cardPayload = await fetchJsonWithTimeout(cardUrl, 1800);
@@ -536,7 +546,7 @@ async function fetchCard(cardId, timings = [], options = {}) {
     }
   }
 
-  if (!card && allowBroadFallback) {
+  if (!card && allowBroadFallback && !isJapanese) {
     try {
       const startedAt = Date.now();
       const seedUrl = `${BACKEND_ORIGIN}/api/seed/cards?set=${encodeURIComponent(setId)}&page=1&pageSize=500`;
@@ -589,7 +599,7 @@ async function fetchCard(cardId, timings = [], options = {}) {
 }
 
 async function fetchCardFromSet(setId, lookupCardId) {
-  const bySetUrl = `${BACKEND_ORIGIN}/api/tcg/by-set?set=${encodeURIComponent(setId)}&pageSize=500`;
+  const bySetUrl = route25BackendUrl("/api/tcg/by-set", setId, { set: setId, pageSize: 500 });
   const bySetPayload = await fetchJsonWithTimeout(bySetUrl, 1800);
   const items = Array.isArray(bySetPayload.items)
     ? bySetPayload.items
@@ -611,14 +621,14 @@ async function enrichCardSet(card, setId) {
   }
 
   let enrichedCard = card;
-  const needsOfficialSet = !(
+  const needsOfficialSet = !isJapaneseSetId(setId) && !(
     card?.set?.printedTotal
     || card?.set?.cardCount?.official
     || card?.printedTotal
   );
 
   const [setsResult, officialSetResult] = await Promise.allSettled([
-    fetchJsonWithTimeout(`${BACKEND_ORIGIN}/api/tcg/sets`, 1200),
+    fetchJsonWithTimeout(route25BackendUrl("/api/tcg/sets", setId), 1200),
     needsOfficialSet ? fetchOfficialSet(setId) : Promise.resolve(null)
   ]);
 
