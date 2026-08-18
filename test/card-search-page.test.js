@@ -556,7 +556,7 @@ test("broad card-name searches sort the full result set newest first", async () 
   }
 });
 
-test("broad searches merge physical-card providers and keep only usable front artwork", async () => {
+test("broad searches keep the authoritative backend result stable when optional providers disagree", async () => {
   const originalFetch = global.fetch;
   global.fetch = async (url) => {
     const requestedUrl = String(url);
@@ -600,11 +600,60 @@ test("broad searches merge physical-card providers and keep only usable front ar
     const ids = payload.data.map((card) => card.id);
 
     assert.equal(res.statusCode, 200);
-    assert.equal(payload.totalCount, 3);
-    assert.deepEqual(new Set(ids), new Set(["sv7-148", "mcd21-17", "mep-039"]));
+    assert.equal(payload.totalCount, 2);
+    assert.deepEqual(new Set(ids), new Set(["sv7-148", "mcd21-17"]));
     assert.equal(ids.filter((id) => id === "sv7-148").length, 1);
-    assert.doesNotMatch(JSON.stringify(payload), /A1-053|mfb-25|tcgp/i);
-    assert.match(payload.data.find((card) => card.id === "mep-039").images.small, /card-images\/mep\/mep-039\.webp/);
+    assert.doesNotMatch(JSON.stringify(payload), /mep-039|A1-053|mfb-25|tcgp/i);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("broad search pagination keeps one total and never reorders earlier pages", async () => {
+  const originalFetch = global.fetch;
+  const backendCards = Array.from({ length: 40 }, (_, index) => ({
+    id: `sv8pt5-${index + 1}`,
+    name: "Pagination Test",
+    number: String(index + 1),
+    images: { small: `https://images.pokemontcg.io/sv8pt5/${index + 1}.png` },
+    set: { id: "sv8pt5", name: "Prismatic Evolutions" }
+  }));
+  global.fetch = async (url) => {
+    const requestedUrl = String(url);
+    if (requestedUrl === "https://palettetown-backend.vercel.app/api/tcg/sets") {
+      return { ok: true, async json() { return { data: [{ id: "sv8pt5", releaseDate: "2025/01/17" }] }; } };
+    }
+    if (requestedUrl.startsWith("https://palettetown-backend.vercel.app/api/tcg/cards")) {
+      return { ok: true, async json() { return { data: backendCards, totalCount: backendCards.length }; } };
+    }
+    if (requestedUrl.startsWith("https://api.tcgdex.net/v2/en/cards")) {
+      return { ok: true, async json() { return [{ id: "extra-1", localId: "1", name: "Pagination Test", image: "https://assets.tcgdex.net/en/xy/extra/1" }]; } };
+    }
+    if (requestedUrl.startsWith("https://api.tcgdex.net/v2/en/sets")) {
+      return { ok: true, async json() { return []; } };
+    }
+    if (requestedUrl.startsWith("https://api.pokemontcg.io")) {
+      return { ok: true, async json() { return { data: [{ id: "extra-2", name: "Pagination Test", images: { small: "https://images.pokemontcg.io/extra/2.png" } }] }; } };
+    }
+    if (requestedUrl.includes("/api/tcg/by-set")) throw new Error("Supplemental catalog unavailable");
+    throw new Error(`Unexpected URL ${requestedUrl}`);
+  };
+
+  try {
+    const page1Response = responseCapture();
+    const page2Response = responseCapture();
+    await searchCards({ query: { q: "pagination-stability-proof", page: "1", pageSize: "32" } }, page1Response);
+    await searchCards({ query: { q: "pagination-stability-proof", page: "2", pageSize: "32" } }, page2Response);
+    const page1 = JSON.parse(page1Response.body);
+    const page2 = JSON.parse(page2Response.body);
+    const page1Ids = new Set(page1.data.map((card) => card.id));
+
+    assert.equal(page1.totalCount, 40);
+    assert.equal(page2.totalCount, 40);
+    assert.equal(page1.data.length, 32);
+    assert.equal(page2.data.length, 8);
+    assert.ok(page2.data.every((card) => !page1Ids.has(card.id)));
+    assert.doesNotMatch(JSON.stringify([page1, page2]), /extra-1|extra-2/);
   } finally {
     global.fetch = originalFetch;
   }
