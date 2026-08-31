@@ -463,6 +463,7 @@ function renderSearchPage() {
       </a>
       <nav class="nav" aria-label="Primary">
         <a href="/#features">Features</a>
+        <a href="/sets">Browse sets</a>
         <a href="/search">Search cards</a>
         ${socialToolbar()}
       </nav>

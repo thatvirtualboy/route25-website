@@ -54,6 +54,7 @@ test("homepage web-search callout stays focused on card search", () => {
   assert.match(panel, />Web card search</);
   assert.match(panel, />Find a Pokémon card\.</);
   assert.match(panel, /href="\/search">Open card search</);
+  assert.match(panel, /href="\/sets">Browse Pokémon TCG sets</);
   assert.doesNotMatch(panel, /Collector tools|TCG journey|Collection management|Download Route 25/);
 });
 
@@ -75,7 +76,10 @@ test("generated card sitemaps contain only canonical locations", async () => {
       if (String(url).includes("/api/tcg/by-set")) {
         return { items: [{ id: "sv08.5-015" }, { id: "sv8pt5-15" }, { id: "sv08.5-016" }] };
       }
-      return { data: [{ id: "sv08.5", name: "Prismatic Evolutions", releaseDate: "2025/01/17" }] };
+      return { data: [
+        { id: "sv08.5", name: "Prismatic Evolutions", releaseDate: "2025/01/17" },
+        { id: "sv9_ja", name: "Battle Partners", releaseDate: "2025/01/24" }
+      ] };
     }
   });
 
@@ -85,6 +89,7 @@ test("generated card sitemaps contain only canonical locations", async () => {
     assert.equal(indexResponse.statusCode, 200);
     assert.match(indexResponse.body, /sitemap-cards\.xml\?set=sv8pt5/);
     assert.doesNotMatch(indexResponse.body, /set=sv08\.5/);
+    assert.doesNotMatch(indexResponse.body, /set=sv9_ja/);
     assert.doesNotMatch(indexResponse.body, /<lastmod>|<changefreq>|<priority>/);
 
     const setResponse = responseCapture();
@@ -106,7 +111,10 @@ test("set and static sitemaps omit unsupported or inaccurate update signals", as
   global.fetch = async () => ({
     ok: true,
     async json() {
-      return { data: [{ id: "base1", name: "Base", releaseDate: "1999/01/09" }] };
+      return { data: [
+        { id: "base1", name: "Base", releaseDate: "1999/01/09" },
+        { id: "sv9_ja", name: "Battle Partners", releaseDate: "2025/01/24" }
+      ] };
     }
   });
 
@@ -115,11 +123,13 @@ test("set and static sitemaps omit unsupported or inaccurate update signals", as
     await sitemapSets({ query: {} }, res);
     assert.equal(res.statusCode, 200);
     assert.match(res.body, /<loc>https:\/\/route25\.app\/sets\/base1<\/loc>/);
+    assert.match(res.body, /<loc>https:\/\/route25\.app\/sets\/sv9_ja<\/loc>/);
     assert.doesNotMatch(res.body, /<lastmod>|<changefreq>|<priority>/);
   } finally {
     global.fetch = originalFetch;
   }
 
   const staticSitemap = fs.readFileSync(path.join(root, "sitemap.xml"), "utf8");
+  assert.match(staticSitemap, /<loc>https:\/\/route25\.app\/sets<\/loc>/);
   assert.doesNotMatch(staticSitemap, /<lastmod>|<changefreq>|<priority>/);
 });

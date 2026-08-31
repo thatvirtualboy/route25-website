@@ -385,6 +385,12 @@ function structuredData({ set, cards, pageUrl, image }) {
           {
             "@type": "ListItem",
             position: 2,
+            name: "Pokemon TCG sets",
+            item: "https://route25.app/sets"
+          },
+          {
+            "@type": "ListItem",
+            position: 3,
             name,
             item: pageUrl
           }
@@ -473,6 +479,8 @@ function renderSetPage(set, cards, req) {
   const proto = req.headers["x-forwarded-proto"] || "https";
   const pageUrl = `${proto}://${host}/sets/${encodeURIComponent(set.id)}`;
   const name = set?.name || set?.id || "Pokemon TCG";
+  const japanese = isJapaneseSetId(set?.id);
+  const languageLabel = japanese ? "Japanese " : "";
   const year = releaseYear(set);
   const total = setTotal(set, cards);
   const rarities = rarityCount(cards);
@@ -480,8 +488,8 @@ function renderSetPage(set, cards, req) {
   const symbol = setSymbol(set);
   const heroImage = cardImage(cards[0]) || logo || symbol || "/assets/Icon.png";
   const appUrl = appDeepLink(`sets/${set.id}`);
-  const title = `${name}${year ? ` (${year})` : ""} Pokemon TCG Set List, Cards & Prices | Route 25`;
-  const description = `Browse ${name}${year ? ` (${year})` : ""} Pokemon TCG cards, set details, card images, values, and collection tools on Route 25.`;
+  const title = `${name}${year ? ` (${year})` : ""} ${languageLabel}Pokemon TCG Set List & Cards | Route 25`;
+  const description = `Browse the complete ${name}${year ? ` (${year})` : ""} ${languageLabel}Pokemon TCG card list, artwork, rarity, values, and collector details on Route 25.`;
 
   return `<!doctype html>
 <html lang="en">
@@ -526,6 +534,12 @@ function renderSetPage(set, cards, req) {
       align-items: center;
       padding: clamp(36px, 6vw, 82px) 0 46px;
     }
+    .page-breadcrumb {
+      padding-top: 24px;
+      color: rgba(255, 255, 255, 0.62);
+      font-size: 13px;
+    }
+    .page-breadcrumb a { color: rgba(255, 255, 255, 0.9); }
     .set-grid {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(300px, .86fr);
@@ -775,12 +789,14 @@ function renderSetPage(set, cards, req) {
       </a>
       <nav class="nav" aria-label="Primary">
         <a href="/#features">Features</a>
+        <a href="/sets">Browse sets</a>
         <a href="/search?set=${encodeURIComponent(set.id)}">Search cards</a>
         ${socialToolbar()}
       </nav>
     </div>
   </header>
   <main>
+    <nav class="container page-breadcrumb" aria-label="Breadcrumb"><a href="/">Route 25</a> / <a href="/sets">Pokemon TCG sets</a> / <span>${escapeHtml(name)}</span></nav>
     <section class="set-hero">
       <div class="container set-grid">
         <section class="set-copy">

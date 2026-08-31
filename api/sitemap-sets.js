@@ -1,5 +1,7 @@
-const BACKEND_ORIGIN = "https://palettetown-backend.vercel.app";
 const SITE_ORIGIN = "https://route25.app";
+const { isJapaneseSetId, route25BackendHeaders, route25BackendUrl } = require("../lib/route25-backend");
+const { canonicalCardSetId } = require("../lib/card-set-id");
+const { isPokemonTcgPocket } = require("../lib/card-product");
 
 function escapeXml(value) {
   return String(value ?? "")
@@ -11,21 +13,24 @@ function escapeXml(value) {
 }
 
 async function fetchJson(url) {
-  const response = await fetch(url, { headers: { accept: "application/json" } });
+  const response = await fetch(url, { headers: route25BackendHeaders(url, { accept: "application/json" }) });
   if (!response.ok) throw new Error(`Fetch failed ${response.status} for ${url}`);
   return response.json();
 }
 
-async function fetchSets() {
-  const payload = await fetchJson(`${BACKEND_ORIGIN}/api/tcg/sets`);
+async function fetchSets(setId = "") {
+  const payload = await fetchJson(route25BackendUrl("/api/tcg/sets", setId));
   return Array.isArray(payload?.data) ? payload.data : [];
 }
 
 function renderUrlset(sets) {
-  const body = sets
-    .filter((set) => set?.id)
-    .map((set) => {
-      const loc = `${SITE_ORIGIN}/sets/${encodeURIComponent(set.id)}`;
+  const ids = [...new Set(sets
+    .filter((set) => set?.id && !isPokemonTcgPocket(set))
+    .map((set) => canonicalCardSetId(set.id))
+    .filter(Boolean))];
+  const body = ids
+    .map((setId) => {
+      const loc = `${SITE_ORIGIN}/sets/${encodeURIComponent(setId)}`;
       return `  <url><loc>${escapeXml(loc)}</loc></url>`;
     })
     .join("\n");
@@ -38,7 +43,17 @@ ${body}
 
 module.exports = async (req, res) => {
   try {
-    const sets = await fetchSets();
+    const [internationalResult, japaneseResult] = await Promise.allSettled([
+      fetchSets(),
+      fetchSets("catalog_ja")
+    ]);
+    const international = internationalResult.status === "fulfilled" ? internationalResult.value : [];
+    const japanese = japaneseResult.status === "fulfilled" ? japaneseResult.value : [];
+    const sets = [
+      ...international.filter((set) => !isJapaneseSetId(set?.id)),
+      ...japanese.filter((set) => isJapaneseSetId(set?.id))
+    ];
+    if (!sets.length) throw new Error("No set catalogs available");
     res.statusCode = 200;
     res.setHeader("content-type", "application/xml; charset=utf-8");
     res.setHeader("cache-control", "s-maxage=86400, stale-while-revalidate=604800");

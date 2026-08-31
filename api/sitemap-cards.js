@@ -1,6 +1,7 @@
 const BACKEND_ORIGIN = "https://palettetown-backend.vercel.app";
 const SITE_ORIGIN = "https://route25.app";
 const { canonicalCardId, canonicalCardSetId } = require("../lib/card-set-id");
+const { isJapaneseSetId } = require("../lib/route25-backend");
 
 function escapeXml(value) {
   return String(value ?? "")
@@ -29,7 +30,7 @@ async function fetchCards(setId) {
 
 function renderSitemapIndex(sets) {
   const body = sets
-    .filter((set) => set?.id)
+    .filter((set) => set?.id && !isJapaneseSetId(set.id))
     .map((set) => {
       const loc = `${SITE_ORIGIN}/sitemap-cards.xml?set=${encodeURIComponent(canonicalCardSetId(set.id))}`;
       return `  <sitemap><loc>${escapeXml(loc)}</loc></sitemap>`;

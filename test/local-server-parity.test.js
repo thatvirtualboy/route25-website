@@ -29,4 +29,5 @@ test("local preview mirrors canonical home redirects and directory indexes", () 
   assert.match(source, /isDirectory\(\)\) filePath = path\.join\(filePath, "index\.html"\)/);
   assert.match(source, /url\.pathname === "\/sitemap-cards\.xml"/);
   assert.match(source, /url\.pathname === "\/sitemap-sets\.xml"/);
+  assert.match(source, /url\.pathname === "\/sets" \|\| url\.pathname === "\/sets\/"/);
 });

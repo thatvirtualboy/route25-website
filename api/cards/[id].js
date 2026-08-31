@@ -698,11 +698,13 @@ function cardSeoProfile(card) {
   const artist = cleanText(card?.artist || card?.illustrator);
   const cardLabel = `${name}${fullNumber ? ` ${fullNumber}` : ""}`;
   const rarityText = rarity ? `${rarity} ` : "";
+  const japanese = isJapaneseSetId(card?.set?.id || cardSetId(card?.id));
+  const languageLabel = japanese ? "Japanese " : "";
 
   if (String(card?.id || "").toLowerCase() !== "me4-116") {
     return {
-      title: `${cardLabel} — ${setName} Pokemon Card | Route 25`,
-      description: `${cardLabel} from ${setName}. View the ${rarityText}Pokemon TCG card, artwork, card text, artist, set details, and current value on Route 25.`,
+      title: `${cardLabel} — ${setName} ${languageLabel}Pokemon Card | Route 25`,
+      description: `${cardLabel} from ${setName}. View the ${rarityText}${languageLabel}Pokemon TCG card, artwork, card text, artist, set details, and current value on Route 25.`,
       heading: `${cardLabel} card guide`,
       summary: `${cardLabel} is a ${rarityText}card from ${setName}${artist ? `, illustrated by ${artist}` : ""}.`,
       facts: [],
@@ -740,7 +742,7 @@ function cardStructuredData(card, pageUrl, image, description, seoProfile) {
         "@type": "WebPage",
         "@id": `${pageUrl}#webpage`,
         url: pageUrl,
-        name: `${card.name} ${setName} Pokemon TCG Card | Route 25`,
+        name: `${card.name} ${setName} ${isJapaneseSetId(setId) ? "Japanese " : ""}Pokemon TCG Card | Route 25`,
         description,
         image
       },
@@ -776,15 +778,21 @@ function cardStructuredData(card, pageUrl, image, description, seoProfile) {
             name: "Route 25",
             item: "https://route25.app/"
           },
-          setId ? {
+          {
             "@type": "ListItem",
             position: 2,
+            name: "Pokemon TCG sets",
+            item: "https://route25.app/sets"
+          },
+          setId ? {
+            "@type": "ListItem",
+            position: 3,
             name: setName,
             item: `https://route25.app/sets/${encodeURIComponent(setId)}`
           } : null,
           {
             "@type": "ListItem",
-            position: 3,
+            position: 4,
             name: card.name,
             item: pageUrl
           }
@@ -1288,6 +1296,13 @@ function renderCardPage(card, req, options = {}) {
       display: grid;
       align-items: center;
     }
+    .page-breadcrumb {
+      grid-column: 1 / -1;
+      color: rgba(255, 255, 255, 0.62);
+      font-size: 13px;
+      margin-bottom: -8px;
+    }
+    .page-breadcrumb a { color: rgba(255, 255, 255, 0.9); }
     .card-share-grid {
       display: grid;
       grid-template-columns: minmax(260px, 0.9fr) minmax(0, 1.1fr);
@@ -1624,6 +1639,7 @@ function renderCardPage(card, req, options = {}) {
       </a>
       <nav class="nav" aria-label="Primary">
         <a href="/#features">Features</a>
+        <a href="/sets">Browse sets</a>
         <a href="/search">Search cards</a>
         ${socialToolbar()}
       </nav>
@@ -1631,6 +1647,7 @@ function renderCardPage(card, req, options = {}) {
   </header>
   <main class="card-share-hero">
     <div class="container card-share-grid">
+      <nav class="page-breadcrumb" aria-label="Breadcrumb"><a href="/">Route 25</a> / <a href="/sets">Pokemon TCG sets</a>${browseSetId ? ` / <a href="${escapeHtml(browseSetUrl)}">${escapeHtml(setName)}</a>` : ""} / <span>${escapeHtml(card.name)}</span></nav>
       <div class="card-art-stage">
         ${image ? `<img class="card-art" src="${escapeHtml(image)}" alt="${escapeHtml(`${card.name}${setCardNumber ? ` ${setCardNumber}` : ""} ${card?.rarity || "Pokemon"} card from ${setName}`)}" fetchpriority="high" decoding="async"${imageFallbackAttribute(imageCandidates)}${options.cleanUrl ? imageUpgradeAttribute(highResCandidates, image) : ""} />` : ""}
       </div>

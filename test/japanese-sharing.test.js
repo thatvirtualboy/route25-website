@@ -59,6 +59,9 @@ test("Japanese card pages use the regional catalog without English fallbacks", a
     assert.match(requestedUrls[0], /region=jp/);
     assert.doesNotMatch(requestedUrls[0], /\/api\/tcg\/cards/);
     assert.match(res.body, /Battle Partners/);
+    assert.match(res.body, /Battle Partners Japanese Pokemon Card \| Route 25/);
+    assert.match(res.body, /href="\/sets">Browse sets<\/a>/);
+    assert.match(res.body, /Pokemon TCG sets/);
     assert.match(res.body, /assets\.tcgdex\.net\/ja\/SV\/SV9\/001\/high\.png/);
     assert.doesNotMatch(res.body, /images\.scrydex\.com\/pokemon\/sv9_ja-1/);
   } finally {
@@ -104,6 +107,8 @@ test("Japanese set pages load sets and cards from the regional catalog", async (
     assert.equal(requestedUrls.length, 2);
     assert.ok(requestedUrls.every((url) => url.includes("region=jp")));
     assert.match(res.body, /Battle Partners/);
+    assert.match(res.body, /Battle Partners \(2025\) Japanese Pokemon TCG Set List &amp; Cards \| Route 25/);
+    assert.match(res.body, /href="\/sets">Browse sets<\/a>/);
     assert.match(res.body, /assets\.tcgdex\.net\/ja\/SV\/SV9\/001\/low\.webp/);
     assert.doesNotMatch(res.body, /images\.scrydex\.com\/pokemon\/sv9_ja-1/);
   } finally {

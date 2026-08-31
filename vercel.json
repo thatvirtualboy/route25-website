@@ -108,6 +108,14 @@
       "destination": "/api/card-search-data.js"
     },
     {
+      "source": "/sets",
+      "destination": "/api/set-directory.js"
+    },
+    {
+      "source": "/sets/",
+      "destination": "/api/set-directory.js"
+    },
+    {
       "source": "/cards/:id",
       "destination": "/api/cards.js?id=:id"
     },
