@@ -74,6 +74,7 @@ test("production CSP allows every card-image provider", () => {
   )?.value;
 
   const requiredImageSources = [
+    "https://palettetown-backend.vercel.app",
     "https://images.scrydex.com",
     "https://images.pokemontcg.io",
     "https://assets.tcgdex.net",

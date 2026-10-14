@@ -58,6 +58,37 @@ test("homepage web-search callout stays focused on card search", () => {
   assert.doesNotMatch(panel, /Collector tools|TCG journey|Collection management|Download Route 25/);
 });
 
+test("Android availability is reflected across download surfaces and shared toolbars", () => {
+  const homepage = fs.readFileSync(path.join(root, "index.html"), "utf8");
+  const playUrl = "https://play.google.com/store/apps/details?id=app.route25.palettetown";
+
+  assert.match(homepage, new RegExp(`href="${playUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
+  assert.match(homepage, /src="\/assets\/google-play-official-badge\.svg"/);
+  assert.match(homepage, /"operatingSystem": "iOS, Android"/);
+  assert.doesNotMatch(homepage, /coming soon to Google Play/i);
+
+  const toolbarSources = [
+    "index.html",
+    path.join("api", "card-search.js"),
+    path.join("api", "cards", "[id].js"),
+    path.join("api", "sets", "[id].js"),
+    path.join("api", "newsletter-page.js"),
+    path.join("newsletter", "admin.html"),
+    path.join("newsletter", "index.html"),
+    path.join("newsletter", "issue.html"),
+    path.join("newsletter", "privacy.html"),
+    path.join("newsletter", "submit.html"),
+    path.join("newsletter", "subscribe.html")
+  ];
+
+  for (const filename of toolbarSources) {
+    const source = fs.readFileSync(path.join(root, filename), "utf8");
+    assert.match(source, /apps\.apple\.com\/us\/app\/route-25-tcg-social-network\/id6755665546/, `${filename} must link to the App Store`);
+    assert.match(source, /play\.google\.com\/store\/apps\/details\?id=app\.route25\.palettetown/, `${filename} must link to Google Play`);
+    assert.match(source, /social-google-play\.svg/, `${filename} must show the Google Play toolbar icon`);
+  }
+});
+
 test("the public Elite Trainers page is indexable and self-canonical", () => {
   const html = fs.readFileSync(path.join(root, "elite-trainers", "index.html"), "utf8");
   const sitemap = fs.readFileSync(path.join(root, "sitemap.xml"), "utf8");
