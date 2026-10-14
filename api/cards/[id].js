@@ -860,7 +860,7 @@ function detailRows(card, options = {}) {
             ? '<span class="price-loading"><span class="price-spinner" aria-hidden="true"></span><span>Loading price</span></span>'
             : escapeHtml(value)}</span>`
         : linkUrl
-        ? `<a class="detail-link" href="${escapeHtml(linkUrl)}" target="_blank" rel="nofollow sponsored noopener noreferrer"${label === "TCGPlayer" ? " data-tcgplayer-affiliate-link" : ""}>${escapeHtml(value)}${isExternal ? '<span class="external-link-icon" aria-hidden="true">↗</span>' : ""}<span class="sr-only"> Opens in a new tab</span></a>`
+        ? `<a class="detail-link" href="${escapeHtml(linkUrl)}" target="_blank" rel="nofollow sponsored noopener noreferrer"${label === "TCGPlayer" ? " data-tcgplayer-affiliate-link" : ""}${label === "eBay" ? ' aria-describedby="ebay-affiliate-disclosure"' : ""}>${escapeHtml(value)}${isExternal ? '<span class="external-link-icon" aria-hidden="true">↗</span>' : ""}<span class="sr-only"> Opens in a new tab</span></a>`
         : escapeHtml(value)}
       </dd>
     </div>
@@ -1449,6 +1449,12 @@ function renderCardPage(card, req, options = {}) {
     .detail-link:hover {
       color: var(--accent);
     }
+    .affiliate-disclosure {
+      margin: -12px 0 0;
+      color: rgba(255, 255, 255, 0.72);
+      font-size: 13px;
+      line-height: 1.6;
+    }
     .external-link-icon {
       font-size: 0.86em;
       line-height: 1;
@@ -1660,6 +1666,7 @@ function renderCardPage(card, req, options = {}) {
         <p class="card-meta-line">${escapeHtml([typeText, card?.rarity, setCardNumber ? `Card ${setCardNumber}` : null].filter(Boolean).join(" | "))}</p>
         ${variantChips(card, selected, options.tcgcsvQuote)}
         <dl class="detail-list">${detailRows(card, { tcgcsvQuote: options.tcgcsvQuote, ebayUrl, tcgplayerUrl, selectedVariant: selected, enableAsyncPricing: true })}</dl>
+        <p class="affiliate-disclosure" id="ebay-affiliate-disclosure">Route 25 contains eBay affiliate links. As an eBay Partner Network affiliate, we earn commissions from qualifying purchases.</p>
         ${flavorText}
         <div class="card-actions">
           <a class="button primary" href="${APP_STORE_URL}" target="_blank" rel="noopener noreferrer">Get Route 25</a>
