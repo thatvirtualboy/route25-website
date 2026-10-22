@@ -5,6 +5,7 @@ const {
   route25BackendUrl
 } = require("../../lib/route25-backend");
 const APP_STORE_URL = "https://apps.apple.com/us/app/route-25-tcg-social-network/id6755665546";
+const GOOGLE_PLAY_URL = "https://play.google.com/store/apps/details?id=app.route25.palettetown";
 const X_URL = "https://x.com/route25app";
 const INSTAGRAM_URL = "https://www.instagram.com/route25app/";
 const DISCORD_URL = "https://discord.gg/WncmGEFuNw";
@@ -1214,6 +1215,9 @@ function socialToolbar() {
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M16.365 1.43c0 1.14-.421 2.139-1.264 2.996-.882.892-1.913 1.405-3.016 1.322-.132-1.088.438-2.23 1.222-3.035C14.172 1.824 15.598 1.155 16.365 1.43ZM20.509 17.37c-.538 1.235-.797 1.785-1.489 2.876-.968 1.488-2.332 3.344-4.018 3.36-1.498.014-1.884-.986-3.918-.975-2.034.01-2.458.993-3.957.979-1.687-.016-2.974-1.69-3.943-3.178-2.706-4.15-2.99-9.02-1.319-11.61 1.188-1.838 3.064-2.914 4.829-2.914 1.797 0 2.927.986 4.415.986 1.443 0 2.322-.988 4.403-.988 1.574 0 3.24.858 4.424 2.34-3.886 2.13-3.254 7.677.573 9.124Z"/>
             </svg>
+          </a>
+          <a href="${GOOGLE_PLAY_URL}" target="_blank" rel="noopener noreferrer" aria-label="Get Route 25 on Google Play" class="social-link google-play-link">
+            <img src="/assets/social-google-play.svg" alt="" aria-hidden="true" />
           </a>
         </span>`;
 }
