@@ -163,7 +163,7 @@ function wireMobileNav() {
   });
 
   window.addEventListener("resize", () => {
-    if (window.innerWidth > 720) setOpen(false);
+    if (window.innerWidth > 920) setOpen(false);
   });
 
   for (const link of qsa("#site-nav a")) {
