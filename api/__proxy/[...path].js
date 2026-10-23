@@ -58,6 +58,9 @@ function setResponseHeaders(res, upstreamHeaders, backendOrigin) {
   for (const [key, value] of upstreamHeaders.entries()) {
     const lower = key.toLowerCase();
     if (HOP_BY_HOP_HEADERS.has(lower)) continue;
+    // fetch decodes upstream compression before exposing the response body.
+    // Forwarding its encoding would make the browser decompress plain bytes again.
+    if (lower === "content-encoding") continue;
     if (lower === "content-length") continue;
     if (lower === "set-cookie") continue;
 
