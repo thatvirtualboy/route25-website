@@ -34,11 +34,14 @@ test('rendered widgets are escaped, responsive, read-only and open links outside
  const opts=embeds.options({kind:'collection',id:'trainer1',token,theme:'light'});
  const html=embeds.renderCollection(payload,opts);
  assert.match(html,/\$11,146\.33/);assert.match(html,/Showing 12 of 135/);assert.equal((html.match(/class="widget-card"/g)||[]).length,12);
- assert.match(html,/&lt;script&gt;alert\(1\)&lt;\/script&gt;/);assert.doesNotMatch(html,/<script|<form|javascript:|window.location/);
+ assert.match(html,/&lt;script&gt;alert\(1\)&lt;\/script&gt;/);assert.doesNotMatch(html,/<form|javascript:|window.location/);
+ assert.deepEqual(html.match(/<script[^>]*>.*?<\/script>/g), ['<script src="/assets/embed-content.js" defer></script>']);
+ assert.match(embeds.EMBED_CSP, /script-src 'self'/);
+ assert.doesNotMatch(embeds.EMBED_CSP, /unsafe-inline|unsafe-eval/);
  assert.match(html,/data-theme="light"/);assert.match(html,/target="_blank" rel="noopener noreferrer"/);
  const hidden=embeds.renderCollection(payload,{...opts,showValue:false});assert.doesNotMatch(hidden,/11,146|11146|Estimated value/);
  const empty=embeds.renderCollection({...payload,cards:[],collection:{cardCount:0,totalOwnedCopies:0} },opts);assert.match(empty,/No cards/);assert.doesNotMatch(empty,/NaN/);
- assert.doesNotMatch(embeds.renderTrainer(trainer,{id:'trainer1',theme:'dark'}),/<script|javascript:|<form/);
+ assert.doesNotMatch(embeds.renderTrainer(trainer,{id:'trainer1',theme:'dark'}),/javascript:|<form/);
 });
 
 test('handler rejects missing tokens and writes before performing reads; HEAD has no body',async()=>{
@@ -73,13 +76,15 @@ test('collection reads require backend authorization and never forward visitor c
 });
 
 test('builder generates portable code and rejects unrelated or incomplete links',async()=>{
- const elements=new Map();function element(id){if(!elements.has(id))elements.set(id,{value:'',checked:true,hidden:true,textContent:'',events:{},addEventListener(k,fn){this.events[k]=fn},removeAttribute(k){delete this[k]},focus(){},select(){}});return elements.get(id)}
+ const elements=new Map();function element(id){if(!elements.has(id))elements.set(id,{value:'',checked:true,hidden:true,textContent:'',style:{},events:{},addEventListener(k,fn){this.events[k]=fn},removeAttribute(k){delete this[k]},focus(){},select(){}});return elements.get(id)}
  let copied='';const context={document:{querySelector:element},URL,navigator:{clipboard:{writeText:async text=>{copied=text}}}};
  vm.runInNewContext(fs.readFileSync(require.resolve('../assets/embed-builder.js'),'utf8'),context);
  const submit=()=>element('#embed-form').events.submit({preventDefault(){}});
  element('#embed-theme').value='light';element('#share-link').value=`https://route25.app/collection/trainer1?token=${token}`;submit();
  assert.equal(element('#embed-result').hidden,false);assert.match(element('#embed-code').value,/https:\/\/route25.app\/embed\/collection\/trainer1/);assert.match(element('#embed-code').value,/&amp;theme=light/);
- assert.equal(element('#embed-preview').height,700);await element('#copy-code').events.click();assert.equal(copied,element('#embed-code').value);
+ assert.match(element('#embed-code').value, /<iframe data-route25-embed/);
+ assert.match(element('#embed-code').value, /\n<script async src="https:\/\/route25.app\/assets\/embed-resize.js"><\/script>/);
+ assert.equal(element('#embed-preview').style.height,'700px');assert.equal(element('#embed-preview').height,700);await element('#copy-code').events.click();assert.equal(copied,element('#embed-code').value);
  element('#show-value').checked=false;submit();assert.match(element('#embed-code').value,/value=0/);
  element('#share-link').value='https://route25.app/trainer/trainer1';submit();assert.equal(element('#embed-preview').height,320);assert.doesNotMatch(element('#embed-code').value,/token=/);
  for(const url of ['https://evil.test/trainer/id','https://route25.app@evil.test/trainer/id','https://route25.app/collection/id','https://route25.app/login']){element('#share-link').value=url;submit();assert.equal(element('#embed-result').hidden,true);assert.ok(element('#embed-error').textContent)}
