@@ -12,6 +12,9 @@ const setPage = require(path.join(root, "api/sets.js"));
 const sitemapCards = require(path.join(root, "api/sitemap-cards.js"));
 const sitemapSets = require(path.join(root, "api/sitemap-sets.js"));
 
+const embed = require(path.join(root, "api/embed.js"));
+const defaultCsp = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8")).headers.flatMap(rule => rule.headers).find(header => header.key === "Content-Security-Policy").value;
+
 const mimeTypes = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -63,6 +66,13 @@ function createLocalServer() {
     req.query = Object.fromEntries(url.searchParams.entries());
 
     try {
+      res.setHeader("Content-Security-Policy", defaultCsp);
+      const embedMatch = url.pathname.match(/^\/embed\/(trainer|collection)\/([A-Za-z0-9_-]+)\/?$/);
+      if (embedMatch) {
+        req.query.kind = embedMatch[1]; req.query.id = embedMatch[2];
+        await embed(req, res);
+        return;
+      }
       if (url.pathname === "/index.html") {
         res.statusCode = 308;
         res.setHeader("location", "/");

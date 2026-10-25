@@ -31,7 +31,7 @@ test("Vercel routes public issues through the server renderer and protects priva
   const config = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "vercel.json"), "utf8"));
   assert.equal(config.rewrites.find(item => item.source === "/newsletter/:slug")?.destination, "/api/newsletter-page.js?slug=:slug");
   assert.equal(config.rewrites.find(item => item.source === "/sitemap-newsletter.xml")?.destination, "/api/sitemap-newsletter.js");
-  assert.ok(config.headers.find(item => item.source === "/(.*)")?.headers.some(header => header.key === "Content-Security-Policy"));
+  assert.ok(config.headers.some(item => item.headers.some(header => header.key === "Content-Security-Policy" && header.value.includes("frame-ancestors 'none'"))));
   assert.ok(config.headers.find(item => item.source === "/newsletter/admin")?.headers.some(header => header.key === "X-Robots-Tag"));
   assert.ok(config.headers.find(item => item.source === "/newsletter/preview/(.*)")?.headers.some(header => header.key === "X-Robots-Tag"));
 });

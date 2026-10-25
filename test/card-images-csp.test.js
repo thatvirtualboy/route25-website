@@ -68,7 +68,7 @@ test("production CSP allows every card-image provider", () => {
   const config = JSON.parse(
     fs.readFileSync(path.join(__dirname, "..", "vercel.json"), "utf8"),
   );
-  const globalHeaders = config.headers.find((item) => item.source === "/(.*)");
+  const globalHeaders = config.headers.find((item) => item.headers.some(header => header.key === "Content-Security-Policy"));
   const csp = globalHeaders?.headers.find(
     (header) => header.key === "Content-Security-Policy",
   )?.value;
