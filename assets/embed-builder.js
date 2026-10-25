@@ -23,9 +23,9 @@
       const height = kind === 'trainer' ? 320 : 700;
       const title = kind === 'trainer' ? 'Route 25 trainer profile' : 'Route 25 card collection';
       const escape = value => value.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
-      code.value = `<iframe src="${escape(url.href)}" title="${title}" width="100%" height="${height}" style="border:0;border-radius:20px;max-width:760px" loading="lazy" referrerpolicy="no-referrer"></iframe>`;
+      code.value = `<iframe data-route25-embed src="${escape(url.href)}" title="${title}" width="100%" height="${height}" style="display:block;border:0;border-radius:20px;max-width:760px" loading="lazy" referrerpolicy="no-referrer"></iframe>\n<script async src="https://route25.app/assets/embed-resize.js"></script>`;
       // Keep preview on this deployment, while the copied code uses the public site.
-      preview.src = url.pathname + url.search; preview.height = height; preview.title = title;
+      preview.src = url.pathname + url.search; preview.height = height; preview.style.height = `${height}px`; preview.title = title;
       result.hidden = false;
     } catch (e) { error.textContent = e.message; }
   }
