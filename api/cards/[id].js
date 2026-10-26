@@ -1675,7 +1675,7 @@ function renderCardPage(card, req, options = {}) {
         <div class="card-actions">
           <a class="button primary" href="${APP_STORE_URL}" target="_blank" rel="noopener noreferrer">Get Route 25</a>
           <a class="button" href="${escapeHtml(browseSetUrl)}">Browse this set</a>
-          <a class="button" href="${escapeHtml(appCardUrl)}">Open this in Route 25</a>
+          <a class="button" href="https://route25.app" data-app-card-url="${escapeHtml(appCardUrl)}">Open this in Route 25</a>
         </div>
       </section>
     </div>
@@ -1691,6 +1691,12 @@ function renderCardPage(card, req, options = {}) {
   </main>
   <script>
     ${options.cleanUrl ? `window.history.replaceState({}, "", ${JSON.stringify(cleanCardPath(card.id, req.query))});` : ""}
+    (function wireAppCardLink() {
+      // Keep the download landing page on platforms without a Route 25 app.
+      const link = document.querySelector("[data-app-card-url]");
+      const supportsApp = /Android|iPhone|iPad|iPod|Macintosh|Mac OS X/i.test(navigator.userAgent || "");
+      if (link && supportsApp) link.href = link.dataset.appCardUrl;
+    })();
     (function upgradeCardImage() {
       const img = document.querySelector(".card-art[data-hires-candidates]");
       if (!img) return;
