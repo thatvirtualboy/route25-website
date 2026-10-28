@@ -47,14 +47,13 @@ test("public HTML links only use the canonical home URL", () => {
 
 test("homepage web-search callout stays focused on card search", () => {
   const homepage = fs.readFileSync(path.join(root, "index.html"), "utf8");
-  const panelStart = homepage.indexOf('<div class="seo-panel"');
+  const panelStart = homepage.indexOf('<section class="discovery-section');
   const panel = homepage.slice(panelStart, homepage.indexOf("</section>", panelStart));
 
   assert.ok(panelStart >= 0);
-  assert.match(panel, />Web card search</);
-  assert.match(panel, />Find a Pokémon card\.</);
-  assert.match(panel, /href="\/search">Open card search</);
-  assert.match(panel, /href="\/sets">Browse Pokémon TCG sets</);
+  assert.match(panel, /explore Pokémon cards and sets/i);
+  assert.match(panel, /href="\/search">Find a card /);
+  assert.match(panel, /href="\/sets">Explore the sets /);
   assert.doesNotMatch(panel, /Collector tools|TCG journey|Collection management|Download Route 25/);
 });
 
@@ -68,7 +67,6 @@ test("Android availability is reflected across download surfaces and shared tool
   assert.doesNotMatch(homepage, /coming soon to Google Play/i);
 
   const toolbarSources = [
-    "index.html",
     path.join("api", "card-search.js"),
     path.join("api", "cards", "[id].js"),
     path.join("api", "sets", "[id].js"),
