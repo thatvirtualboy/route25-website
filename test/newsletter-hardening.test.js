@@ -295,10 +295,14 @@ test("published collector spotlights use branded same-origin social previews", (
   assert.ok(vercel.rewrites.some(rewrite => rewrite.source === "/api/newsletter/og" && rewrite.destination === "/api/newsletter-og.js"));
 });
 
-test("story subscription prompts state the Saturday delivery cadence", () => {
+test("collector spotlight copy does not promise a recurring delivery schedule", () => {
+  const archivePage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "index.html"), "utf8");
   const previewPage = fs.readFileSync(path.join(__dirname, "..", "newsletter", "issue.html"), "utf8");
   const publicRenderer = fs.readFileSync(path.join(__dirname, "..", "api", "newsletter-page.js"), "utf8");
 
-  assert.match(previewPage, /Delivered to your inbox every Saturday/);
-  assert.match(publicRenderer, /Delivered to your inbox every Saturday/);
+  for (const source of [archivePage, previewPage, publicRenderer]) {
+    assert.doesNotMatch(source, /weekly|every week|every Saturday/i);
+  }
+  assert.match(previewPage, /Delivered to your inbox\./);
+  assert.match(publicRenderer, /Delivered to your inbox\./);
 });

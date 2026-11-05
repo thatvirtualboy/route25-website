@@ -163,8 +163,10 @@ function renderDirectory(international, japanese) {
     .directory-set-copy small { color: var(--muted); margin-top: 5px; line-height: 1.35; }
     .directory-empty { color: var(--muted); margin-top: 18px; }
   </style>
+<link rel="stylesheet" href="/assets/public.css?v=20261105a" />
+<script defer src="/assets/public.js?v=20261105a"></script>
 </head>
-<body>
+<body class="public-page directory-page">
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="topbar">
     <div class="topbar-inner">
@@ -229,7 +231,9 @@ module.exports = async (req, res) => {
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.setHeader("cache-control", "no-store");
     res.setHeader("retry-after", "60");
-    return res.end("<!doctype html><html><head><meta name=\"robots\" content=\"noindex,nofollow\"><title>Set directory unavailable | Route 25</title></head><body><h1>Set directory temporarily unavailable</h1></body></html>");
+    return res.end(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Set directory unavailable | Route 25</title><link rel="stylesheet" href="/assets/public.css?v=20261105a" />
+<script defer src="/assets/public.js?v=20261105a"></script>
+</head><body class="public-page directory-page utility-page"><h1>Set directory temporarily unavailable</h1></body></html>`);
   }
   res.statusCode = 200;
   res.setHeader("content-type", "text/html; charset=utf-8");
