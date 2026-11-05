@@ -408,10 +408,6 @@ function renderSearchPage() {
       .results-grid {
         grid-template-columns: repeat(4, minmax(0, 1fr));
       }
-      .topbar .nav > a:not(.button),
-      .topbar .social-toolbar {
-        display: none;
-      }
     }
     @media (max-width: 440px) {
       .search-form {
