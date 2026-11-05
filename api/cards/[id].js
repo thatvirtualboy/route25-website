@@ -1260,7 +1260,7 @@ function renderCardPage(card, req, options = {}) {
   <title>${escapeHtml(title)}</title>
   <meta name="description" content="${escapeHtml(description)}" />
   <meta name="robots" content="index, follow, max-image-preview:large" />
-  <meta name="theme-color" content="#05060a" />
+  <meta name="theme-color" content="#ffffff" />
   <meta name="apple-itunes-app" content="app-id=${APP_STORE_ID}, app-argument=${escapeHtml(appCardUrl)}" />
   <meta property="og:title" content="${escapeHtml(title)}" />
   <meta property="og:description" content="${escapeHtml(description)}" />
@@ -1639,8 +1639,10 @@ function renderCardPage(card, req, options = {}) {
       }
     }
   </style>
+<link rel="stylesheet" href="/assets/public.css?v=20261105a" />
+<script defer src="/assets/public.js?v=20261105a"></script>
 </head>
-<body>
+<body class="public-page card-page">
   <header class="topbar">
     <div class="topbar-inner">
       <a class="brand" href="/" aria-label="Route 25 home">
@@ -1735,8 +1737,10 @@ function renderNotFound(cardId) {
   <title>Card not found | Route 25</title>
   <meta name="robots" content="noindex, nofollow" />
   <link rel="stylesheet" href="/assets/site.css" />
+<link rel="stylesheet" href="/assets/public.css?v=20261105a" />
+<script defer src="/assets/public.js?v=20261105a"></script>
 </head>
-<body>
+<body class="public-page card-page">
   <main class="hero">
     <div class="container">
       <p class="badge">Card not found</p>
@@ -1758,8 +1762,10 @@ function renderUnavailable(cardId) {
   <title>Card temporarily unavailable | Route 25</title>
   <meta name="robots" content="noindex, nofollow" />
   <link rel="stylesheet" href="/assets/site.css" />
+<link rel="stylesheet" href="/assets/public.css?v=20261105a" />
+<script defer src="/assets/public.js?v=20261105a"></script>
 </head>
-<body>
+<body class="public-page card-page">
   <main class="hero">
     <div class="container">
       <p class="badge">Temporary lookup issue</p>

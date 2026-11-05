@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
-const { proxyTargetUrl } = require("../scripts/local-server");
+const { proxyTargetUrl, publicNewsletterUrl } = require("../scripts/local-server");
 
 test("local preview mirrors production backend rewrites", () => {
   assert.equal(
@@ -30,4 +30,13 @@ test("local preview mirrors canonical home redirects and directory indexes", () 
   assert.match(source, /url\.pathname === "\/sitemap-cards\.xml"/);
   assert.match(source, /url\.pathname === "\/sitemap-sets\.xml"/);
   assert.match(source, /url\.pathname === "\/sets" \|\| url\.pathname === "\/sets\/"/);
+});
+
+test("local newsletter preview only reads public content and strips private parameters", () => {
+  assert.equal(publicNewsletterUrl("GET", new URLSearchParams("action=issues")), "https://route25.app/api/newsletter?action=issues");
+  assert.equal(publicNewsletterUrl("GET", new URLSearchParams("action=issue&slug=pix&token=private")), "https://route25.app/api/newsletter?action=issue&slug=pix");
+  for (const action of ["issue-preview", "subscribers", "submit", "upload-url", "admin"]) {
+    assert.equal(publicNewsletterUrl("GET", new URLSearchParams({ action })), null);
+  }
+  assert.equal(publicNewsletterUrl("POST", new URLSearchParams("action=issues")), null);
 });

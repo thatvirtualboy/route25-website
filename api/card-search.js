@@ -49,7 +49,7 @@ function renderSearchPage() {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Card Search | Route 25</title>
   <meta name="description" content="Search Pokemon TCG cards by card name on Route 25." />
-  <meta name="theme-color" content="#05060a" />
+  <meta name="theme-color" content="#ffffff" />
   <meta name="apple-itunes-app" content="app-id=${APP_STORE_ID}, app-argument=${escapeHtml(appArgument)}" />
   <link rel="canonical" href="https://route25.app/search" />
   <link rel="icon" href="/favicon.png" />
@@ -457,8 +457,10 @@ function renderSearchPage() {
       }
     }
   </style>
+<link rel="stylesheet" href="/assets/public.css?v=20261105a" />
+<script defer src="/assets/public.js?v=20261105a"></script>
 </head>
-<body>
+<body class="public-page search-page">
   <header class="topbar">
     <div class="topbar-inner">
       <a class="brand" href="/" aria-label="Route 25 home">

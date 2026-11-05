@@ -46,7 +46,16 @@ async function proxyBackend(pathname, search, res) {
   res.end(Buffer.from(await response.arrayBuffer()));
 }
 
-function serveStatic(pathname, res) {
+function publicNewsletterUrl(method, params) {
+  const action = params.get("action");
+  if (method !== "GET" || !["issues", "issue", "questions", "public-config"].includes(action)) return null;
+  const target = new URL("https://route25.app/api/newsletter");
+  target.searchParams.set("action", action);
+  if (action === "issue") target.searchParams.set("slug", params.get("slug") || "");
+  return target.toString();
+}
+
+function serveStatic(pathname, res, statusCode = 200) {
   const relativePath = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
   let filePath = path.resolve(root, relativePath);
   if (!filePath.startsWith(`${root}${path.sep}`) || !fs.existsSync(filePath)) {
@@ -54,7 +63,7 @@ function serveStatic(pathname, res) {
   }
   if (fs.statSync(filePath).isDirectory()) filePath = path.join(filePath, "index.html");
   if (!filePath.startsWith(`${root}${path.sep}`) || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) return false;
-  res.statusCode = 200;
+  res.statusCode = statusCode;
   res.setHeader("content-type", mimeTypes[path.extname(filePath).toLowerCase()] || "application/octet-stream");
   fs.createReadStream(filePath).pipe(res);
   return true;
@@ -87,6 +96,29 @@ function createLocalServer() {
         await searchData(req, res);
         return;
       }
+      if (url.pathname === "/api/newsletter") {
+        // Local previews read public stories only; forms cannot write to production.
+        const target = publicNewsletterUrl(req.method, url.searchParams);
+        if (!target) {
+          res.statusCode = 405;
+          res.setHeader("content-type", "application/json; charset=utf-8");
+          res.end(JSON.stringify({ error: "Newsletter submissions are disabled in the local preview." }));
+          return;
+        }
+        const response = await fetch(target);
+        res.statusCode = response.status;
+        res.setHeader("content-type", "application/json; charset=utf-8");
+        res.end(await response.text());
+        return;
+      }
+      if (/^\/newsletter\/(submit|subscribe|privacy)\/?$/.test(url.pathname)) {
+        serveStatic(`${url.pathname.replace(/\/$/, "")}.html`, res);
+        return;
+      }
+      if (/^\/newsletter\/[^/.]+\/?$/.test(url.pathname) && !/^\/newsletter\/(admin|preview)\/?$/.test(url.pathname)) {
+        serveStatic("/newsletter/issue.html", res);
+        return;
+      }
       if (url.pathname === "/sets" || url.pathname === "/sets/") {
         await setDirectory(req, res);
         return;
@@ -99,7 +131,7 @@ function createLocalServer() {
         await sitemapSets(req, res);
         return;
       }
-      if (url.pathname.startsWith("/api/proxy/") || url.pathname.startsWith("/api/__proxy/") || url.pathname.startsWith("/card-images/")) {
+      if (url.pathname.startsWith("/api/proxy/") || url.pathname.startsWith("/api/__proxy/") || url.pathname.startsWith("/card-images/") || url.pathname.startsWith("/set-logos/") || url.pathname.startsWith("/trainer-avatars/")) {
         await proxyBackend(url.pathname, url.search, res);
         return;
       }
@@ -116,6 +148,7 @@ function createLocalServer() {
         return;
       }
       if (serveStatic(url.pathname, res)) return;
+      if (serveStatic("/404.html", res, 404)) return;
       res.statusCode = 404;
       res.setHeader("content-type", "text/plain; charset=utf-8");
       res.end("Not found");
@@ -139,5 +172,6 @@ if (require.main === module) {
 
 module.exports = {
   createLocalServer,
-  proxyTargetUrl
+  proxyTargetUrl,
+  publicNewsletterUrl
 };

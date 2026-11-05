@@ -503,7 +503,7 @@ function renderSetPage(set, cards, req) {
   <title>${escapeHtml(title)}</title>
   <meta name="description" content="${escapeHtml(description)}" />
   <meta name="robots" content="index, follow, max-image-preview:large" />
-  <meta name="theme-color" content="#05060a" />
+  <meta name="theme-color" content="#ffffff" />
   <meta name="apple-itunes-app" content="app-id=${APP_STORE_ID}, app-argument=${escapeHtml(appUrl)}" />
   <meta property="og:title" content="${escapeHtml(title)}" />
   <meta property="og:description" content="${escapeHtml(description)}" />
@@ -783,8 +783,10 @@ function renderSetPage(set, cards, req) {
       }
     }
   </style>
+<link rel="stylesheet" href="/assets/public.css?v=20261105a" />
+<script defer src="/assets/public.js?v=20261105a"></script>
 </head>
-<body>
+<body class="public-page set-page">
   <header class="topbar">
     <div class="topbar-inner">
       <a class="brand" href="/" aria-label="Route 25 home">
@@ -882,8 +884,10 @@ function renderNotFound(setId) {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Set not found | Route 25</title>
   <link rel="stylesheet" href="/assets/site.css" />
+<link rel="stylesheet" href="/assets/public.css?v=20261105a" />
+<script defer src="/assets/public.js?v=20261105a"></script>
 </head>
-<body>
+<body class="public-page set-page">
   <main class="hero">
     <div class="container">
       <p class="badge">Set not found</p>
