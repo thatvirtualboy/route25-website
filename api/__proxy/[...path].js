@@ -1,3 +1,4 @@
+const { shareKind, themedShareStream, unavailableShare } = require("../../lib/share-pages");
 const { Readable } = require("node:stream");
 const { route25BackendHeaders, route25BackendOrigin } = require("../../lib/route25-backend");
 
@@ -98,6 +99,12 @@ module.exports = async (req, res) => {
 
   const method = (req.method || "GET").toUpperCase();
   const headers = route25BackendHeaders(upstreamUrl, getRequestHeaders(req));
+  const kind = shareKind(upstreamUrl.pathname);
+  const shareDocument = kind && ["GET", "HEAD"].includes(method) && upstreamUrl.searchParams.get("format")?.toLowerCase() !== "json";
+  if (shareDocument) {
+    // An upstream validator describes different bytes than the themed document.
+    for (const name of ["if-none-match", "if-modified-since", "range", "if-range"]) delete headers[name];
+  }
   const init = { method, headers, redirect: "manual" };
 
   if (method !== "GET" && method !== "HEAD") {
@@ -107,6 +114,27 @@ module.exports = async (req, res) => {
   const upstreamRes = await fetch(upstreamUrl, init);
   res.statusCode = upstreamRes.status;
   setResponseHeaders(res, upstreamRes.headers, backendOrigin);
+
+  if (shareDocument) {
+    if (kind === "collection" || kind === "folders") res.setHeader("Referrer-Policy", "no-referrer");
+    const html = upstreamRes.status === 200 && /^text\/html\b/i.test(upstreamRes.headers.get("content-type") || "");
+    const unavailable = upstreamRes.status === 404 && /text\/html/i.test(req.headers?.accept || "");
+    if (html || unavailable) {
+      for (const header of ["etag", "last-modified", "accept-ranges", "content-md5", "digest"]) res.removeHeader(header);
+      if (unavailable) {
+        await upstreamRes.body?.cancel();
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.setHeader("Cache-Control", "private, no-store");
+        res.end(method === "HEAD" ? undefined : unavailableShare(kind));
+        return;
+      }
+      if (method === "HEAD" || !upstreamRes.body) { res.end(); return; }
+      const stream = Readable.from(themedShareStream(upstreamRes.body, kind));
+      res.on("close", () => stream.destroy());
+      stream.on("error", error => res.destroy(error)).pipe(res);
+      return;
+    }
+  }
 
   if (upstreamRes.body && typeof Readable.fromWeb === "function") {
     Readable.fromWeb(upstreamRes.body).pipe(res);

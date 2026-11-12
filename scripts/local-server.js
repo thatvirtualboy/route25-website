@@ -12,6 +12,9 @@ const setPage = require(path.join(root, "api/sets.js"));
 const sitemapCards = require(path.join(root, "api/sitemap-cards.js"));
 const sitemapSets = require(path.join(root, "api/sitemap-sets.js"));
 
+const backendProxy = require("../api/backend-proxy");
+const trainerProfile = require("../api/trainer-profile");
+const { shareKind } = require("../lib/share-pages");
 const embed = require(path.join(root, "api/embed.js"));
 const defaultCsp = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8")).headers.flatMap(rule => rule.headers).find(header => header.key === "Content-Security-Policy").value;
 
@@ -39,7 +42,7 @@ function proxyTargetUrl(pathname, search = "") {
 async function proxyBackend(pathname, search, res) {
   const response = await fetch(proxyTargetUrl(pathname, search));
   res.statusCode = response.status;
-  for (const header of ["cache-control", "content-length", "content-type", "etag", "last-modified"]) {
+  for (const header of ["cache-control", "content-type", "etag", "last-modified"]) {
     const value = response.headers.get(header);
     if (value) res.setHeader(header, value);
   }
@@ -76,6 +79,41 @@ function createLocalServer() {
 
     try {
       res.setHeader("Content-Security-Policy", defaultCsp);
+      if (url.pathname === "/web/styles.css") {
+        serveStatic("/assets/web-client.css", res);
+        return;
+      }
+      // Only the signed-out shell and public assets are needed for local review.
+      const webPreview = {
+        "/login": "/login", "/login/": "/login", "/web": "/web", "/web/": "/web",
+        "/web/base.css": "/web/styles.css", "/web/app.js": "/web/app.js",
+        "/web/professor-rak.png": "/web/professor-rak.png", "/api/web/firebase-config": "/api/web/firebase-config",
+      };
+      if (Object.hasOwn(webPreview, url.pathname)) {
+        if (!["GET", "HEAD"].includes(req.method)) { res.writeHead(405, { Allow: "GET, HEAD" }).end(); return; }
+        await proxyBackend(webPreview[url.pathname], "", res);
+        return;
+      }
+      const trainer = /^\/trainer\/([^/]+)\/?$/.exec(url.pathname);
+      if (trainer) {
+        req.query.id = decodeURIComponent(trainer[1]);
+        await trainerProfile(req, res);
+        return;
+      }
+      if (shareKind(url.pathname)) {
+        if (!["GET", "HEAD"].includes(req.method)) {
+          res.writeHead(405, { Allow: "GET, HEAD" }).end();
+          return;
+        }
+        // Production share HTML uses absolute Route 25 image URLs.
+        res.setHeader("Content-Security-Policy", defaultCsp.replace("img-src 'self'", "img-src 'self' https://route25.app"));
+        await backendProxy({
+          method: req.method,
+          headers: { accept: req.headers.accept, "user-agent": req.headers["user-agent"] },
+          query: { ...req.query, path: url.pathname.slice(1) },
+        }, res);
+        return;
+      }
       const embedMatch = url.pathname.match(/^\/embed\/(trainer|collection)\/([A-Za-z0-9_-]+)\/?$/);
       if (embedMatch) {
         req.query.kind = embedMatch[1]; req.query.id = embedMatch[2];

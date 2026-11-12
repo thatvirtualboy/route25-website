@@ -1,0 +1,34 @@
+/* Keep the account client's layout and state classes in sync with its renderer. */
+@import url("/web/base.css");
+@import url("/assets/public.css");
+
+:root {
+  color-scheme: light;
+  --bg: #fff;
+  --panel: #f5f5f7;
+  --panel2: #ededf1;
+  --text: #1d1d1f;
+  --muted: #626269;
+  --border: #dedee4;
+  --accent: #5652c7;
+  --danger: #a62535;
+  font-family: Geist, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; }
+body { background: var(--bg); }
+.container { max-width: 1160px; padding: 0 clamp(18px, 4vw, 36px) 64px; }
+.topbar { min-height: 72px; padding: 12px 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: #fff; flex-wrap: wrap; }
+.brand strong { font-size: 20px; letter-spacing: -.04em; }
+.grid.two { gap: 24px; padding-top: clamp(18px, 3vw, 40px); }
+.card { border-color: transparent; border-radius: 24px; background: var(--panel); }
+.card .header, .card .body, .card .footer { padding: clamp(18px, 2.5vw, 28px); }
+.card .header { background: transparent; }
+.card .header strong { font-size: 24px; letter-spacing: -.045em; }
+.card .body { line-height: 1.6; }
+.button, .pill { border-radius: 99px; background: #fff; font: inherit; font-size: 14px; min-height: 40px; padding-inline: 16px; }
+.button.primary, .pill.active { background: var(--accent); border-color: transparent; color: #fff; }
+.button.primary:hover { background: #4541ae; }
+.input { background: #fff; color: var(--text); border-radius: 12px; font: inherit; }
+.card-tile-badge { color: #fff; background: #292930df; }
+.error, .button.danger { color: var(--danger); border-color: #e4b9c1; background: #fff1f2; }
+:is(a, button, input, select):focus-visible { outline: 3px solid #7771d5; outline-offset: 3px; }

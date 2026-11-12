@@ -207,6 +207,18 @@
       "destination": "https://palettetown-backend.vercel.app/login/:path*"
     },
     {
+      "source": "/web/styles.css",
+      "destination": "/assets/web-client.css"
+    },
+    {
+      "source": "/web/base.css",
+      "destination": "https://palettetown-backend.vercel.app/web/styles.css"
+    },
+    {
+      "source": "/web/",
+      "destination": "https://palettetown-backend.vercel.app/web"
+    },
+    {
       "source": "/web",
       "destination": "https://palettetown-backend.vercel.app/web"
     },
@@ -232,11 +244,11 @@
     },
     {
       "source": "/trainer/:id",
-      "destination": "https://palettetown-backend.vercel.app/trainer/:id"
+      "destination": "/api/trainer-profile.js?id=:id"
     },
     {
       "source": "/trainer/:id/",
-      "destination": "https://palettetown-backend.vercel.app/trainer/:id/"
+      "destination": "/api/trainer-profile.js?id=:id"
     },
     {
       "source": "/post/:id",
@@ -256,19 +268,19 @@
     },
     {
       "source": "/trade/:id",
-      "destination": "https://palettetown-backend.vercel.app/trade/:id"
+      "destination": "/api/backend-proxy.js?path=trade/:id"
     },
     {
       "source": "/trade/:id/",
-      "destination": "https://palettetown-backend.vercel.app/trade/:id/"
+      "destination": "/api/backend-proxy.js?path=trade/:id/"
     },
     {
       "source": "/trade",
-      "destination": "https://palettetown-backend.vercel.app/trade"
+      "destination": "/api/backend-proxy.js?path=trade"
     },
     {
       "source": "/trade/",
-      "destination": "https://palettetown-backend.vercel.app/trade/"
+      "destination": "/api/backend-proxy.js?path=trade/"
     },
     {
       "source": "/collection/:id",
