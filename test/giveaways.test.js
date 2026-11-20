@@ -48,7 +48,7 @@ test('overview is a static, evergreen guide with bundled illustrative artwork', 
   assert.match(html, /permanent public rules link/);
   for (const text of ['Current &amp; upcoming', 'Past giveaways', 'data-refresh-after', '/api/giveaways', 'giveaways.js', 'cursor=']) assert.ok(!html.includes(text), text);
   const images = [...html.matchAll(/src="(\/assets\/giveaways\/[^"]+)"/g)];
-  assert.equal(images.length, 4);
+  assert.equal(images.length, 5);
   for (const image of images) assert.ok(fs.existsSync(path.join(__dirname, '..', image[1])));
 });
 test('HTTP handler rejects malformed input and writes, preserves HEAD and distinguishes failures', async () => {
