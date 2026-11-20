@@ -20,7 +20,7 @@ test('public rules are readable without JavaScript, with canonical identity and 
   const html = rules(fixture());
   assert.match(html, /Exact published rules\.\nSecond paragraph with &lt;angle brackets&gt; &amp; punctuation\./);
   assert.match(html, new RegExp(`https://route25.app/giveaways/${id}/rules`));
-  for (const value of ['United States', 'Ages 18+', 'Example sponsor', '$25.00', '7 days after selection', 'No purchase or Trainer Plus required', '2 × Test card']) assert.ok(html.includes(value), value);
+  for (const value of ['United States', 'Ages 18+', 'Example sponsor', '$25.00', '7 days after selection', 'No purchase necessary', '2 × Test card']) assert.ok(html.includes(value), value);
   assert.match(html, /<time datetime="2026-/);
   assert.match(html, /UTC/);
 });
@@ -40,15 +40,15 @@ test('upcoming, open, closed, cancelled, unclaimed and shipped pages keep perman
 });
 test('overview is a static, evergreen guide with bundled illustrative artwork', () => {
   const html = fs.readFileSync(path.join(__dirname, '../giveaways/index.html'), 'utf8');
-  assert.match(html, /Having an account or Trainer Plus doesn’t enter you automatically/);
-  assert.match(html, /Trainer Plus does not add entries or improve your odds/);
+  assert.match(html, /Having an account doesn’t enter you automatically/);
+  assert.match(html, /No purchase necessary/);
   assert.match(html, /create a new account and complete signup verification before entries close/);
   assert.match(html, /United States residents ages 18 and older/);
   assert.match(html, /Illustrative items. Prizes vary by giveaway/);
   assert.match(html, /permanent public rules link/);
   for (const text of ['Current &amp; upcoming', 'Past giveaways', 'data-refresh-after', '/api/giveaways', 'giveaways.js', 'cursor=']) assert.ok(!html.includes(text), text);
   const images = [...html.matchAll(/src="(\/assets\/giveaways\/[^"]+)"/g)];
-  assert.equal(images.length, 3);
+  assert.equal(images.length, 4);
   for (const image of images) assert.ok(fs.existsSync(path.join(__dirname, '..', image[1])));
 });
 test('HTTP handler rejects malformed input and writes, preserves HEAD and distinguishes failures', async () => {
