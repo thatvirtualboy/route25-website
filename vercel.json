@@ -59,9 +59,30 @@
       "source": "/index.html",
       "destination": "/",
       "permanent": true
+    },
+    {
+      "source": "/giveaways/:id",
+      "destination": "/giveaways/:id/rules",
+      "permanent": true
     }
   ],
   "rewrites": [
+    {
+      "source": "/giveaways",
+      "destination": "/giveaways/index.html"
+    },
+    {
+      "source": "/giveaways/",
+      "destination": "/giveaways/index.html"
+    },
+    {
+      "source": "/giveaways/:id/rules",
+      "destination": "/api/giveaways.js?id=:id"
+    },
+    {
+      "source": "/giveaways/:id/rules/",
+      "destination": "/api/giveaways.js?id=:id"
+    },
     {
       "source": "/embed",
       "destination": "/embed/index.html"
