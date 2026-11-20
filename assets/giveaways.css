@@ -134,3 +134,7 @@
   .giveaway-basics { grid-template-columns: 1fr; gap: 28px; }
   .giveaway-basics h2 br { display: none; }
 }
+
+.giveaway-entry-example { margin: 24px 0 0; }
+.giveaway-entry-example img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 14px; }
+.giveaway-entry-example figcaption { margin-top: 10px; font-size: 14px; color: #65656e; line-height: 1.5; }
