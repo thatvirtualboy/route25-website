@@ -14,4 +14,8 @@ Run `npm test` and `npm run verify:production`. Tests cover the static overview 
 
 Static illustration sources (existing backend catalog assets): Ancient Mew (`public/card-images/basep/ancient-mew.jpg`), Mega Kangaskhan ex (`public/card-images/mep/mep-025.png`) and Stellar Crown Elite Trainer Box (`public/etbs/sv7-etb.png`). Optimized WebP copies are bundled under `assets/giveaways/`.
 
+The 30th Celebration Booster Bundle packshot comes from the app's existing product-art source, [ptcg-assets](https://github.com/1niceroli/ptcg-assets/blob/main/me6pt5/booster-bundle.png), and is bundled as `assets/giveaways/30th-celebration-booster-bundle.webp`. Its identity matches the [official Pokémon product listing](https://www.pokemon.com/us/pokemon-tcg/product-gallery/30th-celebration-booster-bundle). The four-item showcase remains illustrative and does not announce an event prize.
+
 The Home-header reference (`assets/giveaways/home-gift-icon.webp`) is an exact crop of the isolated iOS staging app, captured on November 20, 2026 after restoring the gift button's native Liquid Glass style to match Search. Source: Device Hub screenshot of the iPhone 18 Pro simulator running the `Giveaway Preview` build (`com.raktech.Route25GiveawayPreview`). Crop: x=0, y=180, width=1206, height=240. It includes only the app controls, with no device frame, status bar, feed content or test-account details. `GiveawayHomeButton` appears for upcoming and open events and expires when entries close.
+
+The entry confirmation and winner notification examples are noninteractive HTML/SVG illustrations using the app's actual status wording. They illustrate the steps without representing a real entry or winner; all three step graphics share aligned framing and captions.
