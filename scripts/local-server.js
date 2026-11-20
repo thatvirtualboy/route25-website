@@ -82,6 +82,10 @@ function createLocalServer() {
       res.setHeader("Content-Security-Policy", defaultCsp);
       const giveaway = /^\/giveaways(?:\/([^/]+)(\/rules)?)?\/?$/.exec(url.pathname);
       if (giveaway) {
+        if (!giveaway[1]) {
+          if (!['GET', 'HEAD'].includes(req.method)) { res.writeHead(405, {Allow: 'GET, HEAD'}).end(); return; }
+          serveStatic('/giveaways/index.html', res); return;
+        }
         if (giveaway[1] && !giveaway[2]) { res.writeHead(308, { Location: `/giveaways/${giveaway[1]}/rules` }).end(); return; }
         if (giveaway[1]) req.query.id = decodeURIComponent(giveaway[1]);
         if (/^http:\/\/127\.0\.0\.1:\d+$/.test(process.env.ROUTE25_BACKEND_ORIGIN || '')) res.setHeader('Content-Security-Policy', defaultCsp.replace("img-src 'self'", `img-src 'self' ${process.env.ROUTE25_BACKEND_ORIGIN}`));

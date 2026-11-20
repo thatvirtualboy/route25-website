@@ -3,9 +3,11 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const { once } = require('node:events');
 const { createHandler } = require('../api/giveaways');
-const { overview, rules, loadGiveaways } = require('../lib/giveaway-pages');
+const { rules, loadGiveaways } = require('../lib/giveaway-pages');
 const { createLocalServer } = require('../scripts/local-server');
 const config = require('../vercel.json');
+const fs = require('node:fs');
+const path = require('node:path');
 const id = '11111111-1111-4111-8111-111111111111';
 const fixture = (extra = {}) => ({ id, title: 'A card for your collection', description: 'A synthetic test prize.', prizes: [{ name: 'Test card', quantity: 2, imageUrl: 'https://images.pokemontcg.io/test.png' }], heroImageUrl: '', startsAt: 1795000000000, endsAt: 1795100000000, drawAt: 1795200000000, publishedAt: 1794900000000, claimDays: 7, countries: ['US'], minimumAge: 18, eligibility: 'open', prizeValueCents: 2500, sponsorName: 'Example sponsor', sponsorAddress: '123 Example Ave\nDenver, CO', contactEmail: 'example@example.invalid', referralBonusLimit: 3, officialRules: 'Exact published rules.\nSecond paragraph with <angle brackets> & punctuation.', rulesVersion: 'a'.repeat(64), status: 'published', phase: 'open', ...extra });
 async function call(handler, query = {}, method = 'GET') {
@@ -36,37 +38,37 @@ test('upcoming, open, closed, cancelled, unclaimed and shipped pages keep perman
   }
   assert.match(rules(fixture({ eligibility: 'trainer_plus', phase: 'unavailable' })), /previous eligibility policy/);
 });
-test('overview separates active events from history and retains archive pagination', () => {
-  const active = fixture(), upcoming = fixture({ id: '22222222-2222-4222-8222-222222222222', title: 'Next prize', phase: 'upcoming' });
-  const past = fixture({ id: '33333333-3333-4333-8333-333333333333', title: 'Past prize', phase: 'shipped' });
-  const html = overview({ activeEvents: [active, upcoming], events: [active, past], nextCursor: 'abc_123', serverTime: active.startsAt });
-  assert.match(html, /Next prize/); assert.match(html, /Past prize/); assert.match(html, /cursor=abc_123#past/);
-  assert.equal((html.match(/<h3><a[^>]+>A card for your collection/g) || []).length, 1);
-  assert.ok(!html.includes('$25.00'), 'overview omits retail value');
-  assert.match(html, /create a new account and complete signup verification/);
-  assert.match(html, /Trainer Plus does not add entries/);
-  const older = overview({ activeEvents: [active], events: [past], nextCursor: null }, 'abc_123');
-  assert.ok(!older.includes('id="current"')); assert.match(older, /noindex/);
-  assert.match(overview({ activeEvents: [], events: [], nextCursor: null }), /No giveaways are open or announced/);
+test('overview is a static, evergreen guide with bundled illustrative artwork', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../giveaways/index.html'), 'utf8');
+  assert.match(html, /Having an account or Trainer Plus doesn’t enter you automatically/);
+  assert.match(html, /Trainer Plus does not add entries or improve your odds/);
+  assert.match(html, /create a new account and complete signup verification before entries close/);
+  assert.match(html, /United States residents ages 18 and older/);
+  assert.match(html, /Illustrative items. Prizes vary by giveaway/);
+  assert.match(html, /permanent public rules link/);
+  for (const text of ['Current &amp; upcoming', 'Past giveaways', 'data-refresh-after', '/api/giveaways', 'giveaways.js', 'cursor=']) assert.ok(!html.includes(text), text);
+  const images = [...html.matchAll(/src="(\/assets\/giveaways\/[^"]+)"/g)];
+  assert.equal(images.length, 3);
+  for (const image of images) assert.ok(fs.existsSync(path.join(__dirname, '..', image[1])));
 });
 test('HTTP handler rejects malformed input and writes, preserves HEAD and distinguishes failures', async () => {
   let calls = 0;
   const handler = createHandler(async query => { calls++; return query.id ? {event: fixture()} : {events: [], activeEvents: [], nextCursor: null}; });
   assert.equal((await call(handler, { id: '../private' })).status, 404);
   assert.equal((await call(handler, { id: [id] })).status, 404);
-  assert.equal((await call(handler, { cursor: '<script>' })).status, 400);
+  assert.equal((await call(handler)).status, 404);
   assert.equal((await call(handler, {}, 'POST')).status, 405);
   assert.equal(calls, 0);
   const head = await call(handler, { id }, 'HEAD'); assert.equal(head.status, 200); assert.equal(head.body, undefined);
-  const list = await call(handler); assert.equal(list.status, 200); assert.equal(list.headers['Cache-Control'], 'no-store');
+  const list = await call(handler, {id}); assert.equal(list.status, 200); assert.equal(list.headers['Cache-Control'], 'no-store');
   const missing = await call(createHandler(async () => { throw Object.assign(new Error(), { status: 404 }); }), { id }); assert.equal(missing.status, 404);
-  const failed = await call(createHandler(async () => { throw new Error('SECRET'); }));
+  const failed = await call(createHandler(async () => { throw new Error('SECRET'); }), {id});
   assert.equal(failed.status, 503); assert.equal(failed.headers['Retry-After'], '60'); assert.ok(!failed.body.includes('SECRET')); assert.ok(!failed.body.includes('No giveaways are open'));
 });
-test('upstream errors or malformed JSON cannot become an empty successful archive', async () => {
-  await assert.rejects(loadGiveaways({}, async () => ({ok: false, status: 500})), e => e.status === 503);
+test('upstream errors or malformed JSON cannot become successful rules pages', async () => {
+  await assert.rejects(loadGiveaways({id}, async () => ({ok: false, status: 500})), e => e.status === 503);
   await assert.rejects(loadGiveaways({id}, async () => ({ok: false, status: 404})), e => e.status === 404);
-  await assert.rejects(loadGiveaways({}, async () => ({ok: true, json: async () => ({})})));
+  await assert.rejects(loadGiveaways({id}, async () => ({ok: true, json: async () => ({})})));
   await assert.rejects(loadGiveaways({id}, async () => ({ok: true, json: async () => ({event: {id:'other'}})})));
 });
 test('local and deployment paths serve the same anonymous endpoint and short-link redirect', async () => {
@@ -90,7 +92,10 @@ test('local and deployment paths serve the same anonymous endpoint and short-lin
     const redirect = await fetch(`${origin}/giveaways/${id}`, {redirect: 'manual'}); assert.equal(redirect.status, 308); assert.equal(redirect.headers.get('location'), `/giveaways/${id}/rules`);
     assert.equal((await fetch(`${origin}/giveaways/not-a-valid-id/rules`)).status, 404);
     assert.equal((await fetch(`${origin}/giveaways`, {method:'POST'})).status, 405);
-    for (const path of ['/giveaways', '/giveaways/', '/giveaways/:id/rules', '/giveaways/:id/rules/']) assert.ok(config.rewrites.some(rule => rule.source === path && rule.destination.startsWith('/api/giveaways.js')));
+    for (const path of ['/giveaways/:id/rules', '/giveaways/:id/rules/']) assert.ok(config.rewrites.some(rule => rule.source === path && rule.destination.startsWith('/api/giveaways.js')));
+    for (const path of ['/giveaways', '/giveaways/']) assert.ok(config.rewrites.some(rule => rule.source === path && rule.destination === '/giveaways/index.html'));
+    upstream.closeAllConnections(); await new Promise(resolve => upstream.close(resolve));
+    const offline = await fetch(origin + '/giveaways?cursor=ignored'); assert.equal(offline.status, 200); assert.match(await offline.text(), /How giveaways work/);
     assert.ok(config.redirects.some(rule => rule.source === '/giveaways/:id' && rule.destination === '/giveaways/:id/rules'));
   } finally {
     if (previous === undefined) delete process.env.ROUTE25_BACKEND_ORIGIN; else process.env.ROUTE25_BACKEND_ORIGIN = previous;

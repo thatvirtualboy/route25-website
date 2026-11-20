@@ -69,11 +69,11 @@
   "rewrites": [
     {
       "source": "/giveaways",
-      "destination": "/api/giveaways.js"
+      "destination": "/giveaways/index.html"
     },
     {
       "source": "/giveaways/",
-      "destination": "/api/giveaways.js"
+      "destination": "/giveaways/index.html"
     },
     {
       "source": "/giveaways/:id/rules",

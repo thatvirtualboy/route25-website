@@ -107,3 +107,30 @@
 }
 
 .giveaway-art .artwork-fallback { text-align: center; max-width: 28ch; color: #514d69; line-height: 1.6; }
+/* Evergreen overview: bundled artwork, no live promotion data. */
+.giveaway-evergreen-hero { display: grid; grid-template-columns: 1fr 1.1fr; align-items: center; gap: 48px; padding: 44px 0 64px; }
+.giveaway-evergreen-hero .giveaway-intro { padding: 20px 0; }
+.giveaway-evergreen-hero .giveaway-intro > p:not(.giveaway-eyebrow, .giveaway-fine) { font-size: 18px; margin: 20px 0; max-width: 420px; }
+.giveaway-evergreen-hero .giveaway-intro h1 { font-size: clamp(52px, 6vw, 80px); }
+.giveaway-evergreen-hero .button { margin-top: 8px; }
+.giveaway-showcase { margin: 0; min-width: 0; }
+.giveaway-showcase-art { position: relative; height: 430px; border-radius: 32px; background: radial-gradient(ellipse at 5% 5%, #f4d5a0, transparent 65%), radial-gradient(ellipse at 95% 100%, #b6d1f8, transparent 65%), #ded1ed; overflow: hidden; }
+.giveaway-showcase-art img { position: absolute; object-fit: contain; height: auto; filter: drop-shadow(0 16px 14px rgb(26 20 51 / 20%)); }
+.showcase-product { width: 58%; right: 6%; top: 20%; transform: rotate(7deg); }
+.showcase-card { width: 33%; border-radius: 7px; }
+.showcase-card-back { left: 6%; top: 13%; transform: rotate(-14deg); }
+.showcase-card-front { width: 31%; left: 25%; top: 35%; transform: rotate(7deg); }
+.giveaway-showcase figcaption { font-size: 14px; color: #65656e; margin: 16px 0 0; text-align: center; }
+.giveaway-basics { display: grid; grid-template-columns: 1fr 1.6fr; gap: 64px; border-top: 1px solid var(--line); padding-top: 40px; }
+.giveaway-basics > div > p:not(.giveaway-eyebrow) { color: #65656e; max-width: 320px; }
+.giveaway-faq details { padding: 22px 0; border-bottom: 1px solid var(--line); }
+.giveaway-faq details:first-child { padding-top: 0; }
+.giveaway-faq summary { font-weight: 700; cursor: pointer; line-height: 1.5; }
+.giveaway-faq p { color: #65656e; margin-bottom: 0; }
+@media (max-width: 800px) {
+  .giveaway-evergreen-hero { grid-template-columns: 1fr; gap: 24px; padding-top: 24px; }
+  .giveaway-showcase-art { height: clamp(300px, 70vw, 450px); }
+  .giveaway-evergreen-hero .giveaway-intro { padding-bottom: 0; }
+  .giveaway-basics { grid-template-columns: 1fr; gap: 28px; }
+  .giveaway-basics h2 br { display: none; }
+}
