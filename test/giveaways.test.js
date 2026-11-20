@@ -18,7 +18,7 @@ test('public rules are readable without JavaScript, with canonical identity and 
   const html = rules(fixture());
   assert.match(html, /Exact published rules\.\nSecond paragraph with &lt;angle brackets&gt; &amp; punctuation\./);
   assert.match(html, new RegExp(`https://route25.app/giveaways/${id}/rules`));
-  for (const value of ['United States', 'Ages 18+', 'Example sponsor', '$25.00', '7 days after selection', 'No purchase or Trainer Plus required', 'Rules version', '2 × Test card']) assert.ok(html.includes(value), value);
+  for (const value of ['United States', 'Ages 18+', 'Example sponsor', '$25.00', '7 days after selection', 'No purchase or Trainer Plus required', '2 × Test card']) assert.ok(html.includes(value), value);
   assert.match(html, /<time datetime="2026-/);
   assert.match(html, /UTC/);
 });

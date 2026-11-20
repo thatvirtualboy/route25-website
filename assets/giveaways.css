@@ -68,8 +68,6 @@
 .preserve-lines, .official-rules-text { white-space: pre-wrap; }
 .giveaway-rules { border-top: 1px solid var(--line); padding-top: 40px; max-width: 860px; }
 .official-rules-text { font-size: 16px; line-height: 1.85; overflow-wrap: anywhere; margin: 32px 0; }
-.giveaway-rule-version { font-size: 14px; color: #65656e; overflow-wrap: anywhere; }
-.giveaway-rule-version code { font-size: 13px; }
 .giveaway-error { min-height: 50vh; padding: 100px 0; max-width: 650px; }
 .giveaway-error h1 { font-size: 48px; }
 .skip-link, .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
