@@ -4,6 +4,7 @@ const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
 const backendOrigin = "https://palettetown-backend.vercel.app";
+const giveaways = require("../api/giveaways");
 const searchPage = require(path.join(root, "api/card-search.js"));
 const searchData = require(path.join(root, "api/card-search-data.js"));
 const setDirectory = require(path.join(root, "api/set-directory.js"));
@@ -79,6 +80,13 @@ function createLocalServer() {
 
     try {
       res.setHeader("Content-Security-Policy", defaultCsp);
+      const giveaway = /^\/giveaways(?:\/([^/]+)(\/rules)?)?\/?$/.exec(url.pathname);
+      if (giveaway) {
+        if (giveaway[1] && !giveaway[2]) { res.writeHead(308, { Location: `/giveaways/${giveaway[1]}/rules` }).end(); return; }
+        if (giveaway[1]) req.query.id = decodeURIComponent(giveaway[1]);
+        if (/^http:\/\/127\.0\.0\.1:\d+$/.test(process.env.ROUTE25_BACKEND_ORIGIN || '')) res.setHeader('Content-Security-Policy', defaultCsp.replace("img-src 'self'", `img-src 'self' ${process.env.ROUTE25_BACKEND_ORIGIN}`));
+        await giveaways(req, res); return;
+      }
       if (url.pathname === "/web/styles.css") {
         serveStatic("/assets/web-client.css", res);
         return;
