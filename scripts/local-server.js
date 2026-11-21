@@ -5,9 +5,8 @@ const path = require("node:path");
 const root = path.resolve(__dirname, "..");
 const backendOrigin = "https://palettetown-backend.vercel.app";
 const giveaways = require("../api/giveaways");
-const searchPage = require(path.join(root, "api/card-search.js"));
+const browsePage = require(path.join(root, "api/browse.js"));
 const searchData = require(path.join(root, "api/card-search-data.js"));
-const setDirectory = require(path.join(root, "api/set-directory.js"));
 const cardPage = require(path.join(root, "api/cards.js"));
 const setPage = require(path.join(root, "api/sets.js"));
 const sitemapCards = require(path.join(root, "api/sitemap-cards.js"));
@@ -139,7 +138,13 @@ function createLocalServer() {
         return;
       }
       if (url.pathname === "/search" || url.pathname === "/search/") {
-        await searchPage(req, res);
+        res.statusCode = 308;
+        res.setHeader("location", "/browse" + url.search);
+        res.end();
+        return;
+      }
+      if (url.pathname === "/browse" || url.pathname === "/browse/") {
+        await browsePage(req, res);
         return;
       }
       if (url.pathname === "/api/card-search") {
@@ -170,7 +175,11 @@ function createLocalServer() {
         return;
       }
       if (url.pathname === "/sets" || url.pathname === "/sets/") {
-        await setDirectory(req, res);
+        const params = new URLSearchParams(url.search);
+        params.set("view", "sets");
+        res.statusCode = 308;
+        res.setHeader("location", "/browse?" + params.toString());
+        res.end();
         return;
       }
       if (url.pathname === "/sitemap-cards.xml") {
@@ -216,7 +225,7 @@ function createLocalServer() {
 if (require.main === module) {
   const port = Number.parseInt(process.env.PORT || "3000", 10);
   createLocalServer().listen(port, "127.0.0.1", () => {
-    console.log(`Route 25 local server ready at http://127.0.0.1:${port}/search`);
+    console.log(`Route 25 local server ready at http://127.0.0.1:${port}/browse`);
   });
 }
 

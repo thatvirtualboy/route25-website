@@ -1,14 +1,6 @@
 (() => {
   const year = document.querySelector('[data-year]');
   if (year) year.textContent = new Date().getFullYear();
-  const toggle = document.querySelector('[data-nav-toggle]');
-  const nav = document.querySelector('#site-nav');
-  function closeMenu() { nav.classList.remove('is-open'); toggle.setAttribute('aria-expanded', 'false'); }
-  toggle.addEventListener('click', () => { const open = nav.classList.toggle('is-open'); toggle.setAttribute('aria-expanded', String(open)); });
-  nav.querySelectorAll('a').forEach(link => link.addEventListener('click', closeMenu));
-  document.addEventListener('click', event => { if (!nav.contains(event.target) && !toggle.contains(event.target)) closeMenu(); });
-  document.addEventListener('keydown', event => { if (event.key === 'Escape' && nav.classList.contains('is-open')) { closeMenu(); toggle.focus(); } });
-  window.addEventListener('resize', () => { if (window.innerWidth > 720) closeMenu(); });
   const tour = document.querySelector('[data-feature-tour]');
   if (!tour) return;
 

@@ -1,3 +1,4 @@
+const { renderSiteHeader } = require("../../lib/site-header");
 const { readChineseCatalog, SOURCE } = require("../../lib/chinese-catalog");
 const {
   BACKEND_ORIGIN,
@@ -11,8 +12,6 @@ const APP_STORE_URL = "https://apps.apple.com/us/app/route-25-tcg-social-network
 const GOOGLE_PLAY_URL = "https://play.google.com/store/apps/details?id=app.route25.palettetown";
 const APP_STORE_ID = "6755665546";
 const DISCORD_URL = "https://discord.gg/WncmGEFuNw";
-const X_URL = "https://x.com/route25app";
-const INSTAGRAM_URL = "https://www.instagram.com/route25app/";
 const TCGDEX_API_ORIGIN = "https://api.tcgdex.net/v2/en";
 const { route25ImageUrl } = require("../../lib/route25-image-url");
 const { canonicalCardId, canonicalCardSetId, tcgdexCardSetId } = require("../../lib/card-set-id");
@@ -332,34 +331,6 @@ function renderCardGrid(cards, set) {
   }).join("");
 }
 
-function socialToolbar() {
-  return `<span class="social-toolbar" aria-label="Route 25 social links">
-          <a href="${X_URL}" target="_blank" rel="noopener noreferrer" aria-label="Route 25 on X" class="social-link x-link">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M18.244 2.25h3.308l-7.227 8.26 8.504 11.24h-6.66l-5.213-6.817-5.966 6.817H1.68l7.73-8.835L1.25 2.25h6.83l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-            </svg>
-          </a>
-          <a href="${INSTAGRAM_URL}" target="_blank" rel="noopener noreferrer" aria-label="Route 25 on Instagram" class="social-link instagram-link">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M7 2h10a5 5 0 0 1 5 5v10a5 5 0 0 1-5 5H7a5 5 0 0 1-5-5V7a5 5 0 0 1 5-5zm10 2H7a3 3 0 0 0-3 3v10a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3V7a3 3 0 0 0-3-3zm-5 3a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm5.25-.75a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/>
-            </svg>
-          </a>
-          <a href="${DISCORD_URL}" target="_blank" rel="noopener noreferrer" aria-label="Route 25 on Discord" class="social-link discord-link">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M20.317 4.369A19.79 19.79 0 0 0 15.36 2.84a13.44 13.44 0 0 0-.635 1.313 18.34 18.34 0 0 0-5.45 0 12.53 12.53 0 0 0-.645-1.313 19.74 19.74 0 0 0-4.958 1.53C.535 9.045-.319 13.61.099 18.112a19.9 19.9 0 0 0 6.073 3.049 14.64 14.64 0 0 0 1.303-2.104 12.86 12.86 0 0 1-2.048-.975c.172-.126.34-.257.5-.391 3.948 1.82 8.23 1.82 12.13 0 .164.134.332.265.5.391-.65.385-1.337.712-2.054.978.373.735.81 1.438 1.304 2.101a19.86 19.86 0 0 0 6.077-3.05c.49-5.22-.839-9.742-3.567-13.742ZM8.02 15.332c-1.18 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418Zm7.974 0c-1.18 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418Z"/>
-            </svg>
-          </a>
-          <a href="${APP_STORE_URL}" target="_blank" rel="noopener noreferrer" aria-label="Download Route 25 on the App Store" class="social-link app-store-link">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M16.365 1.43c0 1.14-.421 2.139-1.264 2.996-.882.892-1.913 1.405-3.016 1.322-.132-1.088.438-2.23 1.222-3.035C14.172 1.824 15.598 1.155 16.365 1.43ZM20.509 17.37c-.538 1.235-.797 1.785-1.489 2.876-.968 1.488-2.332 3.344-4.018 3.36-1.498.014-1.884-.986-3.918-.975-2.034.01-2.458.993-3.957.979-1.687-.016-2.974-1.69-3.943-3.178-2.706-4.15-2.99-9.02-1.319-11.61 1.188-1.838 3.064-2.914 4.829-2.914 1.797 0 2.927.986 4.415.986 1.443 0 2.322-.988 4.403-.988 1.574 0 3.24.858 4.424 2.34-3.886 2.13-3.254 7.677.573 9.124Z"/>
-            </svg>
-          </a>
-          <a href="${GOOGLE_PLAY_URL}" target="_blank" rel="noopener noreferrer" aria-label="Get Route 25 on Google Play" class="social-link google-play-link">
-            <img src="/assets/social-google-play.svg" alt="" aria-hidden="true" />
-          </a>
-        </span>`;
-}
-
 function structuredData({ set, cards, pageUrl, image }) {
   const name = set?.name || set?.id || "Pokemon TCG set";
   return {
@@ -399,7 +370,7 @@ function structuredData({ set, cards, pageUrl, image }) {
             "@type": "ListItem",
             position: 2,
             name: "Pokemon TCG sets",
-            item: "https://route25.app/sets"
+            item: "https://route25.app/browse?view=sets"
           },
           {
             "@type": "ListItem",
@@ -791,26 +762,14 @@ function renderSetPage(set, cards, req) {
       }
     }
   </style>
-<link rel="stylesheet" href="/assets/public.css?v=20261105a" />
-<script defer src="/assets/public.js?v=20261105a"></script>
+<link rel="stylesheet" href="/assets/public.css?v=20261121a" />
+<script defer src="/assets/public.js?v=20261121a"></script>
+<link rel="stylesheet" href="/assets/navigation.css?v=20261121a" />
 </head>
 <body class="public-page set-page">
-  <header class="topbar">
-    <div class="topbar-inner">
-      <a class="brand" href="/" aria-label="Route 25 home">
-        <img src="/apple-touch-icon.png" alt="" width="34" height="34" />
-        <span>Route 25</span>
-      </a>
-      <nav class="nav" aria-label="Primary">
-        <a href="/#features">Features</a>
-        <a href="/sets">Browse sets</a>
-        <a href="/search?set=${encodeURIComponent(set.id)}">Search cards</a>
-        ${socialToolbar()}
-      </nav>
-    </div>
-  </header>
+  ${renderSiteHeader("browse")}
   <main>
-    <nav class="container page-breadcrumb" aria-label="Breadcrumb"><a href="/">Route 25</a> / <a href="/sets">Pokemon TCG sets</a> / <span>${escapeHtml(name)}</span></nav>
+    <nav class="container page-breadcrumb" aria-label="Breadcrumb"><a href="/">Route 25</a> / <a href="/browse?view=sets">Pokemon TCG sets</a> / <span>${escapeHtml(name)}</span></nav>
     <section class="set-hero">
       <div class="container set-grid">
         <section class="set-copy">
@@ -893,16 +852,18 @@ function renderNotFound(setId) {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Set not found | Route 25</title>
   <link rel="stylesheet" href="/assets/site.css" />
-<link rel="stylesheet" href="/assets/public.css?v=20261105a" />
-<script defer src="/assets/public.js?v=20261105a"></script>
+<link rel="stylesheet" href="/assets/public.css?v=20261121a" />
+<script defer src="/assets/public.js?v=20261121a"></script>
+<link rel="stylesheet" href="/assets/navigation.css?v=20261121a" />
 </head>
 <body class="public-page set-page">
+${renderSiteHeader("browse")}
   <main class="hero">
     <div class="container">
       <p class="badge">Set not found</p>
       <h1>We could not find ${escapeHtml(setId)}.</h1>
       <p class="lead">This set may not be available on the public Route 25 set pages yet.</p>
-      <div class="hero-actions"><a class="button primary" href="/search">Search cards</a></div>
+      <div class="hero-actions"><a class="button primary" href="/browse">Search cards</a></div>
     </div>
   </main>
 </body>

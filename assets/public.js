@@ -1,20 +1,12 @@
-// A consistent, keyboard-accessible menu for the public page templates.
+// Every public page uses the same progressive, keyboard-accessible menu.
 (() => {
-  if (!document.body.classList.contains('public-page')) return;
-  const header = document.querySelector('.topbar-inner, .newsletter-header');
-  const nav = header?.querySelector('nav');
-  if (!nav) return;
+  const header = document.querySelector('.site-header');
+  const nav = header?.querySelector('.site-nav');
+  const toggle = header?.querySelector('.site-menu-toggle');
+  if (!nav || !toggle) return;
 
-  const toggle = document.createElement('button');
-  toggle.type = 'button';
-  toggle.className = 'public-menu-toggle';
-  toggle.textContent = 'Menu';
-  toggle.setAttribute('aria-expanded', 'false');
-  nav.id = 'public-navigation';
-  nav.setAttribute('aria-label', 'Primary');
-  toggle.setAttribute('aria-controls', nav.id);
-  nav.before(toggle);
-  document.body.classList.add('public-nav-ready');
+  toggle.hidden = false;
+  header.classList.add('has-menu');
 
   function close() {
     nav.classList.remove('is-open');
@@ -34,7 +26,10 @@
       toggle.focus();
     }
   });
-  window.matchMedia('(min-width: 721px)').addEventListener('change', event => {
+  header.addEventListener('focusout', event => {
+    if (!header.contains(event.relatedTarget)) close();
+  });
+  window.matchMedia('(min-width: 861px)').addEventListener('change', event => {
     if (event.matches) close();
   });
 })();

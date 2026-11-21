@@ -1,0 +1,43 @@
+/* The homepage header, shared by every public page. Keep this after page styles. */
+body .site-header {
+  position: sticky;
+  inset: 0 0 auto;
+  z-index: 100;
+  display: block;
+  width: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid #e9e9ec;
+  background: rgb(255 255 255 / 88%);
+  color: #1d1d1f;
+  backdrop-filter: blur(20px);
+  font-family: Geist, -apple-system, BlinkMacSystemFont, sans-serif;
+  line-height: 1.5;
+}
+.site-header::before { display: none; }
+.site-header *, .site-header *::before, .site-header *::after { box-sizing: border-box; }
+.site-header .site-header-inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; width: min(1200px, calc(100% - 2 * clamp(24px, 4vw, 40px))); min-height: 68px; margin: auto; padding: 12px 0; }
+.site-header .site-brand { display: inline-flex; flex: none; align-items: center; gap: 9px; color: #1d1d1f; font-size: 19px; font-weight: 700; letter-spacing: -.045em; text-decoration: none; white-space: nowrap; }
+.site-header .site-brand img { display: block; width: 30px; height: 30px; border-radius: 8px; }
+.site-header .site-nav { display: flex; align-items: center; gap: 32px; }
+.site-header .site-nav a { padding: 8px 0; color: #515156; font-size: 14px; font-weight: 400; text-decoration: none; white-space: nowrap; }
+.site-header .site-nav a:hover { color: #1d1d1f; }
+.site-header .site-nav a[aria-current=page] { color: #5652c7; }
+.site-header .site-nav .site-download { padding: 10px 18px; border-radius: 99px; background: #1d1d1f; color: #fff; }
+.site-header .site-download:is(:hover, :focus-visible) { background: #333336; }
+body .site-header .site-menu-toggle { display: none; min-height: 40px; padding: 9px 17px; border: 1px solid #dedee4; border-radius: 99px; background: #f5f5f7; color: #1d1d1f; font: 400 14px/1.5 Geist, sans-serif; box-shadow: none; cursor: pointer; transform: none; }
+.site-header :is(a, button):focus-visible { outline: 3px solid #7771d5; outline-offset: 4px; }
+.utility-page:has(.site-header) { padding: 0; }
+.utility-page > main { padding: clamp(48px, 10vw, 140px) max(24px, calc((100% - 820px) / 2)); }
+@media (max-width: 860px) {
+  .site-header .site-header-inner { min-height: 62px; padding: 10px 0; width: calc(100% - 48px); flex-wrap: wrap; gap: 0; }
+  .site-header .site-brand { font-size: 18px; }
+  .site-header .site-nav { width: 100%; flex-wrap: wrap; gap: 8px 20px; padding-top: 12px; }
+  body .site-header .site-menu-toggle:not([hidden]) { display: inline-flex; }
+  .site-header.has-menu .site-nav { display: none; position: absolute; top: 100%; left: 16px; right: 16px; width: auto; padding: 12px; border: 1px solid #e5e5eb; border-radius: 18px; background: #fff; box-shadow: 0 16px 40px rgb(29 29 31 / 12%); flex-direction: column; align-items: stretch; gap: 0; }
+  .site-header.has-menu .site-nav.is-open { display: flex; }
+  .site-header.has-menu .site-nav a { padding: 16px; }
+  .site-header.has-menu .site-nav .site-download { text-align: center; margin-top: 8px; }
+}

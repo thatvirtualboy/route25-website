@@ -48,8 +48,8 @@ test("released CN catalog serves both pickers, native search, set and exact prin
     return res.body;
   }
   const directory = await page(require("../api/set-directory"), { region: "cn" });
-  assert.match(directory, /data-catalog="cn" >/);
-  assert.match(directory, /data-region="cn"/);
+  assert.match(directory, /data-catalog="cn" aria-labelledby/);
+  assert.match(directory, /data-set-language="cn" aria-pressed="true"/);
   assert.match(directory, /140 cards/);
   assert.match(directory, /href="\/sets\/cbb2c_cn"/);
   const setPage = await page(require("../api/sets"), { id: set.id });
