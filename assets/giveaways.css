@@ -7,6 +7,15 @@
 .giveaways-page .nav > a { font-size: 14px; text-decoration: none; }
 .giveaways-page .button { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; cursor: pointer; min-height: 44px; }
 .giveaway-shell, .giveaway-footer { width: min(1136px, calc(100% - 64px)); margin: auto; }
+.giveaway-launch-badge {
+  display: inline-block;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: #efedf9;
+  color: #4d47b6;
+  font-size: 14px;
+  font-weight: 700;
+}
 .giveaway-intro { padding: 56px 0 48px; }
 .giveaway-eyebrow { font-size: 14px; font-weight: 700; color: var(--accent); }
 .giveaway-intro h1 { font-size: clamp(52px, 7vw, 80px); margin: 22px 0 24px; }
