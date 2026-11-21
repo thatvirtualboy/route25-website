@@ -9,7 +9,7 @@ test("released CN catalog serves both pickers, native search, set and exact prin
     privateKey: generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs8", format: "pem" })
   }) });
   t.after(() => app.delete());
-  const set = { id: "cbb2c_cn", name: "Gem Pack Volume 2", localized: { name: "宝石包" }, total: 140 };
+  const set = { id: "cbb2c_cn", name: "Gem Pack Volume 2", localized: { name: "宝石包" }, printedTotal: 15, total: 140 };
   const card = { id: "cbb2c_cn-0109", name: "Eevee", number: "0109", printedNumber: "0109/15", set,
     images: { small: "https://img.cardcorpus.com/m/eevee" } };
   const calls = [];
@@ -50,6 +50,7 @@ test("released CN catalog serves both pickers, native search, set and exact prin
   const directory = await page(require("../api/set-directory"), { region: "cn" });
   assert.match(directory, /data-catalog="cn" >/);
   assert.match(directory, /data-region="cn"/);
+  assert.match(directory, /140 cards/);
   assert.match(directory, /href="\/sets\/cbb2c_cn"/);
   const setPage = await page(require("../api/sets"), { id: set.id });
   assert.match(setPage, /href="\/cards\/cbb2c_cn-0109"/);

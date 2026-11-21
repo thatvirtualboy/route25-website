@@ -1,7 +1,7 @@
 const { languagePicker } = require("../lib/catalog-picker");
 const { SOURCE } = require("../lib/chinese-catalog");
 const { loadSetCatalogs, normalizeSets, regions } = require("../lib/set-catalogs");
-const { BACKEND_ORIGIN } = require("../lib/route25-backend");
+const { BACKEND_ORIGIN, catalogRegion } = require("../lib/route25-backend");
 const { route25ImageUrl } = require("../lib/route25-image-url");
 
 const SITE_ORIGIN = "https://route25.app";
@@ -29,6 +29,7 @@ function absoluteUrl(value) {
 }
 
 function setCount(set) {
+  if (catalogRegion(set.id) === "cn" && set.total != null) return set.total;
   return set?.printedTotal || set?.cardCount?.official || set?.total || set?.cardCount?.total || "";
 }
 
