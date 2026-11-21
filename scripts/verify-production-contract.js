@@ -26,9 +26,9 @@ function rewriteFor(source) {
 }
 
 async function main() {
-  assert.deepEqual(rewriteFor("/search"), {
-    source: "/search",
-    destination: "/api/card-search.js",
+  assert.deepEqual(rewriteFor("/browse"), {
+    source: "/browse",
+    destination: "/api/browse.js",
   });
   assert.deepEqual(rewriteFor("/api/card-search"), {
     source: "/api/card-search",

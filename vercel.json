@@ -64,9 +64,37 @@
       "source": "/giveaways/:id",
       "destination": "/giveaways/:id/rules",
       "permanent": true
+    },
+    {
+      "source": "/search",
+      "destination": "/browse",
+      "permanent": true
+    },
+    {
+      "source": "/search/",
+      "destination": "/browse",
+      "permanent": true
+    },
+    {
+      "source": "/sets",
+      "destination": "/browse?view=sets",
+      "permanent": true
+    },
+    {
+      "source": "/sets/",
+      "destination": "/browse?view=sets",
+      "permanent": true
     }
   ],
   "rewrites": [
+    {
+      "source": "/browse",
+      "destination": "/api/browse.js"
+    },
+    {
+      "source": "/browse/",
+      "destination": "/api/browse.js"
+    },
     {
       "source": "/giveaways",
       "destination": "/giveaways/index.html"
@@ -168,24 +196,8 @@
       "destination": "/api/sitemap-sets.js"
     },
     {
-      "source": "/search",
-      "destination": "/api/card-search.js"
-    },
-    {
-      "source": "/search/",
-      "destination": "/api/card-search.js"
-    },
-    {
       "source": "/api/card-search",
       "destination": "/api/card-search-data.js"
-    },
-    {
-      "source": "/sets",
-      "destination": "/api/set-directory.js"
-    },
-    {
-      "source": "/sets/",
-      "destination": "/api/set-directory.js"
     },
     {
       "source": "/cards/:id",

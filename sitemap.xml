@@ -4,10 +4,10 @@
     <loc>https://route25.app/</loc>
   </url>
   <url>
-    <loc>https://route25.app/search</loc>
+    <loc>https://route25.app/browse</loc>
   </url>
   <url>
-    <loc>https://route25.app/sets</loc>
+    <loc>https://route25.app/browse?view=sets</loc>
   </url>
   <url>
     <loc>https://route25.app/newsletter</loc>

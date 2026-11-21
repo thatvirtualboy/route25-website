@@ -1,3 +1,5 @@
+const { renderBrowseHeading } = require("../lib/browse-layout");
+const { renderSiteHeader } = require("../lib/site-header");
 const { languagePicker } = require("../lib/catalog-picker");
 const { SOURCE } = require("../lib/chinese-catalog");
 const { loadSetCatalogs, normalizeSets, regions } = require("../lib/set-catalogs");
@@ -64,14 +66,14 @@ function structuredData(sets) {
     "@graph": [
       {
         "@type": "CollectionPage",
-        "@id": `${SITE_ORIGIN}/sets#webpage`,
-        url: `${SITE_ORIGIN}/sets`,
+        "@id": `${SITE_ORIGIN}/browse?view=sets#webpage`,
+        url: `${SITE_ORIGIN}/browse?view=sets`,
         name: "Pokemon TCG Set Lists and Card Database | Route 25",
         description: "Browse English, Japanese, and Simplified Chinese Pokemon TCG expansions, complete set lists, individual card pages, artwork, rarity, and collector details."
       },
       {
         "@type": "ItemList",
-        "@id": `${SITE_ORIGIN}/sets#sets`,
+        "@id": `${SITE_ORIGIN}/browse?view=sets#sets`,
         name: "Pokemon TCG sets",
         numberOfItems: sets.length,
         itemListElement: sets.slice(0, 200).map((set, index) => ({
@@ -83,28 +85,29 @@ function structuredData(sets) {
       },
       {
         "@type": "BreadcrumbList",
-        "@id": `${SITE_ORIGIN}/sets#breadcrumb`,
+        "@id": `${SITE_ORIGIN}/browse?view=sets#breadcrumb`,
         itemListElement: [
           { "@type": "ListItem", position: 1, name: "Route 25", item: `${SITE_ORIGIN}/` },
-          { "@type": "ListItem", position: 2, name: "Pokemon TCG sets", item: `${SITE_ORIGIN}/sets` }
+          { "@type": "ListItem", position: 2, name: "Pokemon TCG sets", item: `${SITE_ORIGIN}/browse?view=sets` }
         ]
       }
     ]
   };
 }
 
-function renderDirectory(groups, selected) {
+function renderDirectory(groups, query = {}, unavailable = false) {
   const sets = groups.flatMap(group => group.sets);
   const total = sets.length;
+  const language = [...regions, "all"].includes(query.language) ? query.language : regions.includes(query.region) ? query.region : "all";
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Pokemon TCG Set Lists and Card Database | Route 25</title>
+  <title>Browse Pokémon TCG Sets | Route 25</title>
   <meta name="description" content="Browse English, Japanese, and Simplified Chinese Pokemon TCG expansions, complete set lists, individual card pages, artwork, rarity, and collector details." />
-  <meta name="robots" content="index, follow, max-image-preview:large" />
-  <link rel="canonical" href="${SITE_ORIGIN}/sets" />
+  <meta name="robots" content="${unavailable ? "noindex,nofollow" : "index, follow, max-image-preview:large"}" />
+  <link rel="canonical" href="${SITE_ORIGIN}/browse?view=sets" />
   <link rel="icon" href="/favicon.png" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="stylesheet" href="/assets/site.css" />
@@ -117,7 +120,6 @@ function renderDirectory(groups, selected) {
     .directory-head h1 { font-size: clamp(46px, 8vw, 92px); line-height: .94; margin: 14px 0 20px; }
     .directory-head p { color: var(--muted); font-size: clamp(17px, 2vw, 21px); line-height: 1.6; }
     .directory-search { margin-top: 30px; max-width: 620px; }
-    .directory-search .region-toggle { margin-bottom: 16px; }
     .directory-search label { display: block; font-weight: 700; margin-bottom: 9px; }
     .directory-search input { width: 100%; border: 1px solid var(--faint); border-radius: 14px; background: rgba(255,255,255,.07); color: var(--ink); font: inherit; padding: 15px 17px; }
     .directory-search input:focus { outline: 2px solid var(--accentC); outline-offset: 2px; }
@@ -137,71 +139,94 @@ function renderDirectory(groups, selected) {
     .directory-set-copy small { color: var(--muted); margin-top: 5px; line-height: 1.35; }
     .directory-empty { color: var(--muted); margin-top: 18px; }
   </style>
-  <noscript><style>.directory-section[hidden] { display: block; } .directory-search { display: none; }</style></noscript>
-<link rel="stylesheet" href="/assets/public.css?v=20261120" />
-<script defer src="/assets/public.js?v=20261105a"></script>
+<link rel="stylesheet" href="/assets/public.css?v=20261121a" />
+<script defer src="/assets/public.js?v=20261121a"></script>
+<link rel="stylesheet" href="/assets/navigation.css?v=20261121a" />
+<link rel="stylesheet" href="/assets/browse.css?v=20261121a" />
 </head>
-<body class="public-page directory-page">
+<body class="public-page directory-page browse-page">
   <a class="skip-link" href="#main">Skip to content</a>
-  <header class="topbar">
-    <div class="topbar-inner">
-      <a class="brand" href="/" aria-label="Route 25 home"><img src="/apple-touch-icon.png" alt="" width="34" height="34" /><span>Route 25</span></a>
-      <nav class="nav" aria-label="Primary"><a href="/sets" aria-current="page">Browse sets</a><a href="/search">Search cards</a><a href="/newsletter">Collector Spotlights</a></nav>
-    </div>
-  </header>
+  ${renderSiteHeader("browse")}
   <main id="main" class="directory-main">
     <div class="container">
-      <nav class="directory-breadcrumb" aria-label="Breadcrumb"><a href="/">Route 25</a> / <span>Pokemon TCG sets</span></nav>
-      <header class="directory-head">
-        <p class="badge">Card database</p>
-        <h1>Browse every set.</h1>
-        <p>Explore ${escapeHtml(String(total))} English, Japanese, and Simplified Chinese Pokemon TCG expansions. Open a set for its complete card list, then view individual cards, artwork, rarity, values, and collector details.</p>
+      ${renderBrowseHeading("sets", query)}
+      ${unavailable ? '<div class="directory-unavailable" role="status"><h2>Sets are temporarily unavailable.</h2><p>Please try again in a moment. You can still search for individual cards.</p><a class="button" href="/browse">Search cards</a></div>' : ""}
+      <div class="directory-head"${unavailable ? " hidden" : ""}>
+        <p>Explore ${escapeHtml(String(total))} English, Japanese, and Simplified Chinese Pokémon TCG expansions. Open a set to see its cards, artwork, and values.</p>
         <div class="directory-search">
-          ${languagePicker(selected)}
           <label for="set-filter">Find a set</label>
           <input id="set-filter" type="search" placeholder="Try Surging Sparks, SV8, or Battle Partners" autocomplete="off" />
         </div>
-      </header>
-      ${groups.map(({region, name, sets, unavailable}) => `<section class="directory-section" data-catalog="${region}" ${region === selected ? "" : "hidden"}>
-        <div class="directory-section-head"><h2>${name} sets</h2><span>${sets.length} sets</span></div>
-        ${unavailable ? "<p>This catalog is temporarily unavailable. Please try again shortly.</p>" : ""}
+        <div class="set-filter-controls">
+          ${languagePicker(language, { sets: true })}
+          <button class="set-filter-reset" type="button" id="reset-set-filters" hidden>Clear filters</button>
+        </div>
+        <p class="set-filter-status" id="set-filter-status" role="status" aria-live="polite"></p>
+      </div>
+      ${groups.map(({ region, name, sets, unavailable: catalogUnavailable }) => `<section class="directory-section" data-set-region="${region}" data-catalog="${region}"${unavailable || (language !== "all" && language !== region) ? " hidden" : ""} aria-labelledby="${region}-sets" data-unavailable="${catalogUnavailable}">
+        <div class="directory-section-head"><h2 id="${region}-sets">${name} sets</h2><span>${sets.length} sets</span></div>
+        ${catalogUnavailable ? '<p role="status">This catalog is temporarily unavailable. Please try again shortly.</p>' : ""}
         <div class="directory-grid">${renderSetCards(sets, name)}</div>
         ${region === "cn" ? SOURCE : ""}
       </section>`).join("")}
-      <p class="directory-empty" id="directory-empty" hidden>No matching set found. Try a set name or code.</p>
+      <p class="directory-empty" id="directory-empty" hidden>No sets match these filters. Try another name or language, or clear your filters.</p>
     </div>
   </main>
-  <footer><div class="container footer-inner"><span>Route 25 Pokemon TCG card database</span><div class="footer-links"><a href="/sets">Browse sets</a><a href="/search">Search cards</a><a href="/">Get the app</a></div></div></footer>
+  <footer><div class="container footer-inner"><span>Route 25 Pokemon TCG card database</span><div class="footer-links"><a href="/browse?view=sets">Browse sets</a><a href="/browse">Search cards</a><a href="/">Get the app</a></div></div></footer>
   <script>
     (() => {
       const input = document.getElementById("set-filter");
       const cards = [...document.querySelectorAll("[data-set-search]")];
       const empty = document.getElementById("directory-empty");
-      const sections = [...document.querySelectorAll("[data-catalog]")];
-      const buttons = [...document.querySelectorAll("[data-region]")];
-      let region = ${jsonScript(selected)};
-      function update() {
-        sections.forEach(section => { section.hidden = section.dataset.catalog !== region; });
-        buttons.forEach(button => button.setAttribute("aria-pressed", String(button.dataset.region === region)));
+      const languageButtons = [...document.querySelectorAll("[data-set-language]")];
+      const reset = document.getElementById("reset-set-filters");
+      const status = document.getElementById("set-filter-status");
+      let language = ${jsonScript(language)};
+      function filterSets() {
         const query = input.value.trim().toLowerCase();
         let visible = 0;
         for (const card of cards) {
-          const match = !query || card.dataset.setSearch.includes(query);
+          const regionMatches = language === "all" || card.closest("[data-set-region]").dataset.setRegion === language;
+          const match = regionMatches && (!query || card.dataset.setSearch.includes(query));
           card.hidden = !match;
-          if (match && !card.closest("[data-catalog]").hidden) visible += 1;
+          if (match) visible += 1;
         }
-        empty.hidden = !query || visible !== 0;
+        const unavailableSelection = [...document.querySelectorAll('[data-unavailable="true"]')].some(section => language === "all" || section.dataset.setRegion === language);
+        empty.hidden = visible !== 0 || !cards.length || unavailableSelection;
+        status.textContent = cards.length ? visible + (visible === 1 ? " set" : " sets") + " found" : "";
+        reset.hidden = !query && language === "all";
+        languageButtons.forEach(button => button.setAttribute("aria-pressed", String(button.dataset.setLanguage === language)));
+        for (const section of document.querySelectorAll(".directory-section")) {
+          const count = [...section.querySelectorAll("[data-set-search]")].filter(card => !card.hidden).length;
+          const selected = language === "all" || section.dataset.setRegion === language;
+          section.hidden = !selected || (count === 0 && section.dataset.unavailable !== "true");
+          section.querySelector(".directory-section-head span").textContent = count + (count === 1 ? " set" : " sets");
+        }
       }
-      buttons.forEach(button => button.addEventListener("click", () => {
-        region = button.dataset.region;
-        const url = new URL(location.href);
-        if (region === "international") url.searchParams.delete("region");
-        else url.searchParams.set("region", region);
-        history.replaceState(null, "", url);
-        update();
+      input.value = new URLSearchParams(location.search).get("filter") || "";
+      filterSets();
+      function updateFilters() {
+        filterSets();
+        const params = new URLSearchParams(location.search);
+        params.set("view", "sets");
+        params.set("language", language);
+        if (input.value.trim()) params.set("filter", input.value.trim());
+        else params.delete("filter");
+        history.replaceState(null, "", "/browse?" + params.toString());
+        params.delete("view");
+        document.querySelector(".browse-views a:first-child").href = "/browse?" + params.toString();
+      }
+      input.addEventListener("input", updateFilters);
+      languageButtons.forEach(button => button.addEventListener("click", () => {
+        language = button.dataset.setLanguage;
+        updateFilters();
       }));
-      input.addEventListener("input", update);
-      update();
+      reset.addEventListener("click", () => {
+        input.value = "";
+        language = "all";
+        updateFilters();
+        input.focus();
+      });
     })();
   </script>
 </body>
@@ -215,14 +240,12 @@ module.exports = async (req, res) => {
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.setHeader("cache-control", "no-store");
     res.setHeader("retry-after", "60");
-    return res.end(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Set directory unavailable | Route 25</title><link rel="stylesheet" href="/assets/public.css?v=20261120" />
-<script defer src="/assets/public.js?v=20261105a"></script>
-</head><body class="public-page directory-page utility-page"><h1>Set directory temporarily unavailable</h1></body></html>`);
+    return res.end(renderDirectory(groups, req.query, true));
   }
   res.statusCode = 200;
   res.setHeader("content-type", "text/html; charset=utf-8");
   res.setHeader("cache-control", groups.some(group => group.unavailable) ? "s-maxage=30" : "s-maxage=21600, stale-while-revalidate=86400");
-  res.end(renderDirectory(groups, regions.includes(req.query?.region) ? req.query.region : "international"));
+  res.end(renderDirectory(groups, req.query));
 };
 
 module.exports.normalizeSets = normalizeSets;

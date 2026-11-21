@@ -30,7 +30,7 @@ test("set directory creates a crawlable hierarchy for international and Japanese
     const res = responseCapture();
     await directory({ query: {} }, res);
     assert.equal(res.statusCode, 200);
-    assert.match(res.body, /<link rel="canonical" href="https:\/\/route25\.app\/sets"/);
+    assert.match(res.body, /<link rel="canonical" href="https:\/\/route25\.app\/browse\?view=sets"/);
     assert.match(res.body, /href="\/sets\/sv8pt5"/);
     assert.match(res.body, /href="\/sets\/sv9_ja"/);
     assert.match(res.body, /English and international sets/);

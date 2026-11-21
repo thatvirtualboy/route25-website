@@ -1,0 +1,38 @@
+.browse-page .browse-heading { text-align: center; margin: 0 auto; }
+.browse-page .browse-heading .badge { margin: 0 0 16px; font-size: 12px; }
+.browse-page .browse-heading h1 { margin: 0 0 20px; font-size: clamp(40px, 5.5vw, 68px); line-height: 1.06; }
+.browse-page .browse-heading > p:last-child { margin: 0; color: var(--muted); font-size: 18px; }
+.browse-page .browse-views { display: flex; gap: 4px; width: fit-content; margin: 28px auto 44px; padding: 5px; border-radius: 99px; background: #ededf1; }
+.browse-page .browse-views a { min-width: 110px; padding: 12px 24px; border-radius: 99px; color: #626269; text-align: center; font-size: 15px; text-decoration: none; }
+.browse-page .browse-views a[aria-current=page] { background: #fff; color: #1d1d1f; box-shadow: 0 2px 6px rgb(29 29 31 / 5%); }
+.browse-page :is(.search-shell, .directory-main) { padding-top: 60px; }
+.browse-page .search-head { margin-top: 0; gap: 16px; }
+.browse-page .card-fan { transform: scale(.65); transform-origin: center bottom; height: 150px; margin-bottom: 0; }
+.browse-page .search-head h2 { font-size: 28px; margin: 0 0 12px; }
+.browse-page .directory-head { max-width: 100%; text-align: center; }
+.browse-page .directory-head > p { max-width: 700px; margin: 0 auto; font-size: 17px; }
+.browse-page .directory-search { text-align: left; margin: 28px auto 0; }
+.browse-page .directory-search label { font-size: 14px; }
+.browse-page .directory-section { margin-top: 48px; }
+.browse-page .directory-set-copy small { font-size: 12px; }
+.browse-page .directory-unavailable { padding: 32px; margin: 36px auto; max-width: 700px; background: var(--surface); border-radius: 22px; }
+@media (max-width: 720px) {
+  .browse-page :is(.search-shell, .directory-main) { padding-top: 42px; }
+  .browse-page .browse-heading > p:last-child { font-size: 16px; }
+  .browse-page .browse-views { margin-bottom: 32px; }
+  .browse-page .search-head { margin-top: 0; gap: 16px; }
+  .browse-page .card-fan { transform: scale(.8); height: 150px; }
+  .browse-page .directory-section-head { align-items: flex-start; }
+  .browse-page .directory-section-head span { white-space: nowrap; }
+}
+
+/* Set language is a first-class filter, directly below the search field. */
+.browse-page .set-filter-controls { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 12px 20px; margin-top: 20px; }
+.browse-page .set-language-filter { display: flex; padding: 4px; gap: 3px; border-radius: 99px; background: #ededf1; }
+.browse-page .set-language-filter button { border: 0; border-radius: 99px; padding: 12px 18px; background: transparent; color: #626269; font: 400 14px/1.5 Geist, sans-serif; cursor: pointer; }
+.browse-page .set-language-filter button[aria-pressed=true] { background: #fff; color: #1d1d1f; box-shadow: 0 2px 6px rgb(29 29 31 / 5%); }
+.browse-page .set-filter-reset { padding: 10px 0; border: 0; background: none; color: var(--accent); font: 400 14px/1.5 Geist, sans-serif; cursor: pointer; text-decoration: underline; text-underline-offset: 4px; }
+.browse-page .directory-head .set-filter-status { margin-top: 18px; color: var(--muted); font-size: 14px; }
+@media (max-width: 400px) {
+  .browse-page .set-language-filter button { padding: 12px 8px; }
+}
