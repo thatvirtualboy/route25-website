@@ -304,6 +304,7 @@ function setSymbol(set) {
 }
 
 function setTotal(set, cards) {
+  if (catalogRegion(set.id) === "cn") return set.total ?? cards.length;
   return set?.printedTotal || set?.cardCount?.official || set?.total || cards.length;
 }
 
