@@ -33,6 +33,19 @@ test('rules pages never add a retail value, including for legacy events', () => 
   const html = rules(fixture({ officialRules: 'Original published rules with a $25.00 disclosure.' }));
   assert.match(html, /Original published rules with a \$25\.00 disclosure\./);
 });
+test('optional sponsor links work without an address or email and unsafe links stay inert', () => {
+  const linked = rules(fixture({ sponsorUrl: 'https://instagram.com/route25?a=1&b=2', sponsorAddress: undefined, contactEmail: '' }));
+  assert.match(linked, /href="https:\/\/instagram\.com\/route25\?a=1&amp;b=2"/);
+  assert.match(linked, /rel="noopener noreferrer"/);
+  assert.ok(!linked.includes('undefined') && !linked.includes('example@example.invalid'));
+  const empty = rules(fixture({ sponsorUrl: '', sponsorAddress: undefined, contactEmail: undefined }));
+  assert.match(empty, /<dt>Sponsor<\/dt><dd>Example sponsor<\/dd>/);
+  assert.match(rules(fixture({ sponsorAddress: 'https://goldentcg.app', contactEmail: '' })), /href="https:\/\/goldentcg\.app\/"/);
+  assert.ok(!rules(fixture({ sponsorUrl: '', sponsorAddress: 'https://goldentcg.app' })).includes('href="https://goldentcg.app'));
+  for (const sponsorUrl of ['javascript:alert(1)', 'data:text/html,test', 'https://user:pass@example.com']) {
+    assert.ok(!rules(fixture({ sponsorUrl })).includes(`href="${sponsorUrl}"`));
+  }
+});
 test('admin strings are escaped and unsafe artwork URLs never reach HTML', () => {
   const attack = '<script>alert("private")</script>';
   const html = rules(fixture({ title: attack, description: attack, sponsorName: attack, sponsorAddress: attack, officialRules: attack, heroImageUrl: 'javascript:alert(1)' }));
