@@ -1,5 +1,8 @@
+const { readChineseCatalog, SOURCE } = require("../../lib/chinese-catalog");
 const {
   BACKEND_ORIGIN,
+  catalogRegion,
+  catalogLanguagePrefix,
   isJapaneseSetId,
   route25BackendHeaders,
   route25BackendUrl
@@ -47,6 +50,8 @@ function absoluteUrl(value, origin = "https://route25.app") {
 
 function cardSetId(cardId) {
   const id = String(cardId || "").trim();
+  const chinese = id.match(/^(.+?_cn)-/i);
+  if (chinese) return chinese[1];
   const idx = id.lastIndexOf("-");
   return idx > 0 ? id.slice(0, idx) : "";
 }
@@ -79,7 +84,7 @@ function resolvedCardImages(card, large = true) {
     : (card?.images?.small || card?.images?.large);
   if (image) candidates.push(absoluteUrl(image, BACKEND_ORIGIN));
   const setId = String(card?.set?.id || cardSetId(card?.id)).toLowerCase();
-  if (isJapaneseSetId(setId)) {
+  if (catalogRegion(setId) !== "international") {
     return candidates.filter((candidate, index) => candidate && candidates.indexOf(candidate) === index);
   }
   if (setId !== "mep" && !String(card?.id || "").toLowerCase().startsWith("mep-")) {
@@ -498,6 +503,7 @@ async function fetchCard(cardId, timings = [], options = {}) {
   if (isPokemonTcgPocketCardId(lookupCardId)) return null;
   const setId = cardSetId(lookupCardId);
   if (!setId) return null;
+  if (catalogRegion(setId) === "cn") return (await readChineseCatalog("card", { id: lookupCardId })).data;
   const manualCard = manualPromoCard(lookupCardId);
   if (manualCard) {
     timings.push("manual;dur=0");
@@ -699,8 +705,7 @@ function cardSeoProfile(card) {
   const artist = cleanText(card?.artist || card?.illustrator);
   const cardLabel = `${name}${fullNumber ? ` ${fullNumber}` : ""}`;
   const rarityText = rarity ? `${rarity} ` : "";
-  const japanese = isJapaneseSetId(card?.set?.id || cardSetId(card?.id));
-  const languageLabel = japanese ? "Japanese " : "";
+  const languageLabel = catalogLanguagePrefix(card?.set?.id || cardSetId(card?.id));
 
   if (String(card?.id || "").toLowerCase() !== "me4-116") {
     return {
@@ -743,7 +748,7 @@ function cardStructuredData(card, pageUrl, image, description, seoProfile) {
         "@type": "WebPage",
         "@id": `${pageUrl}#webpage`,
         url: pageUrl,
-        name: `${card.name} ${setName} ${isJapaneseSetId(setId) ? "Japanese " : ""}Pokemon TCG Card | Route 25`,
+        name: `${card.name} ${setName} ${catalogLanguagePrefix(setId)}Pokemon TCG Card | Route 25`,
         description,
         image
       },
@@ -821,6 +826,7 @@ function cardStructuredData(card, pageUrl, image, description, seoProfile) {
 }
 
 function formatCardNumber(card) {
+  if (card?.printedNumber && catalogRegion(card?.set?.id) === "cn") return card.printedNumber;
   const number = card?.number;
   const printedTotal = card?.set?.printedTotal
     || card?.set?.cardCount?.official
@@ -847,7 +853,7 @@ function detailRows(card, options = {}) {
     ["Artist", cleanText(card?.artist || card?.illustrator)],
     ["Regulation", cleanText(card?.regulationMark)],
     ["Estimated Value", tcgcsvValue || (showAsyncPrice ? "Loading..." : null)],
-    ["TCGPlayer", "Shop on TCGPlayer", options.tcgplayerUrl, true],
+    ["TCGPlayer", options.tcgplayerUrl ? "Shop on TCGPlayer" : "", options.tcgplayerUrl, true],
     ["eBay", "Search eBay listings", options.ebayUrl, true]
   ].filter(([, value]) => value);
 
@@ -1072,6 +1078,7 @@ function variantChips(card, selected, fallbackQuote) {
       data-variant-id="${escapeHtml(variant.id)}"
       data-variant-label="${escapeHtml(variant.label)}"
       data-variant-price="${escapeHtml(formattedPrice)}"
+      ${catalogRegion(card?.set?.id) === "cn" ? `data-card-image="${escapeHtml(variant.sourceRefs?.imageUrl || card.images?.large || "")}"` : ""}
       data-tcgplayer-product-id="${escapeHtml(productId)}"
       data-tcgplayer-affiliate-url="${escapeHtml(affiliateUrl)}"
       aria-pressed="${isSelected ? "true" : "false"}"
@@ -1175,6 +1182,8 @@ function variantScript(cardId) {
             item.setAttribute("aria-pressed", item === chip ? "true" : "false");
           }
           variantLabel.textContent = chip.dataset.variantLabel || "";
+          const art = document.querySelector(".card-art");
+          if (art && chip.dataset.cardImage) art.src = chip.dataset.cardImage;
           setPriceForChip(chip, initialPrice || "Loading...");
           setTcgplayerLinkForChip(chip);
           const url = new URL(window.location.href);
@@ -1223,6 +1232,8 @@ function socialToolbar() {
 }
 
 function renderCardPage(card, req, options = {}) {
+  const selected = selectedVariant(card, req);
+  const variantImage = catalogRegion(card?.set?.id) === "cn" && selected?.sourceRefs?.imageUrl;
   const pageUrl = cardPageUrl(req, card.id);
   const hintedFallbacks = Array.isArray(card?.images?.fallbacks)
     ? card.images.fallbacks.map((value) => route25ImageUrl(value))
@@ -1233,7 +1244,7 @@ function renderCardPage(card, req, options = {}) {
     .filter((candidate, index, all) => candidate && all.indexOf(candidate) === index);
   const imageCandidates = lowResCandidates.concat(highResCandidates)
     .filter((candidate, index, all) => candidate && all.indexOf(candidate) === index);
-  const image = (options.cleanUrl ? lowResCandidates[0] : highResCandidates[0]) || imageCandidates[0] || "";
+  const image = variantImage || (options.cleanUrl ? lowResCandidates[0] : highResCandidates[0]) || imageCandidates[0] || "";
   const socialImage = cardSocialImageUrl(req, card.id);
   const setLogo = route25ImageUrl(absoluteUrl(card?.set?.images?.localLogo || card?.set?.images?.logo, BACKEND_ORIGIN));
   const setName = card?.set?.name || card?.set?.id || "Pokemon TCG";
@@ -1248,8 +1259,7 @@ function renderCardPage(card, req, options = {}) {
   const typeText = [card?.supertype, ...(Array.isArray(card?.subtypes) ? card.subtypes : [])].filter(Boolean).join(" / ");
   const flavorText = card?.flavorText ? `<blockquote>${escapeHtml(card.flavorText)}</blockquote>` : "";
   const ebayUrl = ebayAffiliateUrl(ebaySearchQuery(card), `r25-card-${card.id}`);
-  const selected = selectedVariant(card, req);
-  const tcgplayerUrl = tcgplayerAffiliateUrl(card, selected);
+  const tcgplayerUrl = catalogRegion(browseSetId) === "cn" ? "" : tcgplayerAffiliateUrl(card, selected);
   const detailsSection = renderCardDetailsSection(card, seoProfile);
 
   return `<!doctype html>
@@ -1671,8 +1681,9 @@ function renderCardPage(card, req, options = {}) {
         <h1>${escapeHtml(card.name)}</h1>
         <p class="card-meta-line">${escapeHtml([typeText, card?.rarity, setCardNumber ? `Card ${setCardNumber}` : null].filter(Boolean).join(" | "))}</p>
         ${variantChips(card, selected, options.tcgcsvQuote)}
-        <dl class="detail-list">${detailRows(card, { tcgcsvQuote: options.tcgcsvQuote, ebayUrl, tcgplayerUrl, selectedVariant: selected, enableAsyncPricing: true })}</dl>
+        <dl class="detail-list">${detailRows(card, { tcgcsvQuote: options.tcgcsvQuote, ebayUrl, tcgplayerUrl, selectedVariant: selected, enableAsyncPricing: catalogRegion(browseSetId) !== "cn" })}</dl>
         <p class="affiliate-disclosure" id="ebay-affiliate-disclosure">Route 25 contains eBay affiliate links. As an eBay Partner Network affiliate, we earn commissions from qualifying purchases.</p>
+        ${catalogRegion(browseSetId) === "cn" ? SOURCE : ""}
         ${flavorText}
         <div class="card-actions">
           <a class="button primary" href="${APP_STORE_URL}" target="_blank" rel="noopener noreferrer">Get Route 25</a>

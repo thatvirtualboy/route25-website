@@ -1,3 +1,5 @@
+const { SOURCE } = require("../lib/chinese-catalog");
+const { languagePicker } = require("../lib/catalog-picker");
 const APP_STORE_URL = "https://apps.apple.com/us/app/route-25-tcg-social-network/id6755665546";
 const GOOGLE_PLAY_URL = "https://play.google.com/store/apps/details?id=app.route25.palettetown";
 const X_URL = "https://x.com/route25app";
@@ -218,7 +220,9 @@ function renderSearchPage() {
       border-radius: 999px;
       cursor: pointer;
     }
+    #cn-credit { text-align: center; }
     .search-region {
+      flex-wrap: wrap;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -231,35 +235,6 @@ function renderSearchPage() {
       font-weight: 750;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-    }
-    .region-toggle {
-      display: inline-flex;
-      gap: 3px;
-      padding: 4px;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.055);
-    }
-    .region-option {
-      min-width: 92px;
-      padding: 8px 14px;
-      border: 0;
-      border-radius: 999px;
-      color: rgba(255, 255, 255, 0.62);
-      background: transparent;
-      font: inherit;
-      font-size: 13px;
-      font-weight: 720;
-      cursor: pointer;
-    }
-    .region-option[aria-pressed="true"] {
-      color: #05060a;
-      background: var(--ink);
-      box-shadow: 0 8px 22px rgba(0, 0, 0, 0.25);
-    }
-    .region-option:focus-visible {
-      outline: 2px solid rgba(88, 199, 255, 0.9);
-      outline-offset: 2px;
     }
     .search-meta {
       display: flex;
@@ -453,7 +428,7 @@ function renderSearchPage() {
       }
     }
   </style>
-<link rel="stylesheet" href="/assets/public.css?v=20261105a" />
+<link rel="stylesheet" href="/assets/public.css?v=20261120" />
 <script defer src="/assets/public.js?v=20261105a"></script>
 </head>
 <body class="public-page search-page">
@@ -499,11 +474,9 @@ function renderSearchPage() {
           </form>
           <div class="search-region">
             <span class="search-region-label">Results</span>
-            <div class="region-toggle" role="group" aria-label="Card language">
-              <button class="region-option" type="button" data-region="international" aria-pressed="true">English</button>
-              <button class="region-option" type="button" data-region="jp" aria-pressed="false">Japanese</button>
-            </div>
+            ${languagePicker()}
           </div>
+          <p id="cn-credit" hidden>${SOURCE}</p>
         </div>
       </section>
       <section aria-live="polite" aria-busy="false" id="resultsSection" hidden>
@@ -531,7 +504,7 @@ function renderSearchPage() {
     const initialParams = new URLSearchParams(window.location.search);
     const state = {
       q: initialParams.get("q") || "",
-      region: initialParams.get("region") === "jp" ? "jp" : "international",
+      region: ["cn", "jp"].includes(initialParams.get("region")) ? initialParams.get("region") : "international",
       page: Math.max(1, Number.parseInt(initialParams.get("page") || "1", 10) || 1),
       pageSize: 32,
       totalCount: 0,
@@ -573,7 +546,7 @@ function renderSearchPage() {
     function updateUrl() {
       const params = new URLSearchParams();
       if (state.q) params.set("q", state.q);
-      if (state.region === "jp") params.set("region", "jp");
+      if (state.region !== "international") params.set("region", state.region);
       if (state.page > 1) params.set("page", String(state.page));
       const query = params.toString();
       history.replaceState(null, "", query ? "/search?" + query : "/search");
@@ -600,7 +573,7 @@ function renderSearchPage() {
         page: String(nextState.page),
         pageSize: String(nextState.pageSize)
       });
-      if (nextState.region === "jp") params.set("region", "jp");
+      if (nextState.region !== "international") params.set("region", nextState.region);
       return params;
     }
 
@@ -679,11 +652,12 @@ function renderSearchPage() {
       const start = cards.length ? ((state.page - 1) * state.pageSize) + 1 : 0;
       const end = cards.length ? start + cards.length - 1 : 0;
       resultSummary.textContent = cards.length
-        ? "Showing " + start + "-" + end + " of " + state.totalCount.toLocaleString() + " " + (state.region === "jp" ? "Japanese" : "English") + " cards"
+        ? "Showing " + start + "-" + end + " of " + state.totalCount.toLocaleString() + " " + ({ jp: "Japanese", cn: "Simplified Chinese", international: "English" }[state.region]) + " cards"
         : "No cards found";
     }
 
     function renderRegionToggle() {
+      document.getElementById("cn-credit").hidden = state.region !== "cn";
       regionButtons.forEach(function(button) {
         button.setAttribute("aria-pressed", button.dataset.region === state.region ? "true" : "false");
       });
@@ -817,7 +791,7 @@ function renderSearchPage() {
     });
     regionButtons.forEach(function(button) {
       button.addEventListener("click", function() {
-        const nextRegion = button.dataset.region === "jp" ? "jp" : "international";
+        const nextRegion = button.dataset.region;
         if (nextRegion === state.region) return;
         state.region = nextRegion;
         state.page = 1;

@@ -1,11 +1,7 @@
-const {
-  BACKEND_ORIGIN,
-  isJapaneseSetId,
-  route25BackendHeaders,
-  route25BackendUrl
-} = require("../lib/route25-backend");
-const { canonicalCardSetId } = require("../lib/card-set-id");
-const { isPokemonTcgPocket } = require("../lib/card-product");
+const { languagePicker } = require("../lib/catalog-picker");
+const { SOURCE } = require("../lib/chinese-catalog");
+const { loadSetCatalogs, normalizeSets, regions } = require("../lib/set-catalogs");
+const { BACKEND_ORIGIN } = require("../lib/route25-backend");
 const { route25ImageUrl } = require("../lib/route25-image-url");
 
 const SITE_ORIGIN = "https://route25.app";
@@ -32,30 +28,6 @@ function absoluteUrl(value) {
   }
 }
 
-async function fetchCatalog(setId = "") {
-  const url = route25BackendUrl("/api/tcg/sets", setId);
-  const response = await fetch(url, {
-    headers: route25BackendHeaders(url, { accept: "application/json" })
-  });
-  if (!response.ok) throw new Error(`Set catalog returned ${response.status}`);
-  const payload = await response.json();
-  return Array.isArray(payload?.data) ? payload.data : [];
-}
-
-function normalizeSets(sets, japanese) {
-  const unique = new Map();
-  for (const set of sets) {
-    if (!set?.id || !set?.name || isPokemonTcgPocket(set)) continue;
-    const id = canonicalCardSetId(set.id);
-    if (!id || isJapaneseSetId(id) !== japanese) continue;
-    unique.set(id.toLowerCase(), { ...set, id });
-  }
-  return [...unique.values()].sort((left, right) => {
-    const dateOrder = String(right.releaseDate || "").localeCompare(String(left.releaseDate || ""));
-    return dateOrder || String(left.name).localeCompare(String(right.name));
-  });
-}
-
 function setCount(set) {
   return set?.printedTotal || set?.cardCount?.official || set?.total || set?.cardCount?.total || "";
 }
@@ -74,7 +46,7 @@ function renderSetCards(sets, language) {
     const logo = setLogo(set);
     const year = releaseYear(set);
     const count = setCount(set);
-    const searchText = [set.name, set.id, year, language].filter(Boolean).join(" ").toLowerCase();
+    const searchText = [set.name, set.localized?.name, set.id, year, language].filter(Boolean).join(" ").toLowerCase();
     return `<a class="directory-set" href="/sets/${encodeURIComponent(set.id)}" data-set-search="${escapeHtml(searchText)}">
       <span class="directory-set-logo">${logo ? `<img src="${escapeHtml(logo)}" alt="" loading="lazy" decoding="async" onerror="this.remove()" />` : ""}</span>
       <span class="directory-set-copy">
@@ -85,8 +57,7 @@ function renderSetCards(sets, language) {
   }).join("");
 }
 
-function structuredData(international, japanese) {
-  const sets = [...international, ...japanese];
+function structuredData(sets) {
   return {
     "@context": "https://schema.org",
     "@graph": [
@@ -95,7 +66,7 @@ function structuredData(international, japanese) {
         "@id": `${SITE_ORIGIN}/sets#webpage`,
         url: `${SITE_ORIGIN}/sets`,
         name: "Pokemon TCG Set Lists and Card Database | Route 25",
-        description: "Browse English and Japanese Pokemon TCG expansions, complete set lists, individual card pages, artwork, rarity, and collector details."
+        description: "Browse English, Japanese, and Simplified Chinese Pokemon TCG expansions, complete set lists, individual card pages, artwork, rarity, and collector details."
       },
       {
         "@type": "ItemList",
@@ -121,21 +92,22 @@ function structuredData(international, japanese) {
   };
 }
 
-function renderDirectory(international, japanese) {
-  const total = international.length + japanese.length;
+function renderDirectory(groups, selected) {
+  const sets = groups.flatMap(group => group.sets);
+  const total = sets.length;
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Pokemon TCG Set Lists and Card Database | Route 25</title>
-  <meta name="description" content="Browse English and Japanese Pokemon TCG expansions, complete set lists, individual card pages, artwork, rarity, and collector details." />
+  <meta name="description" content="Browse English, Japanese, and Simplified Chinese Pokemon TCG expansions, complete set lists, individual card pages, artwork, rarity, and collector details." />
   <meta name="robots" content="index, follow, max-image-preview:large" />
   <link rel="canonical" href="${SITE_ORIGIN}/sets" />
   <link rel="icon" href="/favicon.png" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="stylesheet" href="/assets/site.css" />
-  <script type="application/ld+json">${jsonScript(structuredData(international, japanese))}</script>
+  <script type="application/ld+json">${jsonScript(structuredData(sets))}</script>
   <style>
     .directory-main { padding: clamp(42px, 7vw, 86px) 0 80px; }
     .directory-breadcrumb { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
@@ -144,6 +116,7 @@ function renderDirectory(international, japanese) {
     .directory-head h1 { font-size: clamp(46px, 8vw, 92px); line-height: .94; margin: 14px 0 20px; }
     .directory-head p { color: var(--muted); font-size: clamp(17px, 2vw, 21px); line-height: 1.6; }
     .directory-search { margin-top: 30px; max-width: 620px; }
+    .directory-search .region-toggle { margin-bottom: 16px; }
     .directory-search label { display: block; font-weight: 700; margin-bottom: 9px; }
     .directory-search input { width: 100%; border: 1px solid var(--faint); border-radius: 14px; background: rgba(255,255,255,.07); color: var(--ink); font: inherit; padding: 15px 17px; }
     .directory-search input:focus { outline: 2px solid var(--accentC); outline-offset: 2px; }
@@ -163,7 +136,8 @@ function renderDirectory(international, japanese) {
     .directory-set-copy small { color: var(--muted); margin-top: 5px; line-height: 1.35; }
     .directory-empty { color: var(--muted); margin-top: 18px; }
   </style>
-<link rel="stylesheet" href="/assets/public.css?v=20261105a" />
+  <noscript><style>.directory-section[hidden] { display: block; } .directory-search { display: none; }</style></noscript>
+<link rel="stylesheet" href="/assets/public.css?v=20261120" />
 <script defer src="/assets/public.js?v=20261105a"></script>
 </head>
 <body class="public-page directory-page">
@@ -180,20 +154,19 @@ function renderDirectory(international, japanese) {
       <header class="directory-head">
         <p class="badge">Card database</p>
         <h1>Browse every set.</h1>
-        <p>Explore ${escapeHtml(String(total))} English and Japanese Pokemon TCG expansions. Open a set for its complete card list, then view individual cards, artwork, rarity, values, and collector details.</p>
+        <p>Explore ${escapeHtml(String(total))} English, Japanese, and Simplified Chinese Pokemon TCG expansions. Open a set for its complete card list, then view individual cards, artwork, rarity, values, and collector details.</p>
         <div class="directory-search">
+          ${languagePicker(selected)}
           <label for="set-filter">Find a set</label>
           <input id="set-filter" type="search" placeholder="Try Surging Sparks, SV8, or Battle Partners" autocomplete="off" />
         </div>
       </header>
-      <section class="directory-section" aria-labelledby="international-sets">
-        <div class="directory-section-head"><h2 id="international-sets">English and international sets</h2><span>${escapeHtml(String(international.length))} sets</span></div>
-        <div class="directory-grid">${renderSetCards(international, "English international")}</div>
-      </section>
-      <section class="directory-section" aria-labelledby="japanese-sets">
-        <div class="directory-section-head"><h2 id="japanese-sets">Japanese sets</h2><span>${escapeHtml(String(japanese.length))} sets</span></div>
-        <div class="directory-grid">${renderSetCards(japanese, "Japanese")}</div>
-      </section>
+      ${groups.map(({region, name, sets, unavailable}) => `<section class="directory-section" data-catalog="${region}" ${region === selected ? "" : "hidden"}>
+        <div class="directory-section-head"><h2>${name} sets</h2><span>${sets.length} sets</span></div>
+        ${unavailable ? "<p>This catalog is temporarily unavailable. Please try again shortly.</p>" : ""}
+        <div class="directory-grid">${renderSetCards(sets, name)}</div>
+        ${region === "cn" ? SOURCE : ""}
+      </section>`).join("")}
       <p class="directory-empty" id="directory-empty" hidden>No matching set found. Try a set name or code.</p>
     </div>
   </main>
@@ -203,16 +176,31 @@ function renderDirectory(international, japanese) {
       const input = document.getElementById("set-filter");
       const cards = [...document.querySelectorAll("[data-set-search]")];
       const empty = document.getElementById("directory-empty");
-      input.addEventListener("input", () => {
+      const sections = [...document.querySelectorAll("[data-catalog]")];
+      const buttons = [...document.querySelectorAll("[data-region]")];
+      let region = ${jsonScript(selected)};
+      function update() {
+        sections.forEach(section => { section.hidden = section.dataset.catalog !== region; });
+        buttons.forEach(button => button.setAttribute("aria-pressed", String(button.dataset.region === region)));
         const query = input.value.trim().toLowerCase();
         let visible = 0;
         for (const card of cards) {
           const match = !query || card.dataset.setSearch.includes(query);
           card.hidden = !match;
-          if (match) visible += 1;
+          if (match && !card.closest("[data-catalog]").hidden) visible += 1;
         }
-        empty.hidden = visible !== 0;
-      });
+        empty.hidden = !query || visible !== 0;
+      }
+      buttons.forEach(button => button.addEventListener("click", () => {
+        region = button.dataset.region;
+        const url = new URL(location.href);
+        if (region === "international") url.searchParams.delete("region");
+        else url.searchParams.set("region", region);
+        history.replaceState(null, "", url);
+        update();
+      }));
+      input.addEventListener("input", update);
+      update();
     })();
   </script>
 </body>
@@ -220,25 +208,20 @@ function renderDirectory(international, japanese) {
 }
 
 module.exports = async (req, res) => {
-  const [internationalResult, japaneseResult] = await Promise.allSettled([
-    fetchCatalog(),
-    fetchCatalog("catalog_ja")
-  ]);
-  const international = normalizeSets(internationalResult.status === "fulfilled" ? internationalResult.value : [], false);
-  const japanese = normalizeSets(japaneseResult.status === "fulfilled" ? japaneseResult.value : [], true);
-  if (!international.length && !japanese.length) {
+  const groups = await loadSetCatalogs();
+  if (groups.every(group => !group.sets.length)) {
     res.statusCode = 503;
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.setHeader("cache-control", "no-store");
     res.setHeader("retry-after", "60");
-    return res.end(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Set directory unavailable | Route 25</title><link rel="stylesheet" href="/assets/public.css?v=20261105a" />
+    return res.end(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Set directory unavailable | Route 25</title><link rel="stylesheet" href="/assets/public.css?v=20261120" />
 <script defer src="/assets/public.js?v=20261105a"></script>
 </head><body class="public-page directory-page utility-page"><h1>Set directory temporarily unavailable</h1></body></html>`);
   }
   res.statusCode = 200;
   res.setHeader("content-type", "text/html; charset=utf-8");
-  res.setHeader("cache-control", "s-maxage=21600, stale-while-revalidate=86400");
-  res.end(renderDirectory(international, japanese));
+  res.setHeader("cache-control", groups.some(group => group.unavailable) ? "s-maxage=30" : "s-maxage=21600, stale-while-revalidate=86400");
+  res.end(renderDirectory(groups, regions.includes(req.query?.region) ? req.query.region : "international"));
 };
 
 module.exports.normalizeSets = normalizeSets;

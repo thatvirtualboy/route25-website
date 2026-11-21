@@ -118,7 +118,7 @@ test("generated card sitemaps contain only canonical locations", async () => {
     assert.equal(indexResponse.statusCode, 200);
     assert.match(indexResponse.body, /sitemap-cards\.xml\?set=sv8pt5/);
     assert.doesNotMatch(indexResponse.body, /set=sv08\.5/);
-    assert.doesNotMatch(indexResponse.body, /set=sv9_ja/);
+    assert.match(indexResponse.body, /set=sv9_ja/);
     assert.doesNotMatch(indexResponse.body, /<lastmod>|<changefreq>|<priority>/);
 
     const setResponse = responseCapture();

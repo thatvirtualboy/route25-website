@@ -1,5 +1,8 @@
+const { readChineseCatalog, SOURCE } = require("../../lib/chinese-catalog");
 const {
   BACKEND_ORIGIN,
+  catalogRegion,
+  catalogLanguagePrefix,
   isJapaneseSetId,
   route25BackendHeaders,
   route25BackendUrl
@@ -150,6 +153,10 @@ async function fetchTcgdexSet(setId) {
 
 async function fetchSet(setId) {
   if (isPokemonTcgPocketSetId(setId)) return null;
+  if (catalogRegion(setId) === "cn") {
+    const { data } = await readChineseCatalog("sets");
+    return data.find(set => set.id === setId) || null;
+  }
   const fallbackPromise = isJapaneseSetId(setId) ? Promise.resolve(null) : fetchTcgdexSet(setId).catch(() => null);
   try {
     const sets = await fetchSets(setId);
@@ -187,6 +194,7 @@ async function fetchCards(set) {
     return set.tcgdexCards;
   }
   const setId = set.id;
+  if (catalogRegion(setId) === "cn") return (await readChineseCatalog("by-set", { set: setId })).items;
   let payload = null;
   try {
     payload = await fetchJsonWithTimeout(route25BackendUrl("/api/tcg/by-set", setId, { set: setId, pageSize: 500 }), 2400);
@@ -259,7 +267,7 @@ function cardImageCandidates(card) {
     if (directImage) candidates.push(directImage);
     candidates.push(route25ImageUrl(absoluteImage));
   }
-  if (isJapaneseSetId(card?.set?.id)) {
+  if (catalogRegion(card?.set?.id) !== "international") {
     return candidates.filter((candidate, index) => candidate && candidates.indexOf(candidate) === index);
   }
   if (String(card?.set?.id || "").toLowerCase() !== "mep" && !String(card?.id || "").toLowerCase().startsWith("mep-")) {
@@ -313,7 +321,7 @@ function renderCardGrid(cards, set) {
   return cards.map((card) => {
     const imageCandidates = cardImageCandidates(card);
     const image = imageCandidates[0];
-    const number = card?.number ? `#${card.number}` : card?.id;
+    const number = card?.printedNumber || (card?.number ? `#${card.number}` : card?.id);
     const rarity = cleanText(card?.rarity);
     return `<a class="set-card" href="${escapeHtml(cardDetailUrl(card, set))}" aria-label="${escapeHtml(card?.name || card.id)}">
       ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(card?.name || "Pokemon card")}" loading="lazy" decoding="async"${imageFallbackAttribute(imageCandidates)} />` : ""}
@@ -483,8 +491,7 @@ function renderSetPage(set, cards, req) {
   const proto = req.headers["x-forwarded-proto"] || "https";
   const pageUrl = `${proto}://${host}/sets/${encodeURIComponent(set.id)}`;
   const name = set?.name || set?.id || "Pokemon TCG";
-  const japanese = isJapaneseSetId(set?.id);
-  const languageLabel = japanese ? "Japanese " : "";
+  const languageLabel = catalogLanguagePrefix(set?.id);
   const year = releaseYear(set);
   const total = setTotal(set, cards);
   const rarities = rarityCount(cards);
@@ -838,6 +845,7 @@ function renderSetPage(set, cards, req) {
       <div class="container">
         <h2 class="section-title">${escapeHtml(name)} card list</h2>
         <p class="section-subtitle">Browse artwork, rarity, card numbers, TCGPlayer values, and collection context for this set.</p>
+        ${catalogRegion(set.id) === "cn" ? SOURCE : ""}
         <div class="set-card-grid">${renderCardGrid(cards, set)}</div>
       </div>
     </section>
