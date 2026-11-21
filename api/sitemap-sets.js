@@ -1,5 +1,5 @@
 const SITE_ORIGIN = "https://route25.app";
-const { isJapaneseSetId, route25BackendHeaders, route25BackendUrl } = require("../lib/route25-backend");
+const { loadSetCatalogs } = require("../lib/set-catalogs");
 const { canonicalCardSetId } = require("../lib/card-set-id");
 const { isPokemonTcgPocket } = require("../lib/card-product");
 
@@ -10,17 +10,6 @@ function escapeXml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&apos;");
-}
-
-async function fetchJson(url) {
-  const response = await fetch(url, { headers: route25BackendHeaders(url, { accept: "application/json" }) });
-  if (!response.ok) throw new Error(`Fetch failed ${response.status} for ${url}`);
-  return response.json();
-}
-
-async function fetchSets(setId = "") {
-  const payload = await fetchJson(route25BackendUrl("/api/tcg/sets", setId));
-  return Array.isArray(payload?.data) ? payload.data : [];
 }
 
 function renderUrlset(sets) {
@@ -43,20 +32,12 @@ ${body}
 
 module.exports = async (req, res) => {
   try {
-    const [internationalResult, japaneseResult] = await Promise.allSettled([
-      fetchSets(),
-      fetchSets("catalog_ja")
-    ]);
-    const international = internationalResult.status === "fulfilled" ? internationalResult.value : [];
-    const japanese = japaneseResult.status === "fulfilled" ? japaneseResult.value : [];
-    const sets = [
-      ...international.filter((set) => !isJapaneseSetId(set?.id)),
-      ...japanese.filter((set) => isJapaneseSetId(set?.id))
-    ];
+    const catalogs = await loadSetCatalogs();
+    const sets = catalogs.flatMap(group => group.sets);
     if (!sets.length) throw new Error("No set catalogs available");
     res.statusCode = 200;
     res.setHeader("content-type", "application/xml; charset=utf-8");
-    res.setHeader("cache-control", "s-maxage=86400, stale-while-revalidate=604800");
+    res.setHeader("cache-control", catalogs.some(group => group.unavailable) ? "s-maxage=30" : "s-maxage=86400, stale-while-revalidate=604800");
     res.end(renderUrlset(sets));
   } catch {
     res.statusCode = 500;

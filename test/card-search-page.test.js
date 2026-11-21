@@ -30,8 +30,8 @@ test("card search page stays focused on individual-card search", async () => {
   assert.match(res.body, /aria-label="Card language"/);
   assert.match(res.body, /data-region="international" aria-pressed="true">English/);
   assert.match(res.body, /data-region="jp" aria-pressed="false">Japanese/);
-  assert.match(res.body, /initialParams\.get\("region"\) === "jp"/);
-  assert.match(res.body, /if \(state\.region === "jp"\) params\.set\("region", "jp"\)/);
+  assert.match(res.body, /data-region="cn" aria-pressed="false">Chinese/);
+  assert.match(res.body, /params\.set\("region", state\.region\)/);
   assert.match(res.body, /id="resultsSection" hidden/);
   assert.equal((res.body.match(/<a class="fan-card"/g) || []).length, 6);
   assert.match(res.body, /\.fan-card:hover/);

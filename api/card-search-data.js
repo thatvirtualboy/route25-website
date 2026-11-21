@@ -1,3 +1,4 @@
+const { readChineseCatalog } = require("../lib/chinese-catalog");
 const OFFICIAL_API_ORIGIN = "https://api.pokemontcg.io/v2";
 const TCGDEX_API_ORIGIN = "https://api.tcgdex.net/v2/en";
 const { BACKEND_ORIGIN, route25BackendHeaders } = require("../lib/route25-backend");
@@ -808,7 +809,7 @@ async function fetchRemoteSearchResults(queries, page, pageSize, timeoutMs = 220
   }
 }
 
-async function fetchJapaneseSearchResults(q, page, pageSize, timeoutMs = 6500) {
+async function fetchRegionalSearchResults(region, q, page, pageSize, timeoutMs = 6500) {
   const start = (page - 1) * pageSize;
   const end = page * pageSize;
   const collected = [];
@@ -817,7 +818,7 @@ async function fetchJapaneseSearchResults(q, page, pageSize, timeoutMs = 6500) {
 
   do {
     const url = new URL(`${BACKEND_ORIGIN}/api/tcg/search`);
-    url.searchParams.set("region", "jp");
+    url.searchParams.set("region", region);
     url.searchParams.set("q", q);
     url.searchParams.set("pageSize", String(Math.min(150, Math.max(8, end - collected.length))));
     url.searchParams.set("sort", "newest");
@@ -826,7 +827,9 @@ async function fetchJapaneseSearchResults(q, page, pageSize, timeoutMs = 6500) {
     url.searchParams.set("debug", "1");
     if (cursor) url.searchParams.set("cursor", cursor);
 
-    const searchPayload = await fetchJsonWithTimeout(url.href, timeoutMs);
+    const searchPayload = region === "cn"
+      ? await readChineseCatalog("search", Object.fromEntries(url.searchParams))
+      : await fetchJsonWithTimeout(url.href, timeoutMs);
     const items = payloadItems(searchPayload);
     collected.push(...items);
     if (Number.isFinite(Number(searchPayload?.totalCount))) {
@@ -1021,7 +1024,8 @@ async function handleSets(res) {
 async function handleSearch(req, res) {
   const q = String(req.query?.q || "").trim();
   const set = String(req.query?.set || "").trim();
-  const region = String(req.query?.region || "").toLowerCase() === "jp" ? "jp" : "international";
+  const requestedRegion = String(req.query?.region || "").toLowerCase();
+  const region = ["cn", "jp"].includes(requestedRegion) ? requestedRegion : "international";
   const page = parsePositiveInt(req.query?.page, 1, 1000);
   const pageSize = parsePositiveInt(req.query?.pageSize, 24, 48);
 
@@ -1041,15 +1045,15 @@ async function handleSearch(req, res) {
     return;
   }
 
-  let queries = region === "jp" && q ? [] : buildSearchQueries({ q, set });
+  let queries = region !== "international" && q ? [] : buildSearchQueries({ q, set });
   let defaultSet = null;
-  if (!queries.length && region !== "jp") {
+  if (!queries.length && region === "international") {
     const sets = await fetchSets();
     defaultSet = sets[0] || null;
     queries = defaultSet?.id ? [`set.id:${defaultSet.id}`] : [];
   }
 
-  if (!queries.length && region !== "jp") {
+  if (!queries.length && region === "international") {
     const body = JSON.stringify({ ok: true, data: [], page, pageSize, count: 0, totalCount: 0 });
     res.statusCode = 200;
     res.setHeader("content-type", "application/json; charset=utf-8");
@@ -1057,8 +1061,8 @@ async function handleSearch(req, res) {
     return;
   }
 
-  const cacheKey = region === "jp"
-    ? `cards:jp:${q.toLowerCase()}:page:${page}:size:${pageSize}`
+  const cacheKey = region !== "international"
+    ? `cards:${region}:${q.toLowerCase()}:page:${page}:size:${pageSize}`
     : `cards:${queries.join("|")}:page:${page}:size:${pageSize}`;
   const cached = getCachedJson(cacheKey);
   if (cached) {
@@ -1077,10 +1081,10 @@ async function handleSearch(req, res) {
   let payload = null;
   let rawItems = [];
   const browseSetId = !q ? (set || defaultSet?.id || "") : "";
-  if (region === "jp") {
-    const japaneseResult = await fetchJapaneseSearchResults(q, page, pageSize);
-    payload = japaneseResult.payload;
-    rawItems = japaneseResult.rawItems;
+  if (region !== "international") {
+    const regionalResult = await fetchRegionalSearchResults(region, q, page, pageSize);
+    payload = regionalResult.payload;
+    rawItems = regionalResult.rawItems;
   } else if (browseSetId) {
     const bySetResult = await fetchCardsBySet(browseSetId, page, pageSize, defaultSet);
     payload = bySetResult.payload;
@@ -1123,7 +1127,7 @@ async function handleSearch(req, res) {
     count: payload?.count ?? rawItems.length,
     totalCount: payload?.totalCount ?? rawItems.length,
     defaultSet,
-    ...(region === "jp" ? { region: "jp" } : {})
+    ...(region !== "international" ? { region } : {})
   });
   setCachedJson(cacheKey, body, rawItems.length ? SEARCH_CACHE_TTL_MS : EMPTY_SEARCH_CACHE_TTL_MS);
   res.statusCode = 200;
